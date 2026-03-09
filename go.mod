@@ -3,6 +3,7 @@ module forge.lthn.ai/core/go-ansible
 go 1.26.0
 
 require (
+	forge.lthn.ai/core/cli v0.2.2
 	forge.lthn.ai/core/go-log v0.0.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.48.0
