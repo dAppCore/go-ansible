@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"iter"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"forge.lthn.ai/core/go-log"
+	coreio "forge.lthn.ai/core/go-io"
+	coreerr "forge.lthn.ai/core/go-log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,20 +29,20 @@ func NewParser(basePath string) *Parser {
 
 // ParsePlaybook parses an Ansible playbook file.
 func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
-	data, err := os.ReadFile(path)
+	data, err := coreio.Local.Read(path)
 	if err != nil {
-		return nil, fmt.Errorf("read playbook: %w", err)
+		return nil, coreerr.E("Parser.ParsePlaybook", "read playbook", err)
 	}
 
 	var plays []Play
-	if err := yaml.Unmarshal(data, &plays); err != nil {
-		return nil, fmt.Errorf("parse playbook: %w", err)
+	if err := yaml.Unmarshal([]byte(data), &plays); err != nil {
+		return nil, coreerr.E("Parser.ParsePlaybook", "parse playbook", err)
 	}
 
 	// Process each play
 	for i := range plays {
 		if err := p.processPlay(&plays[i]); err != nil {
-			return nil, fmt.Errorf("process play %d: %w", i, err)
+			return nil, coreerr.E("Parser.ParsePlaybook", fmt.Sprintf("process play %d", i), err)
 		}
 	}
 
@@ -66,14 +66,14 @@ func (p *Parser) ParsePlaybookIter(path string) (iter.Seq[Play], error) {
 
 // ParseInventory parses an Ansible inventory file.
 func (p *Parser) ParseInventory(path string) (*Inventory, error) {
-	data, err := os.ReadFile(path)
+	data, err := coreio.Local.Read(path)
 	if err != nil {
-		return nil, fmt.Errorf("read inventory: %w", err)
+		return nil, coreerr.E("Parser.ParseInventory", "read inventory", err)
 	}
 
 	var inv Inventory
-	if err := yaml.Unmarshal(data, &inv); err != nil {
-		return nil, fmt.Errorf("parse inventory: %w", err)
+	if err := yaml.Unmarshal([]byte(data), &inv); err != nil {
+		return nil, coreerr.E("Parser.ParseInventory", "parse inventory", err)
 	}
 
 	return &inv, nil
@@ -81,19 +81,19 @@ func (p *Parser) ParseInventory(path string) (*Inventory, error) {
 
 // ParseTasks parses a tasks file (used by include_tasks).
 func (p *Parser) ParseTasks(path string) ([]Task, error) {
-	data, err := os.ReadFile(path)
+	data, err := coreio.Local.Read(path)
 	if err != nil {
-		return nil, fmt.Errorf("read tasks: %w", err)
+		return nil, coreerr.E("Parser.ParseTasks", "read tasks", err)
 	}
 
 	var tasks []Task
-	if err := yaml.Unmarshal(data, &tasks); err != nil {
-		return nil, fmt.Errorf("parse tasks: %w", err)
+	if err := yaml.Unmarshal([]byte(data), &tasks); err != nil {
+		return nil, coreerr.E("Parser.ParseTasks", "parse tasks", err)
 	}
 
 	for i := range tasks {
 		if err := p.extractModule(&tasks[i]); err != nil {
-			return nil, fmt.Errorf("task %d: %w", i, err)
+			return nil, coreerr.E("Parser.ParseTasks", fmt.Sprintf("task %d", i), err)
 		}
 	}
 
@@ -139,21 +139,21 @@ func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
 	for _, sp := range searchPaths {
 		// Clean the path to resolve .. segments
 		sp = filepath.Clean(sp)
-		if _, err := os.Stat(sp); err == nil {
+		if coreio.Local.Exists(sp) {
 			tasksPath = sp
 			break
 		}
 	}
 
 	if tasksPath == "" {
-		return nil, log.E("parser.ParseRole", fmt.Sprintf("role %s not found in search paths: %v", name, searchPaths), nil)
+		return nil, coreerr.E("Parser.ParseRole", fmt.Sprintf("role %s not found in search paths: %v", name, searchPaths), nil)
 	}
 
 	// Load role defaults
 	defaultsPath := filepath.Join(filepath.Dir(filepath.Dir(tasksPath)), "defaults", "main.yml")
-	if data, err := os.ReadFile(defaultsPath); err == nil {
+	if data, err := coreio.Local.Read(defaultsPath); err == nil {
 		var defaults map[string]any
-		if yaml.Unmarshal(data, &defaults) == nil {
+		if yaml.Unmarshal([]byte(data), &defaults) == nil {
 			for k, v := range defaults {
 				if _, exists := p.vars[k]; !exists {
 					p.vars[k] = v
@@ -164,9 +164,9 @@ func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
 
 	// Load role vars
 	varsPath := filepath.Join(filepath.Dir(filepath.Dir(tasksPath)), "vars", "main.yml")
-	if data, err := os.ReadFile(varsPath); err == nil {
+	if data, err := coreio.Local.Read(varsPath); err == nil {
 		var roleVars map[string]any
-		if yaml.Unmarshal(data, &roleVars) == nil {
+		if yaml.Unmarshal([]byte(data), &roleVars) == nil {
 			for k, v := range roleVars {
 				p.vars[k] = v
 			}
@@ -185,25 +185,25 @@ func (p *Parser) processPlay(play *Play) error {
 
 	for i := range play.PreTasks {
 		if err := p.extractModule(&play.PreTasks[i]); err != nil {
-			return fmt.Errorf("pre_task %d: %w", i, err)
+			return coreerr.E("Parser.processPlay", fmt.Sprintf("pre_task %d", i), err)
 		}
 	}
 
 	for i := range play.Tasks {
 		if err := p.extractModule(&play.Tasks[i]); err != nil {
-			return fmt.Errorf("task %d: %w", i, err)
+			return coreerr.E("Parser.processPlay", fmt.Sprintf("task %d", i), err)
 		}
 	}
 
 	for i := range play.PostTasks {
 		if err := p.extractModule(&play.PostTasks[i]); err != nil {
-			return fmt.Errorf("post_task %d: %w", i, err)
+			return coreerr.E("Parser.processPlay", fmt.Sprintf("post_task %d", i), err)
 		}
 	}
 
 	for i := range play.Handlers {
 		if err := p.extractModule(&play.Handlers[i]); err != nil {
-			return fmt.Errorf("handler %d: %w", i, err)
+			return coreerr.E("Parser.processPlay", fmt.Sprintf("handler %d", i), err)
 		}
 	}
 

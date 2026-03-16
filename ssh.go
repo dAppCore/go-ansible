@@ -12,7 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"forge.lthn.ai/core/go-log"
+	coreio "forge.lthn.ai/core/go-io"
+	coreerr "forge.lthn.ai/core/go-log"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -91,8 +92,8 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 			keyPath = filepath.Join(home, keyPath[1:])
 		}
 
-		if key, err := os.ReadFile(keyPath); err == nil {
-			if signer, err := ssh.ParsePrivateKey(key); err == nil {
+		if key, err := coreio.Local.Read(keyPath); err == nil {
+			if signer, err := ssh.ParsePrivateKey([]byte(key)); err == nil {
 				authMethods = append(authMethods, ssh.PublicKeys(signer))
 			}
 		}
@@ -106,8 +107,8 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 			filepath.Join(home, ".ssh", "id_rsa"),
 		}
 		for _, keyPath := range defaultKeys {
-			if key, err := os.ReadFile(keyPath); err == nil {
-				if signer, err := ssh.ParsePrivateKey(key); err == nil {
+			if key, err := coreio.Local.Read(keyPath); err == nil {
+				if signer, err := ssh.ParsePrivateKey([]byte(key)); err == nil {
 					authMethods = append(authMethods, ssh.PublicKeys(signer))
 					break
 				}
@@ -128,7 +129,7 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 	}
 
 	if len(authMethods) == 0 {
-		return log.E("ssh.Connect", "no authentication method available", nil)
+		return coreerr.E("ssh.Connect", "no authentication method available", nil)
 	}
 
 	// Host key verification
@@ -136,23 +137,23 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return log.E("ssh.Connect", "failed to get user home dir", err)
+		return coreerr.E("ssh.Connect", "failed to get user home dir", err)
 	}
 	knownHostsPath := filepath.Join(home, ".ssh", "known_hosts")
 
 	// Ensure known_hosts file exists
-	if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(knownHostsPath), 0700); err != nil {
-			return log.E("ssh.Connect", "failed to create .ssh dir", err)
+	if !coreio.Local.Exists(knownHostsPath) {
+		if err := coreio.Local.EnsureDir(filepath.Dir(knownHostsPath)); err != nil {
+			return coreerr.E("ssh.Connect", "failed to create .ssh dir", err)
 		}
-		if err := os.WriteFile(knownHostsPath, nil, 0600); err != nil {
-			return log.E("ssh.Connect", "failed to create known_hosts file", err)
+		if err := coreio.Local.Write(knownHostsPath, ""); err != nil {
+			return coreerr.E("ssh.Connect", "failed to create known_hosts file", err)
 		}
 	}
 
 	cb, err := knownhosts.New(knownHostsPath)
 	if err != nil {
-		return log.E("ssh.Connect", "failed to load known_hosts", err)
+		return coreerr.E("ssh.Connect", "failed to load known_hosts", err)
 	}
 	hostKeyCallback = cb
 
@@ -169,13 +170,13 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return log.E("ssh.Connect", fmt.Sprintf("dial %s", addr), err)
+		return coreerr.E("ssh.Connect", fmt.Sprintf("dial %s", addr), err)
 	}
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		// conn is closed by NewClientConn on error
-		return log.E("ssh.Connect", fmt.Sprintf("ssh connect %s", addr), err)
+		return coreerr.E("ssh.Connect", fmt.Sprintf("ssh connect %s", addr), err)
 	}
 
 	c.client = ssh.NewClient(sshConn, chans, reqs)
@@ -203,7 +204,7 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 
 	session, err := c.client.NewSession()
 	if err != nil {
-		return "", "", -1, log.E("ssh.Run", "new session", err)
+		return "", "", -1, coreerr.E("ssh.Run", "new session", err)
 	}
 	defer func() { _ = session.Close() }()
 
@@ -225,7 +226,7 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 			cmd = fmt.Sprintf("sudo -S -u %s bash -c '%s'", becomeUser, escapedCmd)
 			stdin, err := session.StdinPipe()
 			if err != nil {
-				return "", "", -1, log.E("ssh.Run", "stdin pipe", err)
+				return "", "", -1, coreerr.E("ssh.Run", "stdin pipe", err)
 			}
 			go func() {
 				defer func() { _ = stdin.Close() }()
@@ -236,7 +237,7 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 			cmd = fmt.Sprintf("sudo -S -u %s bash -c '%s'", becomeUser, escapedCmd)
 			stdin, err := session.StdinPipe()
 			if err != nil {
-				return "", "", -1, log.E("ssh.Run", "stdin pipe", err)
+				return "", "", -1, coreerr.E("ssh.Run", "stdin pipe", err)
 			}
 			go func() {
 				defer func() { _ = stdin.Close() }()
@@ -287,7 +288,7 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 	// Read content
 	content, err := io.ReadAll(local)
 	if err != nil {
-		return log.E("ssh.Upload", "read content", err)
+		return coreerr.E("ssh.Upload", "read content", err)
 	}
 
 	// Create parent directory
@@ -297,7 +298,7 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 		dirCmd = fmt.Sprintf("sudo mkdir -p %q", dir)
 	}
 	if _, _, _, err := c.Run(ctx, dirCmd); err != nil {
-		return log.E("ssh.Upload", "create parent dir", err)
+		return coreerr.E("ssh.Upload", "create parent dir", err)
 	}
 
 	// Use cat to write the file (simpler than SCP)
@@ -309,13 +310,13 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 
 	session2, err := c.client.NewSession()
 	if err != nil {
-		return log.E("ssh.Upload", "new session for write", err)
+		return coreerr.E("ssh.Upload", "new session for write", err)
 	}
 	defer func() { _ = session2.Close() }()
 
 	stdin, err := session2.StdinPipe()
 	if err != nil {
-		return log.E("ssh.Upload", "stdin pipe", err)
+		return coreerr.E("ssh.Upload", "stdin pipe", err)
 	}
 
 	var stderrBuf bytes.Buffer
@@ -343,7 +344,7 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 		}
 
 		if err := session2.Start(writeCmd); err != nil {
-			return log.E("ssh.Upload", "start write", err)
+			return coreerr.E("ssh.Upload", "start write", err)
 		}
 
 		go func() {
@@ -356,7 +357,7 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 	} else {
 		// Normal write
 		if err := session2.Start(writeCmd); err != nil {
-			return log.E("ssh.Upload", "start write", err)
+			return coreerr.E("ssh.Upload", "start write", err)
 		}
 
 		go func() {
@@ -366,7 +367,7 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 	}
 
 	if err := session2.Wait(); err != nil {
-		return log.E("ssh.Upload", fmt.Sprintf("write failed (stderr: %s)", stderrBuf.String()), err)
+		return coreerr.E("ssh.Upload", fmt.Sprintf("write failed (stderr: %s)", stderrBuf.String()), err)
 	}
 
 	return nil
@@ -385,7 +386,7 @@ func (c *SSHClient) Download(ctx context.Context, remote string) ([]byte, error)
 		return nil, err
 	}
 	if exitCode != 0 {
-		return nil, log.E("ssh.Download", fmt.Sprintf("cat failed: %s", stderr), nil)
+		return nil, coreerr.E("ssh.Download", fmt.Sprintf("cat failed: %s", stderr), nil)
 	}
 
 	return []byte(stdout), nil

@@ -11,7 +11,8 @@ import (
 	"text/template"
 	"time"
 
-	"forge.lthn.ai/core/go-log"
+	coreio "forge.lthn.ai/core/go-io"
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 // Executor runs Ansible playbooks.
@@ -80,12 +81,12 @@ func (e *Executor) SetVar(key string, value any) {
 func (e *Executor) Run(ctx context.Context, playbookPath string) error {
 	plays, err := e.parser.ParsePlaybook(playbookPath)
 	if err != nil {
-		return fmt.Errorf("parse playbook: %w", err)
+		return coreerr.E("Executor.Run", "parse playbook", err)
 	}
 
 	for i := range plays {
 		if err := e.runPlay(ctx, &plays[i]); err != nil {
-			return fmt.Errorf("play %d (%s): %w", i, plays[i].Name, err)
+			return coreerr.E("Executor.Run", fmt.Sprintf("play %d (%s)", i, plays[i].Name), err)
 		}
 	}
 
@@ -121,7 +122,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := e.gatherFacts(ctx, host, play); err != nil {
 				// Non-fatal
 				if e.Verbose > 0 {
-					log.Warn("gather facts failed", "host", host, "err", err)
+					coreerr.Warn("gather facts failed", "host", host, "err", err)
 				}
 			}
 		}
@@ -179,7 +180,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	// Parse role tasks
 	tasks, err := e.parser.ParseRole(roleRef.Role, roleRef.TasksFrom)
 	if err != nil {
-		return log.E("executor.runRole", fmt.Sprintf("parse role %s", roleRef.Role), err)
+		return coreerr.E("executor.runRole", fmt.Sprintf("parse role %s", roleRef.Role), err)
 	}
 
 	// Merge role vars
@@ -266,7 +267,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, task *Task, p
 	// Get SSH client
 	client, err := e.getClient(host, play)
 	if err != nil {
-		return fmt.Errorf("get client for %s: %w", host, err)
+		return coreerr.E("Executor.runTaskOnHost", fmt.Sprintf("get client for %s", host), err)
 	}
 
 	// Handle loops
@@ -296,7 +297,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, task *Task, p
 	}
 
 	if result.Failed && !task.IgnoreErrors {
-		return fmt.Errorf("task failed: %s", result.Msg)
+		return coreerr.E("Executor.runTaskOnHost", "task failed: "+result.Msg, nil)
 	}
 
 	return nil
@@ -427,7 +428,7 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 
 	tasks, err := e.parser.ParseTasks(path)
 	if err != nil {
-		return fmt.Errorf("include_tasks %s: %w", path, err)
+		return coreerr.E("Executor.runIncludeTasks", "include_tasks "+path, err)
 	}
 
 	for _, t := range tasks {
@@ -881,8 +882,8 @@ func (e *Executor) handleLookup(expr string) string {
 	case "env":
 		return os.Getenv(arg)
 	case "file":
-		if data, err := os.ReadFile(arg); err == nil {
-			return string(data)
+		if data, err := coreio.Local.Read(arg); err == nil {
+			return data
 		}
 	}
 
@@ -970,13 +971,13 @@ func (e *Executor) Close() {
 
 // TemplateFile processes a template file.
 func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
-	content, err := os.ReadFile(src)
+	content, err := coreio.Local.Read(src)
 	if err != nil {
 		return "", err
 	}
 
 	// Convert Jinja2 to Go template syntax (basic conversion)
-	tmplContent := string(content)
+	tmplContent := content
 	tmplContent = strings.ReplaceAll(tmplContent, "{{", "{{ .")
 	tmplContent = strings.ReplaceAll(tmplContent, "{%", "{{")
 	tmplContent = strings.ReplaceAll(tmplContent, "%}", "}}")
@@ -984,7 +985,7 @@ func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 	tmpl, err := template.New("template").Parse(tmplContent)
 	if err != nil {
 		// Fall back to simple replacement
-		return e.templateString(string(content), host, task), nil
+		return e.templateString(content, host, task), nil
 	}
 
 	// Build context map
@@ -1011,7 +1012,7 @@ func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 
 	var buf strings.Builder
 	if err := tmpl.Execute(&buf, context); err != nil {
-		return e.templateString(string(content), host, task), nil
+		return e.templateString(content, host, task), nil
 	}
 
 	return buf.String(), nil
