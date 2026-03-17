@@ -3,13 +3,14 @@ package anscmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	ansible "forge.lthn.ai/core/go-ansible"
 	"forge.lthn.ai/core/cli/pkg/cli"
+	coreio "forge.lthn.ai/core/go-io"
+	coreerr "forge.lthn.ai/core/go-log"
 )
 
 var (
@@ -91,12 +92,11 @@ func runAnsible(cmd *cli.Command, args []string) error {
 
 	// Resolve playbook path
 	if !filepath.IsAbs(playbookPath) {
-		cwd, _ := os.Getwd()
-		playbookPath = filepath.Join(cwd, playbookPath)
+		playbookPath, _ = filepath.Abs(playbookPath)
 	}
 
-	if _, err := os.Stat(playbookPath); os.IsNotExist(err) {
-		return fmt.Errorf("playbook not found: %s", playbookPath)
+	if !coreio.Local.Exists(playbookPath) {
+		return coreerr.E("runAnsible", fmt.Sprintf("playbook not found: %s", playbookPath), nil)
 	}
 
 	// Create executor
@@ -128,21 +128,18 @@ func runAnsible(cmd *cli.Command, args []string) error {
 	if ansibleInventory != "" {
 		invPath := ansibleInventory
 		if !filepath.IsAbs(invPath) {
-			cwd, _ := os.Getwd()
-			invPath = filepath.Join(cwd, invPath)
+			invPath, _ = filepath.Abs(invPath)
 		}
 
-		// Check if it's a directory
-		info, err := os.Stat(invPath)
-		if err != nil {
-			return fmt.Errorf("inventory not found: %s", invPath)
+		if !coreio.Local.Exists(invPath) {
+			return coreerr.E("runAnsible", fmt.Sprintf("inventory not found: %s", invPath), nil)
 		}
 
-		if info.IsDir() {
+		if coreio.Local.IsDir(invPath) {
 			// Look for inventory.yml or hosts.yml
 			for _, name := range []string{"inventory.yml", "hosts.yml", "inventory.yaml", "hosts.yaml"} {
 				p := filepath.Join(invPath, name)
-				if _, err := os.Stat(p); err == nil {
+				if coreio.Local.Exists(p) {
 					invPath = p
 					break
 				}
@@ -150,7 +147,7 @@ func runAnsible(cmd *cli.Command, args []string) error {
 		}
 
 		if err := executor.SetInventory(invPath); err != nil {
-			return fmt.Errorf("load inventory: %w", err)
+			return coreerr.E("runAnsible", "load inventory", err)
 		}
 	}
 
@@ -217,7 +214,7 @@ func runAnsible(cmd *cli.Command, args []string) error {
 	fmt.Printf("%s Running playbook: %s\n", cli.BoldStyle.Render("▶"), playbookPath)
 
 	if err := executor.Run(ctx, playbookPath); err != nil {
-		return fmt.Errorf("playbook failed: %w", err)
+		return coreerr.E("runAnsible", "playbook failed", err)
 	}
 
 	fmt.Printf("\n%s Playbook completed in %s\n",
@@ -243,7 +240,7 @@ func runAnsibleTest(cmd *cli.Command, args []string) error {
 
 	client, err := ansible.NewSSHClient(cfg)
 	if err != nil {
-		return fmt.Errorf("create client: %w", err)
+		return coreerr.E("runAnsibleTest", "create client", err)
 	}
 	defer func() { _ = client.Close() }()
 
@@ -253,7 +250,7 @@ func runAnsibleTest(cmd *cli.Command, args []string) error {
 	// Test connection
 	start := time.Now()
 	if err := client.Connect(ctx); err != nil {
-		return fmt.Errorf("connect failed: %w", err)
+		return coreerr.E("runAnsibleTest", "connect failed", err)
 	}
 	connectTime := time.Since(start)
 
