@@ -3,8 +3,8 @@ module forge.lthn.ai/core/go-ansible
 go 1.26.0
 
 require (
-	forge.lthn.ai/core/cli v0.3.5
-	forge.lthn.ai/core/go-io v0.1.4
+	forge.lthn.ai/core/cli v0.3.6
+	forge.lthn.ai/core/go-io v0.1.5
 	forge.lthn.ai/core/go-log v0.0.4
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.49.0
@@ -12,9 +12,9 @@ require (
 )
 
 require (
-	forge.lthn.ai/core/go v0.3.1 // indirect
-	forge.lthn.ai/core/go-i18n v0.1.5 // indirect
-	forge.lthn.ai/core/go-inference v0.1.4 // indirect
+	forge.lthn.ai/core/go v0.3.2 // indirect
+	forge.lthn.ai/core/go-i18n v0.1.6 // indirect
+	forge.lthn.ai/core/go-inference v0.1.6 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/bubbletea v1.3.10 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
