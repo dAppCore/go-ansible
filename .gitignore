@@ -1,2 +1,4 @@
-.core/
 .idea/
+.vscode/
+*.log
+.core/
