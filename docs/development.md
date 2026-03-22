@@ -155,7 +155,7 @@ func TestModuleHostname_Bad_MissingName(t *testing.T) {
 
 ```
 go-ansible/
-  go.mod              Module definition (forge.lthn.ai/core/go-ansible)
+  go.mod              Module definition (dappco.re/go/core/ansible)
   go.sum              Dependency checksums
   CLAUDE.md           AI assistant context file
   types.go            Core data types and KnownModules registry

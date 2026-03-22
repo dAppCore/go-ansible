@@ -1,14 +1,33 @@
 package anscmd
 
 import (
-	"forge.lthn.ai/core/cli/pkg/cli"
+	"dappco.re/go/core"
 )
 
-func init() {
-	cli.RegisterCommands(AddAnsibleCommands)
-}
+// Register registers the 'ansible' command and all subcommands on the given Core instance.
+func Register(c *core.Core) {
+	c.Command("ansible", core.Command{
+		Description: "Run Ansible playbooks natively (no Python required)",
+		Action:      runAnsible,
+		Flags: core.Options{
+			{Key: "inventory", Value: ""},
+			{Key: "limit", Value: ""},
+			{Key: "tags", Value: ""},
+			{Key: "skip-tags", Value: ""},
+			{Key: "extra-vars", Value: ""},
+			{Key: "verbose", Value: 0},
+			{Key: "check", Value: false},
+		},
+	})
 
-// AddAnsibleCommands registers the 'ansible' command and all subcommands.
-func AddAnsibleCommands(root *cli.Command) {
-	root.AddCommand(ansibleCmd)
+	c.Command("ansible/test", core.Command{
+		Description: "Test SSH connectivity to a host",
+		Action:      runAnsibleTest,
+		Flags: core.Options{
+			{Key: "user", Value: "root"},
+			{Key: "password", Value: ""},
+			{Key: "key", Value: ""},
+			{Key: "port", Value: 22},
+		},
+	})
 }
