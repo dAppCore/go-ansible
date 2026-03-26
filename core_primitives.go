@@ -280,6 +280,7 @@ func join(sep string, parts []string) string                    { return corexJo
 func lower(s string) string                                     { return corexLower(s) }
 func replaceAll(s, old, new string) string                      { return corexReplaceAll(s, old, new) }
 func replaceN(s, old, new string, n int) string                 { return corexReplaceN(s, old, new, n) }
+func trimSpace(s string) string                                 { return corexTrimSpace(s) }
 func trimCutset(s, cutset string) string                        { return corexTrimCutset(s, cutset) }
 func repeat(s string, count int) string                         { return corexRepeat(s, count) }
 func fields(s string) []string                                  { return corexFields(s) }

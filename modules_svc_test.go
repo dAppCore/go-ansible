@@ -13,7 +13,7 @@ import (
 
 // --- service module ---
 
-func TestModuleService_Good_Start(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Start(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl start nginx`, "Started", "", 0)
 
@@ -29,7 +29,7 @@ func TestModuleService_Good_Start(t *testing.T) {
 	assert.Equal(t, 1, mock.commandCount())
 }
 
-func TestModuleService_Good_Stop(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Stop(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl stop nginx`, "", "", 0)
 
@@ -44,7 +44,7 @@ func TestModuleService_Good_Stop(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl stop nginx`))
 }
 
-func TestModuleService_Good_Restart(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Restart(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl restart docker`, "", "", 0)
 
@@ -59,7 +59,7 @@ func TestModuleService_Good_Restart(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl restart docker`))
 }
 
-func TestModuleService_Good_Reload(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Reload(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl reload nginx`, "", "", 0)
 
@@ -74,7 +74,7 @@ func TestModuleService_Good_Reload(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl reload nginx`))
 }
 
-func TestModuleService_Good_Enable(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Enable(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl enable nginx`, "", "", 0)
 
@@ -89,7 +89,7 @@ func TestModuleService_Good_Enable(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl enable nginx`))
 }
 
-func TestModuleService_Good_Disable(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Disable(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl disable nginx`, "", "", 0)
 
@@ -104,7 +104,7 @@ func TestModuleService_Good_Disable(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl disable nginx`))
 }
 
-func TestModuleService_Good_StartAndEnable(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_StartAndEnable(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl start nginx`, "", "", 0)
 	mock.expectCommand(`systemctl enable nginx`, "", "", 0)
@@ -123,7 +123,7 @@ func TestModuleService_Good_StartAndEnable(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl enable nginx`))
 }
 
-func TestModuleService_Good_RestartAndDisable(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_RestartAndDisable(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl restart sshd`, "", "", 0)
 	mock.expectCommand(`systemctl disable sshd`, "", "", 0)
@@ -142,7 +142,7 @@ func TestModuleService_Good_RestartAndDisable(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl disable sshd`))
 }
 
-func TestModuleService_Bad_MissingName(t *testing.T) {
+func TestModulesSvc_ModuleService_Bad_MissingName(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -154,7 +154,7 @@ func TestModuleService_Bad_MissingName(t *testing.T) {
 	assert.Contains(t, err.Error(), "name required")
 }
 
-func TestModuleService_Good_NoStateNoEnabled(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_NoStateNoEnabled(t *testing.T) {
 	// When neither state nor enabled is provided, no commands run
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -168,7 +168,7 @@ func TestModuleService_Good_NoStateNoEnabled(t *testing.T) {
 	assert.Equal(t, 0, mock.commandCount())
 }
 
-func TestModuleService_Good_CommandFailure(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_CommandFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl start.*`, "", "Failed to start nginx.service", 1)
 
@@ -183,7 +183,7 @@ func TestModuleService_Good_CommandFailure(t *testing.T) {
 	assert.Equal(t, 1, result.RC)
 }
 
-func TestModuleService_Good_FirstCommandFailsSkipsRest(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_FirstCommandFailsSkipsRest(t *testing.T) {
 	// When state command fails, enable should not run
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl start`, "", "unit not found", 5)
@@ -203,7 +203,7 @@ func TestModuleService_Good_FirstCommandFailsSkipsRest(t *testing.T) {
 
 // --- systemd module ---
 
-func TestModuleSystemd_Good_DaemonReloadThenStart(t *testing.T) {
+func TestModulesSvc_ModuleSystemd_Good_DaemonReloadThenStart(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl daemon-reload`, "", "", 0)
 	mock.expectCommand(`systemctl start nginx`, "", "", 0)
@@ -225,7 +225,7 @@ func TestModuleSystemd_Good_DaemonReloadThenStart(t *testing.T) {
 	assert.Contains(t, cmds[1].Cmd, "systemctl start nginx")
 }
 
-func TestModuleSystemd_Good_DaemonReloadOnly(t *testing.T) {
+func TestModulesSvc_ModuleSystemd_Good_DaemonReloadOnly(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl daemon-reload`, "", "", 0)
 
@@ -243,7 +243,7 @@ func TestModuleSystemd_Good_DaemonReloadOnly(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl daemon-reload`))
 }
 
-func TestModuleSystemd_Good_DelegationToService(t *testing.T) {
+func TestModulesSvc_ModuleSystemd_Good_DelegationToService(t *testing.T) {
 	// Without daemon_reload, systemd delegates entirely to service
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl restart docker`, "", "", 0)
@@ -261,7 +261,7 @@ func TestModuleSystemd_Good_DelegationToService(t *testing.T) {
 	assert.False(t, mock.hasExecuted(`daemon-reload`))
 }
 
-func TestModuleSystemd_Good_DaemonReloadWithEnable(t *testing.T) {
+func TestModulesSvc_ModuleSystemd_Good_DaemonReloadWithEnable(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl daemon-reload`, "", "", 0)
 	mock.expectCommand(`systemctl enable myapp`, "", "", 0)
@@ -281,7 +281,7 @@ func TestModuleSystemd_Good_DaemonReloadWithEnable(t *testing.T) {
 
 // --- apt module ---
 
-func TestModuleApt_Good_InstallPresent(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_InstallPresent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq nginx`, "installed", "", 0)
 
@@ -296,7 +296,7 @@ func TestModuleApt_Good_InstallPresent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx`))
 }
 
-func TestModuleApt_Good_InstallInstalled(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_InstallInstalled(t *testing.T) {
 	// state=installed is an alias for present
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq curl`, "", "", 0)
@@ -312,7 +312,7 @@ func TestModuleApt_Good_InstallInstalled(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get install -y -qq curl`))
 }
 
-func TestModuleApt_Good_RemoveAbsent(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_RemoveAbsent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get remove -y -qq nginx`, "", "", 0)
 
@@ -327,7 +327,7 @@ func TestModuleApt_Good_RemoveAbsent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq nginx`))
 }
 
-func TestModuleApt_Good_RemoveRemoved(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_RemoveRemoved(t *testing.T) {
 	// state=removed is an alias for absent
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get remove -y -qq nginx`, "", "", 0)
@@ -342,7 +342,7 @@ func TestModuleApt_Good_RemoveRemoved(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get remove -y -qq nginx`))
 }
 
-func TestModuleApt_Good_UpgradeLatest(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_UpgradeLatest(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq --only-upgrade nginx`, "", "", 0)
 
@@ -357,7 +357,7 @@ func TestModuleApt_Good_UpgradeLatest(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade nginx`))
 }
 
-func TestModuleApt_Good_UpdateCacheBeforeInstall(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_UpdateCacheBeforeInstall(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get update`, "", "", 0)
 	mock.expectCommand(`apt-get install -y -qq nginx`, "", "", 0)
@@ -379,7 +379,7 @@ func TestModuleApt_Good_UpdateCacheBeforeInstall(t *testing.T) {
 	assert.Contains(t, cmds[1].Cmd, "apt-get install")
 }
 
-func TestModuleApt_Good_UpdateCacheOnly(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_UpdateCacheOnly(t *testing.T) {
 	// update_cache with no name means update only, no install
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -395,7 +395,7 @@ func TestModuleApt_Good_UpdateCacheOnly(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get update`))
 }
 
-func TestModuleApt_Good_CommandFailure(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_CommandFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install`, "", "E: Unable to locate package badpkg", 100)
 
@@ -410,7 +410,7 @@ func TestModuleApt_Good_CommandFailure(t *testing.T) {
 	assert.Equal(t, 100, result.RC)
 }
 
-func TestModuleApt_Good_DefaultStateIsPresent(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_DefaultStateIsPresent(t *testing.T) {
 	// If no state is given, default is "present" (install)
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq vim`, "", "", 0)
@@ -426,7 +426,7 @@ func TestModuleApt_Good_DefaultStateIsPresent(t *testing.T) {
 
 // --- apt_key module ---
 
-func TestModuleAptKey_Good_AddWithKeyring(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_AddWithKeyring(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl -fsSL.*gpg --dearmor`, "", "", 0)
 
@@ -443,7 +443,7 @@ func TestModuleAptKey_Good_AddWithKeyring(t *testing.T) {
 	assert.True(t, mock.containsSubstring("/etc/apt/keyrings/example.gpg"))
 }
 
-func TestModuleAptKey_Good_AddWithoutKeyring(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_AddWithoutKeyring(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl -fsSL.*apt-key add -`, "", "", 0)
 
@@ -457,7 +457,7 @@ func TestModuleAptKey_Good_AddWithoutKeyring(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-key add -`))
 }
 
-func TestModuleAptKey_Good_RemoveKey(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_RemoveKey(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleAptKeyWithClient(e, mock, map[string]any{
@@ -472,7 +472,7 @@ func TestModuleAptKey_Good_RemoveKey(t *testing.T) {
 	assert.True(t, mock.containsSubstring("/etc/apt/keyrings/old.gpg"))
 }
 
-func TestModuleAptKey_Good_RemoveWithoutKeyring(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_RemoveWithoutKeyring(t *testing.T) {
 	// Absent with no keyring — still succeeds, just no rm command
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -485,7 +485,7 @@ func TestModuleAptKey_Good_RemoveWithoutKeyring(t *testing.T) {
 	assert.Equal(t, 0, mock.commandCount())
 }
 
-func TestModuleAptKey_Bad_MissingURL(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Bad_MissingURL(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -497,7 +497,7 @@ func TestModuleAptKey_Bad_MissingURL(t *testing.T) {
 	assert.Contains(t, err.Error(), "url required")
 }
 
-func TestModuleAptKey_Good_CommandFailure(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_CommandFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "", "curl: (22) 404 Not Found", 22)
 
@@ -513,7 +513,7 @@ func TestModuleAptKey_Good_CommandFailure(t *testing.T) {
 
 // --- apt_repository module ---
 
-func TestModuleAptRepository_Good_AddRepository(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_AddRepository(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo.*sources\.list\.d`, "", "", 0)
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -529,7 +529,7 @@ func TestModuleAptRepository_Good_AddRepository(t *testing.T) {
 	assert.True(t, mock.containsSubstring("/etc/apt/sources.list.d/example.list"))
 }
 
-func TestModuleAptRepository_Good_RemoveRepository(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_RemoveRepository(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleAptRepositoryWithClient(e, mock, map[string]any{
@@ -545,7 +545,7 @@ func TestModuleAptRepository_Good_RemoveRepository(t *testing.T) {
 	assert.True(t, mock.containsSubstring("example.list"))
 }
 
-func TestModuleAptRepository_Good_AddWithUpdateCache(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_AddWithUpdateCache(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -564,7 +564,7 @@ func TestModuleAptRepository_Good_AddWithUpdateCache(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get update`))
 }
 
-func TestModuleAptRepository_Good_AddWithoutUpdateCache(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_AddWithoutUpdateCache(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
 
@@ -582,7 +582,7 @@ func TestModuleAptRepository_Good_AddWithoutUpdateCache(t *testing.T) {
 	assert.False(t, mock.hasExecuted(`apt-get update`))
 }
 
-func TestModuleAptRepository_Good_CustomFilename(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_CustomFilename(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -597,7 +597,7 @@ func TestModuleAptRepository_Good_CustomFilename(t *testing.T) {
 	assert.True(t, mock.containsSubstring("/etc/apt/sources.list.d/custom-ppa.list"))
 }
 
-func TestModuleAptRepository_Good_AutoGeneratedFilename(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_AutoGeneratedFilename(t *testing.T) {
 	// When no filename is given, it auto-generates from the repo string
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
@@ -613,7 +613,7 @@ func TestModuleAptRepository_Good_AutoGeneratedFilename(t *testing.T) {
 	assert.True(t, mock.containsSubstring("/etc/apt/sources.list.d/"))
 }
 
-func TestModuleAptRepository_Bad_MissingRepo(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Bad_MissingRepo(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -625,7 +625,7 @@ func TestModuleAptRepository_Bad_MissingRepo(t *testing.T) {
 	assert.Contains(t, err.Error(), "repo required")
 }
 
-func TestModuleAptRepository_Good_WriteFailure(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_WriteFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "permission denied", 1)
 
@@ -641,7 +641,7 @@ func TestModuleAptRepository_Good_WriteFailure(t *testing.T) {
 
 // --- package module ---
 
-func TestModulePackage_Good_DetectAptAndDelegate(t *testing.T) {
+func TestModulesSvc_ModulePackage_Good_DetectAptAndDelegate(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// First command: which apt-get returns the path
 	mock.expectCommand(`which apt-get`, "/usr/bin/apt-get", "", 0)
@@ -660,7 +660,7 @@ func TestModulePackage_Good_DetectAptAndDelegate(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get install -y -qq htop`))
 }
 
-func TestModulePackage_Good_FallbackToApt(t *testing.T) {
+func TestModulesSvc_ModulePackage_Good_FallbackToApt(t *testing.T) {
 	// When which returns nothing (no package manager found), still falls back to apt
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`which apt-get`, "", "", 1)
@@ -677,7 +677,7 @@ func TestModulePackage_Good_FallbackToApt(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get install -y -qq vim`))
 }
 
-func TestModulePackage_Good_RemovePackage(t *testing.T) {
+func TestModulesSvc_ModulePackage_Good_RemovePackage(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`which apt-get`, "/usr/bin/apt-get", "", 0)
 	mock.expectCommand(`apt-get remove -y -qq nano`, "", "", 0)
@@ -694,7 +694,7 @@ func TestModulePackage_Good_RemovePackage(t *testing.T) {
 
 // --- pip module ---
 
-func TestModulePip_Good_InstallPresent(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_InstallPresent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install flask`, "Successfully installed", "", 0)
 
@@ -709,7 +709,7 @@ func TestModulePip_Good_InstallPresent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`pip3 install flask`))
 }
 
-func TestModulePip_Good_UninstallAbsent(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_UninstallAbsent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 uninstall -y flask`, "Successfully uninstalled", "", 0)
 
@@ -724,7 +724,7 @@ func TestModulePip_Good_UninstallAbsent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`pip3 uninstall -y flask`))
 }
 
-func TestModulePip_Good_UpgradeLatest(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_UpgradeLatest(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install --upgrade flask`, "Successfully installed", "", 0)
 
@@ -739,7 +739,7 @@ func TestModulePip_Good_UpgradeLatest(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`pip3 install --upgrade flask`))
 }
 
-func TestModulePip_Good_CustomExecutable(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_CustomExecutable(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`/opt/venv/bin/pip install requests`, "", "", 0)
 
@@ -755,7 +755,7 @@ func TestModulePip_Good_CustomExecutable(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`/opt/venv/bin/pip install requests`))
 }
 
-func TestModulePip_Good_DefaultStateIsPresent(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_DefaultStateIsPresent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install django`, "", "", 0)
 
@@ -768,7 +768,7 @@ func TestModulePip_Good_DefaultStateIsPresent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`pip3 install django`))
 }
 
-func TestModulePip_Good_CommandFailure(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_CommandFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install`, "", "ERROR: No matching distribution found", 1)
 
@@ -782,7 +782,7 @@ func TestModulePip_Good_CommandFailure(t *testing.T) {
 	assert.Contains(t, result.Msg, "No matching distribution found")
 }
 
-func TestModulePip_Good_InstalledAlias(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_InstalledAlias(t *testing.T) {
 	// state=installed is an alias for present
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install boto3`, "", "", 0)
@@ -797,7 +797,7 @@ func TestModulePip_Good_InstalledAlias(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`pip3 install boto3`))
 }
 
-func TestModulePip_Good_RemovedAlias(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_RemovedAlias(t *testing.T) {
 	// state=removed is an alias for absent
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 uninstall -y boto3`, "", "", 0)
@@ -814,7 +814,7 @@ func TestModulePip_Good_RemovedAlias(t *testing.T) {
 
 // --- Cross-module dispatch tests ---
 
-func TestExecuteModuleWithMock_Good_DispatchService(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchService(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl restart nginx`, "", "", 0)
 
@@ -833,7 +833,7 @@ func TestExecuteModuleWithMock_Good_DispatchService(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl restart nginx`))
 }
 
-func TestExecuteModuleWithMock_Good_DispatchSystemd(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchSystemd(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl daemon-reload`, "", "", 0)
 	mock.expectCommand(`systemctl start myapp`, "", "", 0)
@@ -855,7 +855,7 @@ func TestExecuteModuleWithMock_Good_DispatchSystemd(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`systemctl start myapp`))
 }
 
-func TestExecuteModuleWithMock_Good_DispatchApt(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchApt(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq nginx`, "", "", 0)
 
@@ -874,7 +874,7 @@ func TestExecuteModuleWithMock_Good_DispatchApt(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get install`))
 }
 
-func TestExecuteModuleWithMock_Good_DispatchAptKey(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchAptKey(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*gpg`, "", "", 0)
 
@@ -892,7 +892,7 @@ func TestExecuteModuleWithMock_Good_DispatchAptKey(t *testing.T) {
 	assert.True(t, result.Changed)
 }
 
-func TestExecuteModuleWithMock_Good_DispatchAptRepository(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchAptRepository(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -911,7 +911,7 @@ func TestExecuteModuleWithMock_Good_DispatchAptRepository(t *testing.T) {
 	assert.True(t, result.Changed)
 }
 
-func TestExecuteModuleWithMock_Good_DispatchPackage(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchPackage(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`which apt-get`, "/usr/bin/apt-get", "", 0)
 	mock.expectCommand(`apt-get install -y -qq git`, "", "", 0)
@@ -930,7 +930,7 @@ func TestExecuteModuleWithMock_Good_DispatchPackage(t *testing.T) {
 	assert.True(t, result.Changed)
 }
 
-func TestExecuteModuleWithMock_Good_DispatchPip(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchPip(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install ansible`, "", "", 0)
 

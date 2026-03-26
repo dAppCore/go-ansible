@@ -3,7 +3,7 @@ package ansible
 import (
 	"context"
 	"encoding/base64"
-	"os"
+	"io/fs"
 	"strconv"
 
 	coreio "dappco.re/go/core/io"
@@ -295,10 +295,10 @@ func (e *Executor) moduleCopy(ctx context.Context, client *SSHClient, args map[s
 		return nil, coreerr.E("Executor.moduleCopy", "src or content required", nil)
 	}
 
-	mode := os.FileMode(0644)
+	mode := fs.FileMode(0644)
 	if m := getStringArg(args, "mode", ""); m != "" {
 		if parsed, err := strconv.ParseInt(m, 8, 32); err == nil {
-			mode = os.FileMode(parsed)
+			mode = fs.FileMode(parsed)
 		}
 	}
 
@@ -331,10 +331,10 @@ func (e *Executor) moduleTemplate(ctx context.Context, client *SSHClient, args m
 		return nil, coreerr.E("Executor.moduleTemplate", "template", err)
 	}
 
-	mode := os.FileMode(0644)
+	mode := fs.FileMode(0644)
 	if m := getStringArg(args, "mode", ""); m != "" {
 		if parsed, err := strconv.ParseInt(m, 8, 32); err == nil {
-			mode = os.FileMode(parsed)
+			mode = fs.FileMode(parsed)
 		}
 	}
 

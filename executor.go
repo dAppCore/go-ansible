@@ -13,6 +13,10 @@ import (
 )
 
 // Executor runs Ansible playbooks.
+//
+// Example:
+//
+//	exec := NewExecutor("/workspace/playbooks")
 type Executor struct {
 	parser    *Parser
 	inventory *Inventory
@@ -40,6 +44,10 @@ type Executor struct {
 }
 
 // NewExecutor creates a new playbook executor.
+//
+// Example:
+//
+//	exec := NewExecutor("/workspace/playbooks")
 func NewExecutor(basePath string) *Executor {
 	return &Executor{
 		parser:   NewParser(basePath),
@@ -53,6 +61,10 @@ func NewExecutor(basePath string) *Executor {
 }
 
 // SetInventory loads inventory from a file.
+//
+// Example:
+//
+//	err := exec.SetInventory("/workspace/inventory.yml")
 func (e *Executor) SetInventory(path string) error {
 	inv, err := e.parser.ParseInventory(path)
 	if err != nil {
@@ -63,11 +75,19 @@ func (e *Executor) SetInventory(path string) error {
 }
 
 // SetInventoryDirect sets inventory directly.
+//
+// Example:
+//
+//	exec.SetInventoryDirect(&Inventory{All: &InventoryGroup{}})
 func (e *Executor) SetInventoryDirect(inv *Inventory) {
 	e.inventory = inv
 }
 
 // SetVar sets a variable.
+//
+// Example:
+//
+//	exec.SetVar("env", "prod")
 func (e *Executor) SetVar(key string, value any) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -75,6 +95,10 @@ func (e *Executor) SetVar(key string, value any) {
 }
 
 // Run executes a playbook.
+//
+// Example:
+//
+//	err := exec.Run(context.Background(), "/workspace/playbooks/site.yml")
 func (e *Executor) Run(ctx context.Context, playbookPath string) error {
 	plays, err := e.parser.ParsePlaybook(playbookPath)
 	if err != nil {
@@ -956,6 +980,10 @@ func (e *Executor) handleNotify(notify any) {
 }
 
 // Close closes all SSH connections.
+//
+// Example:
+//
+//	exec.Close()
 func (e *Executor) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -967,6 +995,10 @@ func (e *Executor) Close() {
 }
 
 // TemplateFile processes a template file.
+//
+// Example:
+//
+//	content, err := exec.TemplateFile("/workspace/templates/app.conf.j2", "web1", &Task{})
 func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 	content, err := coreio.Local.Read(src)
 	if err != nil {

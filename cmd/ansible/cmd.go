@@ -5,6 +5,11 @@ import (
 )
 
 // Register registers the 'ansible' command and all subcommands on the given Core instance.
+//
+// Example:
+//
+//	var app core.Core
+//	Register(&app)
 func Register(c *core.Core) {
 	c.Command("ansible", core.Command{
 		Description: "Run Ansible playbooks natively (no Python required)",

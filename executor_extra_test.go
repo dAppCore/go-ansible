@@ -1,8 +1,6 @@
 package ansible
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +13,7 @@ import (
 
 // --- moduleDebug ---
 
-func TestModuleDebug_Good_Message(t *testing.T) {
+func TestExecutorExtra_ModuleDebug_Good_Message(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleDebug(map[string]any{"msg": "Hello world"})
 
@@ -24,7 +22,7 @@ func TestModuleDebug_Good_Message(t *testing.T) {
 	assert.Equal(t, "Hello world", result.Msg)
 }
 
-func TestModuleDebug_Good_Var(t *testing.T) {
+func TestExecutorExtra_ModuleDebug_Good_Var(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["my_version"] = "1.2.3"
 
@@ -34,7 +32,7 @@ func TestModuleDebug_Good_Var(t *testing.T) {
 	assert.Contains(t, result.Msg, "1.2.3")
 }
 
-func TestModuleDebug_Good_EmptyArgs(t *testing.T) {
+func TestExecutorExtra_ModuleDebug_Good_EmptyArgs(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleDebug(map[string]any{})
 
@@ -44,7 +42,7 @@ func TestModuleDebug_Good_EmptyArgs(t *testing.T) {
 
 // --- moduleFail ---
 
-func TestModuleFail_Good_DefaultMessage(t *testing.T) {
+func TestExecutorExtra_ModuleFail_Good_DefaultMessage(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleFail(map[string]any{})
 
@@ -53,7 +51,7 @@ func TestModuleFail_Good_DefaultMessage(t *testing.T) {
 	assert.Equal(t, "Failed as requested", result.Msg)
 }
 
-func TestModuleFail_Good_CustomMessage(t *testing.T) {
+func TestExecutorExtra_ModuleFail_Good_CustomMessage(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleFail(map[string]any{"msg": "deployment blocked"})
 
@@ -64,7 +62,7 @@ func TestModuleFail_Good_CustomMessage(t *testing.T) {
 
 // --- moduleAssert ---
 
-func TestModuleAssert_Good_PassingAssertion(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Good_PassingAssertion(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = true
 
@@ -75,7 +73,7 @@ func TestModuleAssert_Good_PassingAssertion(t *testing.T) {
 	assert.Equal(t, "All assertions passed", result.Msg)
 }
 
-func TestModuleAssert_Bad_FailingAssertion(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Bad_FailingAssertion(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = false
 
@@ -86,14 +84,14 @@ func TestModuleAssert_Bad_FailingAssertion(t *testing.T) {
 	assert.Contains(t, result.Msg, "Assertion failed")
 }
 
-func TestModuleAssert_Bad_MissingThat(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Bad_MissingThat(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	_, err := e.moduleAssert(map[string]any{}, "host1")
 	assert.Error(t, err)
 }
 
-func TestModuleAssert_Good_CustomFailMsg(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Good_CustomFailMsg(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["ready"] = false
 
@@ -107,7 +105,7 @@ func TestModuleAssert_Good_CustomFailMsg(t *testing.T) {
 	assert.Equal(t, "Service not ready", result.Msg)
 }
 
-func TestModuleAssert_Good_MultipleConditions(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Good_MultipleConditions(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = true
 	e.vars["count"] = 5
@@ -122,7 +120,7 @@ func TestModuleAssert_Good_MultipleConditions(t *testing.T) {
 
 // --- moduleSetFact ---
 
-func TestModuleSetFact_Good(t *testing.T) {
+func TestExecutorExtra_ModuleSetFact_Good(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	result, err := e.moduleSetFact(map[string]any{
@@ -136,7 +134,7 @@ func TestModuleSetFact_Good(t *testing.T) {
 	assert.Equal(t, "production", e.vars["deploy_env"])
 }
 
-func TestModuleSetFact_Good_SkipsCacheable(t *testing.T) {
+func TestExecutorExtra_ModuleSetFact_Good_SkipsCacheable(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	e.moduleSetFact(map[string]any{
@@ -151,7 +149,7 @@ func TestModuleSetFact_Good_SkipsCacheable(t *testing.T) {
 
 // --- moduleIncludeVars ---
 
-func TestModuleIncludeVars_Good_WithFile(t *testing.T) {
+func TestExecutorExtra_ModuleIncludeVars_Good_WithFile(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleIncludeVars(map[string]any{"file": "vars/main.yml"})
 
@@ -159,7 +157,7 @@ func TestModuleIncludeVars_Good_WithFile(t *testing.T) {
 	assert.Contains(t, result.Msg, "vars/main.yml")
 }
 
-func TestModuleIncludeVars_Good_WithRawParams(t *testing.T) {
+func TestExecutorExtra_ModuleIncludeVars_Good_WithRawParams(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleIncludeVars(map[string]any{"_raw_params": "defaults.yml"})
 
@@ -167,7 +165,7 @@ func TestModuleIncludeVars_Good_WithRawParams(t *testing.T) {
 	assert.Contains(t, result.Msg, "defaults.yml")
 }
 
-func TestModuleIncludeVars_Good_Empty(t *testing.T) {
+func TestExecutorExtra_ModuleIncludeVars_Good_Empty(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleIncludeVars(map[string]any{})
 
@@ -177,7 +175,7 @@ func TestModuleIncludeVars_Good_Empty(t *testing.T) {
 
 // --- moduleMeta ---
 
-func TestModuleMeta_Good(t *testing.T) {
+func TestExecutorExtra_ModuleMeta_Good(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleMeta(map[string]any{"_raw_params": "flush_handlers"})
 
@@ -189,22 +187,21 @@ func TestModuleMeta_Good(t *testing.T) {
 // Tests for handleLookup (0% coverage)
 // ============================================================
 
-func TestHandleLookup_Good_EnvVar(t *testing.T) {
+func TestExecutorExtra_HandleLookup_Good_EnvVar(t *testing.T) {
 	e := NewExecutor("/tmp")
-	os.Setenv("TEST_ANSIBLE_LOOKUP", "found_it")
-	defer os.Unsetenv("TEST_ANSIBLE_LOOKUP")
+	t.Setenv("TEST_ANSIBLE_LOOKUP", "found_it")
 
 	result := e.handleLookup("lookup('env', 'TEST_ANSIBLE_LOOKUP')")
 	assert.Equal(t, "found_it", result)
 }
 
-func TestHandleLookup_Good_EnvVarMissing(t *testing.T) {
+func TestExecutorExtra_HandleLookup_Good_EnvVarMissing(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result := e.handleLookup("lookup('env', 'NONEXISTENT_VAR_12345')")
 	assert.Equal(t, "", result)
 }
 
-func TestHandleLookup_Bad_InvalidSyntax(t *testing.T) {
+func TestExecutorExtra_HandleLookup_Bad_InvalidSyntax(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result := e.handleLookup("lookup(invalid)")
 	assert.Equal(t, "", result)
@@ -214,9 +211,9 @@ func TestHandleLookup_Bad_InvalidSyntax(t *testing.T) {
 // Tests for SetInventory (0% coverage)
 // ============================================================
 
-func TestSetInventory_Good(t *testing.T) {
+func TestExecutorExtra_SetInventory_Good(t *testing.T) {
 	dir := t.TempDir()
-	invPath := filepath.Join(dir, "inventory.yml")
+	invPath := joinPath(dir, "inventory.yml")
 	yaml := `all:
   hosts:
     web1:
@@ -224,7 +221,7 @@ func TestSetInventory_Good(t *testing.T) {
     web2:
       ansible_host: 10.0.0.2
 `
-	require.NoError(t, os.WriteFile(invPath, []byte(yaml), 0644))
+	require.NoError(t, writeTestFile(invPath, []byte(yaml), 0644))
 
 	e := NewExecutor(dir)
 	err := e.SetInventory(invPath)
@@ -234,7 +231,7 @@ func TestSetInventory_Good(t *testing.T) {
 	assert.Len(t, e.inventory.All.Hosts, 2)
 }
 
-func TestSetInventory_Bad_FileNotFound(t *testing.T) {
+func TestExecutorExtra_SetInventory_Bad_FileNotFound(t *testing.T) {
 	e := NewExecutor("/tmp")
 	err := e.SetInventory("/nonexistent/inventory.yml")
 	assert.Error(t, err)
@@ -244,9 +241,9 @@ func TestSetInventory_Bad_FileNotFound(t *testing.T) {
 // Tests for iterator functions (0% coverage)
 // ============================================================
 
-func TestParsePlaybookIter_Good(t *testing.T) {
+func TestExecutorExtra_ParsePlaybookIter_Good(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "playbook.yml")
+	path := joinPath(dir, "playbook.yml")
 	yaml := `- name: First play
   hosts: all
   tasks:
@@ -259,7 +256,7 @@ func TestParsePlaybookIter_Good(t *testing.T) {
     - debug:
         msg: world
 `
-	require.NoError(t, os.WriteFile(path, []byte(yaml), 0644))
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
 	iter, err := p.ParsePlaybookIter(path)
@@ -274,14 +271,14 @@ func TestParsePlaybookIter_Good(t *testing.T) {
 	assert.Equal(t, "Second play", plays[1].Name)
 }
 
-func TestParsePlaybookIter_Bad_InvalidFile(t *testing.T) {
+func TestExecutorExtra_ParsePlaybookIter_Bad_InvalidFile(t *testing.T) {
 	_, err := NewParser("/tmp").ParsePlaybookIter("/nonexistent.yml")
 	assert.Error(t, err)
 }
 
-func TestParseTasksIter_Good(t *testing.T) {
+func TestExecutorExtra_ParseTasksIter_Good(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "tasks.yml")
+	path := joinPath(dir, "tasks.yml")
 	yaml := `- name: Task one
   debug:
     msg: first
@@ -290,7 +287,7 @@ func TestParseTasksIter_Good(t *testing.T) {
   debug:
     msg: second
 `
-	require.NoError(t, os.WriteFile(path, []byte(yaml), 0644))
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
 	iter, err := p.ParseTasksIter(path)
@@ -304,12 +301,12 @@ func TestParseTasksIter_Good(t *testing.T) {
 	assert.Equal(t, "Task one", tasks[0].Name)
 }
 
-func TestParseTasksIter_Bad_InvalidFile(t *testing.T) {
+func TestExecutorExtra_ParseTasksIter_Bad_InvalidFile(t *testing.T) {
 	_, err := NewParser("/tmp").ParseTasksIter("/nonexistent.yml")
 	assert.Error(t, err)
 }
 
-func TestGetHostsIter_Good(t *testing.T) {
+func TestExecutorExtra_GetHostsIter_Good(t *testing.T) {
 	inv := &Inventory{
 		All: &InventoryGroup{
 			Hosts: map[string]*Host{
@@ -327,7 +324,7 @@ func TestGetHostsIter_Good(t *testing.T) {
 	assert.Len(t, hosts, 3)
 }
 
-func TestAllHostsIter_Good(t *testing.T) {
+func TestExecutorExtra_AllHostsIter_Good(t *testing.T) {
 	group := &InventoryGroup{
 		Hosts: map[string]*Host{
 			"alpha": {},
@@ -353,7 +350,7 @@ func TestAllHostsIter_Good(t *testing.T) {
 	assert.Equal(t, "gamma", hosts[2])
 }
 
-func TestAllHostsIter_Good_NilGroup(t *testing.T) {
+func TestExecutorExtra_AllHostsIter_Good_NilGroup(t *testing.T) {
 	var count int
 	for range AllHostsIter(nil) {
 		count++
@@ -365,7 +362,7 @@ func TestAllHostsIter_Good_NilGroup(t *testing.T) {
 // Tests for resolveExpr with registered vars (additional coverage)
 // ============================================================
 
-func TestResolveExpr_Good_RegisteredVarFields(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_RegisteredVarFields(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.results["host1"] = map[string]*TaskResult{
 		"cmd_result": {
@@ -384,7 +381,7 @@ func TestResolveExpr_Good_RegisteredVarFields(t *testing.T) {
 	assert.Equal(t, "false", e.resolveExpr("cmd_result.failed", "host1", nil))
 }
 
-func TestResolveExpr_Good_TaskVars(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_TaskVars(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{
 		Vars: map[string]any{"local_var": "local_value"},
@@ -394,7 +391,7 @@ func TestResolveExpr_Good_TaskVars(t *testing.T) {
 	assert.Equal(t, "local_value", result)
 }
 
-func TestResolveExpr_Good_HostVars(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_HostVars(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
@@ -408,7 +405,7 @@ func TestResolveExpr_Good_HostVars(t *testing.T) {
 	assert.Equal(t, "10.0.0.1", result)
 }
 
-func TestResolveExpr_Good_Facts(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_Facts(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.facts["host1"] = &Facts{
 		Hostname:     "web01",
@@ -429,25 +426,25 @@ func TestResolveExpr_Good_Facts(t *testing.T) {
 
 // --- applyFilter additional coverage ---
 
-func TestApplyFilter_Good_B64Decode(t *testing.T) {
+func TestExecutorExtra_ApplyFilter_Good_B64Decode(t *testing.T) {
 	e := NewExecutor("/tmp")
 	// b64decode is a no-op stub currently
 	assert.Equal(t, "hello", e.applyFilter("hello", "b64decode"))
 }
 
-func TestApplyFilter_Good_UnknownFilter(t *testing.T) {
+func TestExecutorExtra_ApplyFilter_Good_UnknownFilter(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.Equal(t, "value", e.applyFilter("value", "unknown_filter"))
 }
 
 // --- evalCondition with default filter ---
 
-func TestEvalCondition_Good_DefaultFilter(t *testing.T) {
+func TestExecutorExtra_EvalCondition_Good_DefaultFilter(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.True(t, e.evalCondition("myvar | default('fallback')", "host1"))
 }
 
-func TestEvalCondition_Good_UndefinedCheck(t *testing.T) {
+func TestExecutorExtra_EvalCondition_Good_UndefinedCheck(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.True(t, e.evalCondition("missing_var is not defined", "host1"))
 	assert.True(t, e.evalCondition("missing_var is undefined", "host1"))
@@ -455,7 +452,7 @@ func TestEvalCondition_Good_UndefinedCheck(t *testing.T) {
 
 // --- resolveExpr with filter pipe ---
 
-func TestResolveExpr_Good_WithFilter(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_WithFilter(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["raw_value"] = "  trimmed  "
 

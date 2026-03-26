@@ -11,12 +11,20 @@ import (
 )
 
 // Parser handles Ansible YAML parsing.
+//
+// Example:
+//
+//	parser := NewParser("/workspace/playbooks")
 type Parser struct {
 	basePath string
 	vars     map[string]any
 }
 
 // NewParser creates a new Ansible parser.
+//
+// Example:
+//
+//	parser := NewParser("/workspace/playbooks")
 func NewParser(basePath string) *Parser {
 	return &Parser{
 		basePath: basePath,
@@ -25,6 +33,10 @@ func NewParser(basePath string) *Parser {
 }
 
 // ParsePlaybook parses an Ansible playbook file.
+//
+// Example:
+//
+//	plays, err := parser.ParsePlaybook("/workspace/playbooks/site.yml")
 func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
 	data, err := coreio.Local.Read(path)
 	if err != nil {
@@ -47,6 +59,10 @@ func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
 }
 
 // ParsePlaybookIter returns an iterator for plays in an Ansible playbook file.
+//
+// Example:
+//
+//	seq, err := parser.ParsePlaybookIter("/workspace/playbooks/site.yml")
 func (p *Parser) ParsePlaybookIter(path string) (iter.Seq[Play], error) {
 	plays, err := p.ParsePlaybook(path)
 	if err != nil {
@@ -62,6 +78,10 @@ func (p *Parser) ParsePlaybookIter(path string) (iter.Seq[Play], error) {
 }
 
 // ParseInventory parses an Ansible inventory file.
+//
+// Example:
+//
+//	inv, err := parser.ParseInventory("/workspace/inventory.yml")
 func (p *Parser) ParseInventory(path string) (*Inventory, error) {
 	data, err := coreio.Local.Read(path)
 	if err != nil {
@@ -77,6 +97,10 @@ func (p *Parser) ParseInventory(path string) (*Inventory, error) {
 }
 
 // ParseTasks parses a tasks file (used by include_tasks).
+//
+// Example:
+//
+//	tasks, err := parser.ParseTasks("/workspace/roles/web/tasks/main.yml")
 func (p *Parser) ParseTasks(path string) ([]Task, error) {
 	data, err := coreio.Local.Read(path)
 	if err != nil {
@@ -98,6 +122,10 @@ func (p *Parser) ParseTasks(path string) ([]Task, error) {
 }
 
 // ParseTasksIter returns an iterator for tasks in a tasks file.
+//
+// Example:
+//
+//	seq, err := parser.ParseTasksIter("/workspace/roles/web/tasks/main.yml")
 func (p *Parser) ParseTasksIter(path string) (iter.Seq[Task], error) {
 	tasks, err := p.ParseTasks(path)
 	if err != nil {
@@ -113,6 +141,10 @@ func (p *Parser) ParseTasksIter(path string) (iter.Seq[Task], error) {
 }
 
 // ParseRole parses a role and returns its tasks.
+//
+// Example:
+//
+//	tasks, err := parser.ParseRole("nginx", "main.yml")
 func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
 	if tasksFrom == "" {
 		tasksFrom = "main.yml"
@@ -233,6 +265,11 @@ func (p *Parser) extractModule(task *Task) error {
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for Task.
+//
+// Example:
+//
+//	var task Task
+//	_ = yaml.Unmarshal([]byte("shell: echo ok"), &task)
 func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 	// First decode known fields
 	type rawTask Task
@@ -316,6 +353,10 @@ func isModule(key string) bool {
 }
 
 // NormalizeModule normalizes a module name to its canonical form.
+//
+// Example:
+//
+//	module := NormalizeModule("shell")
 func NormalizeModule(name string) string {
 	// Add ansible.builtin. prefix if missing
 	if !contains(name, ".") {
@@ -325,6 +366,10 @@ func NormalizeModule(name string) string {
 }
 
 // GetHosts returns hosts matching a pattern from inventory.
+//
+// Example:
+//
+//	hosts := GetHosts(inv, "webservers")
 func GetHosts(inv *Inventory, pattern string) []string {
 	if pattern == "all" {
 		return getAllHosts(inv.All)
@@ -350,6 +395,10 @@ func GetHosts(inv *Inventory, pattern string) []string {
 }
 
 // GetHostsIter returns an iterator for hosts matching a pattern from inventory.
+//
+// Example:
+//
+//	seq := GetHostsIter(inv, "all")
 func GetHostsIter(inv *Inventory, pattern string) iter.Seq[string] {
 	hosts := GetHosts(inv, pattern)
 	return func(yield func(string) bool) {
@@ -377,6 +426,10 @@ func getAllHosts(group *InventoryGroup) []string {
 }
 
 // AllHostsIter returns an iterator for all hosts in an inventory group.
+//
+// Example:
+//
+//	seq := AllHostsIter(inv.All)
 func AllHostsIter(group *InventoryGroup) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		if group == nil {
@@ -442,6 +495,10 @@ func hasHost(group *InventoryGroup, name string) bool {
 }
 
 // GetHostVars returns variables for a specific host.
+//
+// Example:
+//
+//	vars := GetHostVars(inv, "web1")
 func GetHostVars(inv *Inventory, hostname string) map[string]any {
 	vars := make(map[string]any)
 

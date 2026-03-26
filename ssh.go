@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"io/fs"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -16,6 +16,10 @@ import (
 )
 
 // SSHClient handles SSH connections to remote hosts.
+//
+// Example:
+//
+//	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
 type SSHClient struct {
 	host       string
 	port       int
@@ -31,6 +35,10 @@ type SSHClient struct {
 }
 
 // SSHConfig holds SSH connection configuration.
+//
+// Example:
+//
+//	cfg := SSHConfig{Host: "web1", User: "deploy", Port: 22}
 type SSHConfig struct {
 	Host       string
 	Port       int
@@ -44,6 +52,10 @@ type SSHConfig struct {
 }
 
 // NewSSHClient creates a new SSH client.
+//
+// Example:
+//
+//	client, err := NewSSHClient(SSHConfig{Host: "web1", User: "deploy"})
 func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
 	if cfg.Port == 0 {
 		cfg.Port = 22
@@ -71,6 +83,10 @@ func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
 }
 
 // Connect establishes the SSH connection.
+//
+// Example:
+//
+//	_ = client.Connect(context.Background())
 func (c *SSHClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -180,6 +196,10 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 }
 
 // Close closes the SSH connection.
+//
+// Example:
+//
+//	_ = client.Close()
 func (c *SSHClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -193,6 +213,10 @@ func (c *SSHClient) Close() error {
 }
 
 // Run executes a command on the remote host.
+//
+// Example:
+//
+//	stdout, stderr, rc, err := client.Run(context.Background(), "hostname")
 func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string, exitCode int, err error) {
 	if err := c.Connect(ctx); err != nil {
 		return "", "", -1, err
@@ -269,6 +293,10 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 }
 
 // RunScript runs a script on the remote host.
+//
+// Example:
+//
+//	stdout, stderr, rc, err := client.RunScript(context.Background(), "echo hello")
 func (c *SSHClient) RunScript(ctx context.Context, script string) (stdout, stderr string, exitCode int, err error) {
 	// Escape the script for heredoc
 	cmd := sprintf("bash <<'ANSIBLE_SCRIPT_EOF'\n%s\nANSIBLE_SCRIPT_EOF", script)
@@ -276,7 +304,11 @@ func (c *SSHClient) RunScript(ctx context.Context, script string) (stdout, stder
 }
 
 // Upload copies a file to the remote host.
-func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, mode os.FileMode) error {
+//
+// Example:
+//
+//	err := client.Upload(context.Background(), newReader("hello"), "/tmp/hello.txt", 0644)
+func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error {
 	if err := c.Connect(ctx); err != nil {
 		return err
 	}
@@ -370,6 +402,10 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 }
 
 // Download copies a file from the remote host.
+//
+// Example:
+//
+//	data, err := client.Download(context.Background(), "/etc/hostname")
 func (c *SSHClient) Download(ctx context.Context, remote string) ([]byte, error) {
 	if err := c.Connect(ctx); err != nil {
 		return nil, err
@@ -389,6 +425,10 @@ func (c *SSHClient) Download(ctx context.Context, remote string) ([]byte, error)
 }
 
 // FileExists checks if a file exists on the remote host.
+//
+// Example:
+//
+//	ok, err := client.FileExists(context.Background(), "/etc/hosts")
 func (c *SSHClient) FileExists(ctx context.Context, path string) (bool, error) {
 	cmd := sprintf("test -e %q && echo yes || echo no", path)
 	stdout, _, exitCode, err := c.Run(ctx, cmd)
@@ -403,6 +443,10 @@ func (c *SSHClient) FileExists(ctx context.Context, path string) (bool, error) {
 }
 
 // Stat returns file info from the remote host.
+//
+// Example:
+//
+//	info, err := client.Stat(context.Background(), "/etc/hosts")
 func (c *SSHClient) Stat(ctx context.Context, path string) (map[string]any, error) {
 	// Simple approach - get basic file info
 	cmd := sprintf(`
@@ -435,6 +479,10 @@ fi
 }
 
 // SetBecome enables privilege escalation.
+//
+// Example:
+//
+//	client.SetBecome(true, "root", "")
 func (c *SSHClient) SetBecome(become bool, user, password string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

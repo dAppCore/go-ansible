@@ -10,7 +10,7 @@ import (
 
 // --- RoleRef UnmarshalYAML ---
 
-func TestRoleRef_UnmarshalYAML_Good_StringForm(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_StringForm(t *testing.T) {
 	input := `common`
 	var ref RoleRef
 	err := yaml.Unmarshal([]byte(input), &ref)
@@ -19,7 +19,7 @@ func TestRoleRef_UnmarshalYAML_Good_StringForm(t *testing.T) {
 	assert.Equal(t, "common", ref.Role)
 }
 
-func TestRoleRef_UnmarshalYAML_Good_StructForm(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_StructForm(t *testing.T) {
 	input := `
 role: webserver
 vars:
@@ -36,7 +36,7 @@ tags:
 	assert.Equal(t, []string{"web"}, ref.Tags)
 }
 
-func TestRoleRef_UnmarshalYAML_Good_NameField(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_NameField(t *testing.T) {
 	// Some playbooks use "name:" instead of "role:"
 	input := `
 name: myapp
@@ -50,7 +50,7 @@ tasks_from: install.yml
 	assert.Equal(t, "install.yml", ref.TasksFrom)
 }
 
-func TestRoleRef_UnmarshalYAML_Good_WithWhen(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_WithWhen(t *testing.T) {
 	input := `
 role: conditional_role
 when: ansible_os_family == "Debian"
@@ -65,7 +65,7 @@ when: ansible_os_family == "Debian"
 
 // --- Task UnmarshalYAML ---
 
-func TestTask_UnmarshalYAML_Good_ModuleWithArgs(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ModuleWithArgs(t *testing.T) {
 	input := `
 name: Install nginx
 apt:
@@ -82,7 +82,7 @@ apt:
 	assert.Equal(t, "present", task.Args["state"])
 }
 
-func TestTask_UnmarshalYAML_Good_FreeFormModule(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_FreeFormModule(t *testing.T) {
 	input := `
 name: Run command
 shell: echo hello world
@@ -95,7 +95,7 @@ shell: echo hello world
 	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
 }
 
-func TestTask_UnmarshalYAML_Good_ModuleNoArgs(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ModuleNoArgs(t *testing.T) {
 	input := `
 name: Gather facts
 setup:
@@ -108,7 +108,7 @@ setup:
 	assert.NotNil(t, task.Args)
 }
 
-func TestTask_UnmarshalYAML_Good_WithRegister(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithRegister(t *testing.T) {
 	input := `
 name: Check file
 stat:
@@ -123,7 +123,7 @@ register: stat_result
 	assert.Equal(t, "stat", task.Module)
 }
 
-func TestTask_UnmarshalYAML_Good_WithWhen(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithWhen(t *testing.T) {
 	input := `
 name: Conditional task
 debug:
@@ -137,7 +137,7 @@ when: some_var is defined
 	assert.NotNil(t, task.When)
 }
 
-func TestTask_UnmarshalYAML_Good_WithLoop(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithLoop(t *testing.T) {
 	input := `
 name: Install packages
 apt:
@@ -156,7 +156,7 @@ loop:
 	assert.Len(t, items, 3)
 }
 
-func TestTask_UnmarshalYAML_Good_WithItems(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithItems(t *testing.T) {
 	// with_items should be converted to loop
 	input := `
 name: Old-style loop
@@ -176,7 +176,7 @@ with_items:
 	assert.Len(t, items, 2)
 }
 
-func TestTask_UnmarshalYAML_Good_WithNotify(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
 	input := `
 name: Install package
 apt:
@@ -190,7 +190,7 @@ notify: restart nginx
 	assert.Equal(t, "restart nginx", task.Notify)
 }
 
-func TestTask_UnmarshalYAML_Good_WithNotifyList(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithNotifyList(t *testing.T) {
 	input := `
 name: Install package
 apt:
@@ -208,7 +208,7 @@ notify:
 	assert.Len(t, notifyList, 2)
 }
 
-func TestTask_UnmarshalYAML_Good_IncludeTasks(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IncludeTasks(t *testing.T) {
 	input := `
 name: Include tasks
 include_tasks: other-tasks.yml
@@ -220,7 +220,7 @@ include_tasks: other-tasks.yml
 	assert.Equal(t, "other-tasks.yml", task.IncludeTasks)
 }
 
-func TestTask_UnmarshalYAML_Good_IncludeRole(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IncludeRole(t *testing.T) {
 	input := `
 name: Include role
 include_role:
@@ -236,7 +236,7 @@ include_role:
 	assert.Equal(t, "setup.yml", task.IncludeRole.TasksFrom)
 }
 
-func TestTask_UnmarshalYAML_Good_BecomeFields(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_BecomeFields(t *testing.T) {
 	input := `
 name: Privileged task
 shell: systemctl restart nginx
@@ -252,7 +252,7 @@ become_user: root
 	assert.Equal(t, "root", task.BecomeUser)
 }
 
-func TestTask_UnmarshalYAML_Good_IgnoreErrors(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IgnoreErrors(t *testing.T) {
 	input := `
 name: Might fail
 shell: some risky command
@@ -267,7 +267,7 @@ ignore_errors: true
 
 // --- Inventory data structure ---
 
-func TestInventory_UnmarshalYAML_Good_Complex(t *testing.T) {
+func TestTypes_Inventory_UnmarshalYAML_Good_Complex(t *testing.T) {
 	input := `
 all:
   vars:
@@ -317,7 +317,7 @@ all:
 
 // --- Facts ---
 
-func TestFacts_Struct(t *testing.T) {
+func TestTypes_Facts_Good_Struct(t *testing.T) {
 	facts := Facts{
 		Hostname:     "web1",
 		FQDN:         "web1.example.com",
@@ -341,7 +341,7 @@ func TestFacts_Struct(t *testing.T) {
 
 // --- TaskResult ---
 
-func TestTaskResult_Struct(t *testing.T) {
+func TestTypes_TaskResult_Good_Struct(t *testing.T) {
 	result := TaskResult{
 		Changed: true,
 		Failed:  false,
@@ -358,7 +358,7 @@ func TestTaskResult_Struct(t *testing.T) {
 	assert.Equal(t, 0, result.RC)
 }
 
-func TestTaskResult_WithLoopResults(t *testing.T) {
+func TestTypes_TaskResult_Good_WithLoopResults(t *testing.T) {
 	result := TaskResult{
 		Changed: true,
 		Results: []TaskResult{
@@ -375,7 +375,7 @@ func TestTaskResult_WithLoopResults(t *testing.T) {
 
 // --- KnownModules ---
 
-func TestKnownModules_ContainsExpected(t *testing.T) {
+func TestTypes_KnownModules_Good_ContainsExpected(t *testing.T) {
 	// Verify both FQCN and short forms are present
 	fqcnModules := []string{
 		"ansible.builtin.shell",

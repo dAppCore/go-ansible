@@ -5,11 +5,19 @@ import (
 )
 
 // Playbook represents an Ansible playbook.
+//
+// Example:
+//
+//	playbook := Playbook{Plays: []Play{{Name: "Bootstrap", Hosts: "all"}}}
 type Playbook struct {
 	Plays []Play `yaml:",inline"`
 }
 
 // Play represents a single play in a playbook.
+//
+// Example:
+//
+//	play := Play{Name: "Configure web", Hosts: "webservers", Become: true}
 type Play struct {
 	Name           string            `yaml:"name"`
 	Hosts          string            `yaml:"hosts"`
@@ -30,6 +38,10 @@ type Play struct {
 }
 
 // RoleRef represents a role reference in a play.
+//
+// Example:
+//
+//	role := RoleRef{Role: "nginx", TasksFrom: "install.yml"}
 type RoleRef struct {
 	Role      string         `yaml:"role,omitempty"`
 	Name      string         `yaml:"name,omitempty"` // Alternative to role
@@ -40,6 +52,11 @@ type RoleRef struct {
 }
 
 // UnmarshalYAML handles both string and struct role refs.
+//
+// Example:
+//
+//	var ref RoleRef
+//	_ = yaml.Unmarshal([]byte("common"), &ref)
 func (r *RoleRef) UnmarshalYAML(unmarshal func(any) error) error {
 	// Try string first
 	var s string
@@ -62,6 +79,10 @@ func (r *RoleRef) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 // Task represents an Ansible task.
+//
+// Example:
+//
+//	task := Task{Name: "Install nginx", Module: "apt", Args: map[string]any{"name": "nginx"}}
 type Task struct {
 	Name         string            `yaml:"name,omitempty"`
 	Module       string            `yaml:"-"` // Derived from the module key
@@ -108,6 +129,10 @@ type Task struct {
 }
 
 // LoopControl controls loop behavior.
+//
+// Example:
+//
+//	loop := LoopControl{LoopVar: "item", IndexVar: "idx"}
 type LoopControl struct {
 	LoopVar  string `yaml:"loop_var,omitempty"`
 	IndexVar string `yaml:"index_var,omitempty"`
@@ -117,6 +142,10 @@ type LoopControl struct {
 }
 
 // TaskResult holds the result of executing a task.
+//
+// Example:
+//
+//	result := TaskResult{Changed: true, Stdout: "ok"}
 type TaskResult struct {
 	Changed  bool           `json:"changed"`
 	Failed   bool           `json:"failed"`
@@ -131,11 +160,19 @@ type TaskResult struct {
 }
 
 // Inventory represents Ansible inventory.
+//
+// Example:
+//
+//	inv := Inventory{All: &InventoryGroup{Hosts: map[string]*Host{"web1": {AnsibleHost: "10.0.0.1"}}}}
 type Inventory struct {
 	All *InventoryGroup `yaml:"all"`
 }
 
 // InventoryGroup represents a group in inventory.
+//
+// Example:
+//
+//	group := InventoryGroup{Hosts: map[string]*Host{"db1": {AnsibleHost: "10.0.1.10"}}}
 type InventoryGroup struct {
 	Hosts    map[string]*Host           `yaml:"hosts,omitempty"`
 	Children map[string]*InventoryGroup `yaml:"children,omitempty"`
@@ -143,6 +180,10 @@ type InventoryGroup struct {
 }
 
 // Host represents a host in inventory.
+//
+// Example:
+//
+//	host := Host{AnsibleHost: "192.168.1.10", AnsibleUser: "deploy"}
 type Host struct {
 	AnsibleHost              string `yaml:"ansible_host,omitempty"`
 	AnsiblePort              int    `yaml:"ansible_port,omitempty"`
@@ -157,6 +198,10 @@ type Host struct {
 }
 
 // Facts holds gathered facts about a host.
+//
+// Example:
+//
+//	facts := Facts{Hostname: "web1", Distribution: "Ubuntu", Kernel: "Linux"}
 type Facts struct {
 	Hostname     string `json:"ansible_hostname"`
 	FQDN         string `json:"ansible_fqdn"`
@@ -170,7 +215,13 @@ type Facts struct {
 	IPv4         string `json:"ansible_default_ipv4_address"`
 }
 
-// Known Ansible modules
+// KnownModules lists the Ansible module names recognized by the parser.
+//
+// Example:
+//
+//	if slices.Contains(KnownModules, "ansible.builtin.command") {
+//		// parser accepts command tasks
+//	}
 var KnownModules = []string{
 	// Builtin
 	"ansible.builtin.shell",

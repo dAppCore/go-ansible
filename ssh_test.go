@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewSSHClient(t *testing.T) {
+func TestSSH_NewSSHClient_Good_CustomConfig(t *testing.T) {
 	cfg := SSHConfig{
 		Host: "localhost",
 		Port: 2222,
@@ -23,7 +23,7 @@ func TestNewSSHClient(t *testing.T) {
 	assert.Equal(t, 30*time.Second, client.timeout)
 }
 
-func TestSSHConfig_Defaults(t *testing.T) {
+func TestSSH_NewSSHClient_Good_Defaults(t *testing.T) {
 	cfg := SSHConfig{
 		Host: "localhost",
 	}
