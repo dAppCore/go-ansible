@@ -1,12 +1,9 @@
 package ansible
 
 import (
-	"fmt"
 	"iter"
 	"maps"
-	"path/filepath"
 	"slices"
-	"strings"
 
 	coreio "dappco.re/go/core/io"
 	coreerr "dappco.re/go/core/log"
@@ -42,7 +39,7 @@ func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
 	// Process each play
 	for i := range plays {
 		if err := p.processPlay(&plays[i]); err != nil {
-			return nil, coreerr.E("Parser.ParsePlaybook", fmt.Sprintf("process play %d", i), err)
+			return nil, coreerr.E("Parser.ParsePlaybook", sprintf("process play %d", i), err)
 		}
 	}
 
@@ -93,7 +90,7 @@ func (p *Parser) ParseTasks(path string) ([]Task, error) {
 
 	for i := range tasks {
 		if err := p.extractModule(&tasks[i]); err != nil {
-			return nil, coreerr.E("Parser.ParseTasks", fmt.Sprintf("task %d", i), err)
+			return nil, coreerr.E("Parser.ParseTasks", sprintf("task %d", i), err)
 		}
 	}
 
@@ -124,21 +121,21 @@ func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
 	// Search paths for roles (in order of precedence)
 	searchPaths := []string{
 		// Relative to playbook
-		filepath.Join(p.basePath, "roles", name, "tasks", tasksFrom),
+		joinPath(p.basePath, "roles", name, "tasks", tasksFrom),
 		// Parent directory roles
-		filepath.Join(filepath.Dir(p.basePath), "roles", name, "tasks", tasksFrom),
+		joinPath(pathDir(p.basePath), "roles", name, "tasks", tasksFrom),
 		// Sibling roles directory
-		filepath.Join(p.basePath, "..", "roles", name, "tasks", tasksFrom),
+		joinPath(p.basePath, "..", "roles", name, "tasks", tasksFrom),
 		// playbooks/roles pattern
-		filepath.Join(p.basePath, "playbooks", "roles", name, "tasks", tasksFrom),
+		joinPath(p.basePath, "playbooks", "roles", name, "tasks", tasksFrom),
 		// Common DevOps structure
-		filepath.Join(filepath.Dir(filepath.Dir(p.basePath)), "roles", name, "tasks", tasksFrom),
+		joinPath(pathDir(pathDir(p.basePath)), "roles", name, "tasks", tasksFrom),
 	}
 
 	var tasksPath string
 	for _, sp := range searchPaths {
 		// Clean the path to resolve .. segments
-		sp = filepath.Clean(sp)
+		sp = cleanPath(sp)
 		if coreio.Local.Exists(sp) {
 			tasksPath = sp
 			break
@@ -146,11 +143,11 @@ func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
 	}
 
 	if tasksPath == "" {
-		return nil, coreerr.E("Parser.ParseRole", fmt.Sprintf("role %s not found in search paths: %v", name, searchPaths), nil)
+		return nil, coreerr.E("Parser.ParseRole", sprintf("role %s not found in search paths: %v", name, searchPaths), nil)
 	}
 
 	// Load role defaults
-	defaultsPath := filepath.Join(filepath.Dir(filepath.Dir(tasksPath)), "defaults", "main.yml")
+	defaultsPath := joinPath(pathDir(pathDir(tasksPath)), "defaults", "main.yml")
 	if data, err := coreio.Local.Read(defaultsPath); err == nil {
 		var defaults map[string]any
 		if yaml.Unmarshal([]byte(data), &defaults) == nil {
@@ -163,7 +160,7 @@ func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
 	}
 
 	// Load role vars
-	varsPath := filepath.Join(filepath.Dir(filepath.Dir(tasksPath)), "vars", "main.yml")
+	varsPath := joinPath(pathDir(pathDir(tasksPath)), "vars", "main.yml")
 	if data, err := coreio.Local.Read(varsPath); err == nil {
 		var roleVars map[string]any
 		if yaml.Unmarshal([]byte(data), &roleVars) == nil {
@@ -185,25 +182,25 @@ func (p *Parser) processPlay(play *Play) error {
 
 	for i := range play.PreTasks {
 		if err := p.extractModule(&play.PreTasks[i]); err != nil {
-			return coreerr.E("Parser.processPlay", fmt.Sprintf("pre_task %d", i), err)
+			return coreerr.E("Parser.processPlay", sprintf("pre_task %d", i), err)
 		}
 	}
 
 	for i := range play.Tasks {
 		if err := p.extractModule(&play.Tasks[i]); err != nil {
-			return coreerr.E("Parser.processPlay", fmt.Sprintf("task %d", i), err)
+			return coreerr.E("Parser.processPlay", sprintf("task %d", i), err)
 		}
 	}
 
 	for i := range play.PostTasks {
 		if err := p.extractModule(&play.PostTasks[i]); err != nil {
-			return coreerr.E("Parser.processPlay", fmt.Sprintf("post_task %d", i), err)
+			return coreerr.E("Parser.processPlay", sprintf("post_task %d", i), err)
 		}
 	}
 
 	for i := range play.Handlers {
 		if err := p.extractModule(&play.Handlers[i]); err != nil {
-			return coreerr.E("Parser.processPlay", fmt.Sprintf("handler %d", i), err)
+			return coreerr.E("Parser.processPlay", sprintf("handler %d", i), err)
 		}
 	}
 
@@ -308,20 +305,20 @@ func isModule(key string) bool {
 			return true
 		}
 		// Also check without ansible.builtin. prefix
-		if strings.HasPrefix(m, "ansible.builtin.") {
-			if key == strings.TrimPrefix(m, "ansible.builtin.") {
+		if corexHasPrefix(m, "ansible.builtin.") {
+			if key == corexTrimPrefix(m, "ansible.builtin.") {
 				return true
 			}
 		}
 	}
 	// Accept any key with dots (likely a module)
-	return strings.Contains(key, ".")
+	return contains(key, ".")
 }
 
 // NormalizeModule normalizes a module name to its canonical form.
 func NormalizeModule(name string) string {
 	// Add ansible.builtin. prefix if missing
-	if !strings.Contains(name, ".") {
+	if !contains(name, ".") {
 		return "ansible.builtin." + name
 	}
 	return name

@@ -2,9 +2,6 @@ package anscmd
 
 import (
 	"context"
-	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"dappco.re/go/core"
@@ -16,7 +13,7 @@ import (
 // args extracts all positional arguments from Options.
 func args(opts core.Options) []string {
 	var out []string
-	for _, o := range opts {
+	for _, o := range opts.Items() {
 		if o.Key == "_arg" {
 			if s, ok := o.Value.(string); ok {
 				out = append(out, s)
@@ -34,16 +31,16 @@ func runAnsible(opts core.Options) core.Result {
 	playbookPath := positional[0]
 
 	// Resolve playbook path
-	if !filepath.IsAbs(playbookPath) {
-		playbookPath, _ = filepath.Abs(playbookPath)
+	if !pathIsAbs(playbookPath) {
+		playbookPath = absPath(playbookPath)
 	}
 
 	if !coreio.Local.Exists(playbookPath) {
-		return core.Result{Value: coreerr.E("runAnsible", fmt.Sprintf("playbook not found: %s", playbookPath), nil)}
+		return core.Result{Value: coreerr.E("runAnsible", sprintf("playbook not found: %s", playbookPath), nil)}
 	}
 
 	// Create executor
-	basePath := filepath.Dir(playbookPath)
+	basePath := pathDir(playbookPath)
 	executor := ansible.NewExecutor(basePath)
 	defer executor.Close()
 
@@ -53,16 +50,16 @@ func runAnsible(opts core.Options) core.Result {
 	executor.Verbose = opts.Int("verbose")
 
 	if tags := opts.String("tags"); tags != "" {
-		executor.Tags = strings.Split(tags, ",")
+		executor.Tags = split(tags, ",")
 	}
 	if skipTags := opts.String("skip-tags"); skipTags != "" {
-		executor.SkipTags = strings.Split(skipTags, ",")
+		executor.SkipTags = split(skipTags, ",")
 	}
 
 	// Parse extra vars
 	if extraVars := opts.String("extra-vars"); extraVars != "" {
-		for _, v := range strings.Split(extraVars, ",") {
-			parts := strings.SplitN(v, "=", 2)
+		for _, v := range split(extraVars, ",") {
+			parts := splitN(v, "=", 2)
 			if len(parts) == 2 {
 				executor.SetVar(parts[0], parts[1])
 			}
@@ -71,17 +68,17 @@ func runAnsible(opts core.Options) core.Result {
 
 	// Load inventory
 	if invPath := opts.String("inventory"); invPath != "" {
-		if !filepath.IsAbs(invPath) {
-			invPath, _ = filepath.Abs(invPath)
+		if !pathIsAbs(invPath) {
+			invPath = absPath(invPath)
 		}
 
 		if !coreio.Local.Exists(invPath) {
-			return core.Result{Value: coreerr.E("runAnsible", fmt.Sprintf("inventory not found: %s", invPath), nil)}
+			return core.Result{Value: coreerr.E("runAnsible", sprintf("inventory not found: %s", invPath), nil)}
 		}
 
 		if coreio.Local.IsDir(invPath) {
 			for _, name := range []string{"inventory.yml", "hosts.yml", "inventory.yaml", "hosts.yaml"} {
-				p := filepath.Join(invPath, name)
+				p := joinPath(invPath, name)
 				if coreio.Local.Exists(p) {
 					invPath = p
 					break
@@ -96,8 +93,9 @@ func runAnsible(opts core.Options) core.Result {
 
 	// Set up callbacks
 	executor.OnPlayStart = func(play *ansible.Play) {
-		fmt.Printf("\nPLAY [%s]\n", play.Name)
-		fmt.Println(strings.Repeat("*", 70))
+		print("")
+		print("PLAY [%s]", play.Name)
+		print("%s", repeat("*", 70))
 	}
 
 	executor.OnTaskStart = func(host string, task *ansible.Task) {
@@ -105,9 +103,10 @@ func runAnsible(opts core.Options) core.Result {
 		if taskName == "" {
 			taskName = task.Module
 		}
-		fmt.Printf("\nTASK [%s]\n", taskName)
+		print("")
+		print("TASK [%s]", taskName)
 		if executor.Verbose > 0 {
-			fmt.Printf("host: %s\n", host)
+			print("host: %s", host)
 		}
 	}
 
@@ -121,41 +120,42 @@ func runAnsible(opts core.Options) core.Result {
 			status = "changed"
 		}
 
-		fmt.Printf("%s: [%s]", status, host)
+		line := sprintf("%s: [%s]", status, host)
 		if result.Msg != "" && executor.Verbose > 0 {
-			fmt.Printf(" => %s", result.Msg)
+			line = sprintf("%s => %s", line, result.Msg)
 		}
 		if result.Duration > 0 && executor.Verbose > 1 {
-			fmt.Printf(" (%s)", result.Duration.Round(time.Millisecond))
+			line = sprintf("%s (%s)", line, result.Duration.Round(time.Millisecond))
 		}
-		fmt.Println()
+		print("%s", line)
 
 		if result.Failed && result.Stderr != "" {
-			fmt.Printf("%s\n", result.Stderr)
+			print("%s", result.Stderr)
 		}
 
 		if executor.Verbose > 1 {
 			if result.Stdout != "" {
-				fmt.Printf("stdout: %s\n", strings.TrimSpace(result.Stdout))
+				print("stdout: %s", trimSpace(result.Stdout))
 			}
 		}
 	}
 
 	executor.OnPlayEnd = func(play *ansible.Play) {
-		fmt.Println()
+		print("")
 	}
 
 	// Run playbook
 	ctx := context.Background()
 	start := time.Now()
 
-	fmt.Printf("Running playbook: %s\n", playbookPath)
+	print("Running playbook: %s", playbookPath)
 
 	if err := executor.Run(ctx, playbookPath); err != nil {
 		return core.Result{Value: coreerr.E("runAnsible", "playbook failed", err)}
 	}
 
-	fmt.Printf("\nPlaybook completed in %s\n", time.Since(start).Round(time.Millisecond))
+	print("")
+	print("Playbook completed in %s", time.Since(start).Round(time.Millisecond))
 
 	return core.Result{OK: true}
 }
@@ -167,7 +167,7 @@ func runAnsibleTest(opts core.Options) core.Result {
 	}
 	host := positional[0]
 
-	fmt.Printf("Testing SSH connection to %s...\n", host)
+	print("Testing SSH connection to %s...", host)
 
 	cfg := ansible.SSHConfig{
 		Host:     host,
@@ -194,46 +194,48 @@ func runAnsibleTest(opts core.Options) core.Result {
 	}
 	connectTime := time.Since(start)
 
-	fmt.Printf("Connected in %s\n", connectTime.Round(time.Millisecond))
+	print("Connected in %s", connectTime.Round(time.Millisecond))
 
 	// Gather facts
-	fmt.Println("\nGathering facts...")
+	print("")
+	print("Gathering facts...")
 
 	stdout, _, _, _ := client.Run(ctx, "hostname -f 2>/dev/null || hostname")
-	fmt.Printf("  Hostname: %s\n", strings.TrimSpace(stdout))
+	print("  Hostname: %s", trimSpace(stdout))
 
 	stdout, _, _, _ = client.Run(ctx, "cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'\"' -f2")
 	if stdout != "" {
-		fmt.Printf("  OS: %s\n", strings.TrimSpace(stdout))
+		print("  OS: %s", trimSpace(stdout))
 	}
 
 	stdout, _, _, _ = client.Run(ctx, "uname -r")
-	fmt.Printf("  Kernel: %s\n", strings.TrimSpace(stdout))
+	print("  Kernel: %s", trimSpace(stdout))
 
 	stdout, _, _, _ = client.Run(ctx, "uname -m")
-	fmt.Printf("  Architecture: %s\n", strings.TrimSpace(stdout))
+	print("  Architecture: %s", trimSpace(stdout))
 
 	stdout, _, _, _ = client.Run(ctx, "free -h | grep Mem | awk '{print $2}'")
-	fmt.Printf("  Memory: %s\n", strings.TrimSpace(stdout))
+	print("  Memory: %s", trimSpace(stdout))
 
 	stdout, _, _, _ = client.Run(ctx, "df -h / | tail -1 | awk '{print $2 \" total, \" $4 \" available\"}'")
-	fmt.Printf("  Disk: %s\n", strings.TrimSpace(stdout))
+	print("  Disk: %s", trimSpace(stdout))
 
 	stdout, _, _, err = client.Run(ctx, "docker --version 2>/dev/null")
 	if err == nil {
-		fmt.Printf("  Docker: %s\n", strings.TrimSpace(stdout))
+		print("  Docker: %s", trimSpace(stdout))
 	} else {
-		fmt.Printf("  Docker: not installed\n")
+		print("  Docker: not installed")
 	}
 
 	stdout, _, _, _ = client.Run(ctx, "docker ps 2>/dev/null | grep -q coolify && echo 'running' || echo 'not running'")
-	if strings.TrimSpace(stdout) == "running" {
-		fmt.Printf("  Coolify: running\n")
+	if trimSpace(stdout) == "running" {
+		print("  Coolify: running")
 	} else {
-		fmt.Printf("  Coolify: not installed\n")
+		print("  Coolify: not installed")
 	}
 
-	fmt.Printf("\nSSH test passed\n")
+	print("")
+	print("SSH test passed")
 
 	return core.Result{OK: true}
 }

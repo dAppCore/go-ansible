@@ -2,11 +2,8 @@ package ansible
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"regexp"
 	"slices"
-	"strings"
 	"sync"
 	"text/template"
 	"time"
@@ -86,7 +83,7 @@ func (e *Executor) Run(ctx context.Context, playbookPath string) error {
 
 	for i := range plays {
 		if err := e.runPlay(ctx, &plays[i]); err != nil {
-			return coreerr.E("Executor.Run", fmt.Sprintf("play %d (%s)", i, plays[i].Name), err)
+			return coreerr.E("Executor.Run", sprintf("play %d (%s)", i, plays[i].Name), err)
 		}
 	}
 
@@ -180,7 +177,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	// Parse role tasks
 	tasks, err := e.parser.ParseRole(roleRef.Role, roleRef.TasksFrom)
 	if err != nil {
-		return coreerr.E("executor.runRole", fmt.Sprintf("parse role %s", roleRef.Role), err)
+		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
 	}
 
 	// Merge role vars
@@ -267,7 +264,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, task *Task, p
 	// Get SSH client
 	client, err := e.getClient(host, play)
 	if err != nil {
-		return coreerr.E("Executor.runTaskOnHost", fmt.Sprintf("get client for %s", host), err)
+		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", host), err)
 	}
 
 	// Handle loops
@@ -485,7 +482,7 @@ func (e *Executor) getHosts(pattern string) []string {
 
 		var filtered []string
 		for _, h := range hosts {
-			if limitSet[h] || h == e.Limit || strings.Contains(h, e.Limit) {
+			if limitSet[h] || h == e.Limit || contains(h, e.Limit) {
 				filtered = append(filtered, h)
 			}
 		}
@@ -582,32 +579,32 @@ func (e *Executor) gatherFacts(ctx context.Context, host string, play *Play) err
 	// Hostname
 	stdout, _, _, err := client.Run(ctx, "hostname -f 2>/dev/null || hostname")
 	if err == nil {
-		facts.FQDN = strings.TrimSpace(stdout)
+		facts.FQDN = corexTrimSpace(stdout)
 	}
 
 	stdout, _, _, err = client.Run(ctx, "hostname -s 2>/dev/null || hostname")
 	if err == nil {
-		facts.Hostname = strings.TrimSpace(stdout)
+		facts.Hostname = corexTrimSpace(stdout)
 	}
 
 	// OS info
 	stdout, _, _, _ = client.Run(ctx, "cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID)=' | head -2")
-	for line := range strings.SplitSeq(stdout, "\n") {
-		if strings.HasPrefix(line, "ID=") {
-			facts.Distribution = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+	for _, line := range split(stdout, "\n") {
+		if corexHasPrefix(line, "ID=") {
+			facts.Distribution = trimCutset(corexTrimPrefix(line, "ID="), "\"")
 		}
-		if strings.HasPrefix(line, "VERSION_ID=") {
-			facts.Version = strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
+		if corexHasPrefix(line, "VERSION_ID=") {
+			facts.Version = trimCutset(corexTrimPrefix(line, "VERSION_ID="), "\"")
 		}
 	}
 
 	// Architecture
 	stdout, _, _, _ = client.Run(ctx, "uname -m")
-	facts.Architecture = strings.TrimSpace(stdout)
+	facts.Architecture = corexTrimSpace(stdout)
 
 	// Kernel
 	stdout, _, _, _ = client.Run(ctx, "uname -r")
-	facts.Kernel = strings.TrimSpace(stdout)
+	facts.Kernel = corexTrimSpace(stdout)
 
 	e.mu.Lock()
 	e.facts[host] = facts
@@ -650,11 +647,11 @@ func normalizeConditions(when any) []string {
 
 // evalCondition evaluates a single condition.
 func (e *Executor) evalCondition(cond string, host string) bool {
-	cond = strings.TrimSpace(cond)
+	cond = corexTrimSpace(cond)
 
 	// Handle negation
-	if strings.HasPrefix(cond, "not ") {
-		return !e.evalCondition(strings.TrimPrefix(cond, "not "), host)
+	if corexHasPrefix(cond, "not ") {
+		return !e.evalCondition(corexTrimPrefix(cond, "not "), host)
 	}
 
 	// Handle boolean literals
@@ -667,10 +664,10 @@ func (e *Executor) evalCondition(cond string, host string) bool {
 
 	// Handle registered variable checks
 	// e.g., "result is success", "result.rc == 0"
-	if strings.Contains(cond, " is ") {
-		parts := strings.SplitN(cond, " is ", 2)
-		varName := strings.TrimSpace(parts[0])
-		check := strings.TrimSpace(parts[1])
+	if contains(cond, " is ") {
+		parts := splitN(cond, " is ", 2)
+		varName := corexTrimSpace(parts[0])
+		check := corexTrimSpace(parts[1])
 
 		result := e.getRegisteredVar(host, varName)
 		if result == nil {
@@ -694,7 +691,7 @@ func (e *Executor) evalCondition(cond string, host string) bool {
 	}
 
 	// Handle simple var checks
-	if strings.Contains(cond, " | default(") {
+	if contains(cond, " | default(") {
 		// Extract var name and check if defined
 		re := regexp.MustCompile(`(\w+)\s*\|\s*default\([^)]*\)`)
 		if match := re.FindStringSubmatch(cond); len(match) > 1 {
@@ -730,7 +727,7 @@ func (e *Executor) getRegisteredVar(host string, name string) *TaskResult {
 	defer e.mu.RUnlock()
 
 	// Handle dotted access (e.g., "result.stdout")
-	parts := strings.SplitN(name, ".", 2)
+	parts := splitN(name, ".", 2)
 	varName := parts[0]
 
 	if hostResults, ok := e.results[host]; ok {
@@ -748,7 +745,7 @@ func (e *Executor) templateString(s string, host string, task *Task) string {
 	re := regexp.MustCompile(`\{\{\s*([^}]+)\s*\}\}`)
 
 	return re.ReplaceAllStringFunc(s, func(match string) string {
-		expr := strings.TrimSpace(match[2 : len(match)-2])
+		expr := corexTrimSpace(match[2 : len(match)-2])
 		return e.resolveExpr(expr, host, task)
 	})
 }
@@ -756,20 +753,20 @@ func (e *Executor) templateString(s string, host string, task *Task) string {
 // resolveExpr resolves a template expression.
 func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 	// Handle filters
-	if strings.Contains(expr, " | ") {
-		parts := strings.SplitN(expr, " | ", 2)
+	if contains(expr, " | ") {
+		parts := splitN(expr, " | ", 2)
 		value := e.resolveExpr(parts[0], host, task)
 		return e.applyFilter(value, parts[1])
 	}
 
 	// Handle lookups
-	if strings.HasPrefix(expr, "lookup(") {
+	if corexHasPrefix(expr, "lookup(") {
 		return e.handleLookup(expr)
 	}
 
 	// Handle registered vars
-	if strings.Contains(expr, ".") {
-		parts := strings.SplitN(expr, ".", 2)
+	if contains(expr, ".") {
+		parts := splitN(expr, ".", 2)
 		if result := e.getRegisteredVar(host, parts[0]); result != nil {
 			switch parts[1] {
 			case "stdout":
@@ -777,24 +774,24 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 			case "stderr":
 				return result.Stderr
 			case "rc":
-				return fmt.Sprintf("%d", result.RC)
+				return sprintf("%d", result.RC)
 			case "changed":
-				return fmt.Sprintf("%t", result.Changed)
+				return sprintf("%t", result.Changed)
 			case "failed":
-				return fmt.Sprintf("%t", result.Failed)
+				return sprintf("%t", result.Failed)
 			}
 		}
 	}
 
 	// Check vars
 	if val, ok := e.vars[expr]; ok {
-		return fmt.Sprintf("%v", val)
+		return sprintf("%v", val)
 	}
 
 	// Check task vars
 	if task != nil {
 		if val, ok := task.Vars[expr]; ok {
-			return fmt.Sprintf("%v", val)
+			return sprintf("%v", val)
 		}
 	}
 
@@ -802,7 +799,7 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 	if e.inventory != nil {
 		hostVars := GetHostVars(e.inventory, host)
 		if val, ok := hostVars[expr]; ok {
-			return fmt.Sprintf("%v", val)
+			return sprintf("%v", val)
 		}
 	}
 
@@ -829,15 +826,15 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 
 // applyFilter applies a Jinja2 filter.
 func (e *Executor) applyFilter(value, filter string) string {
-	filter = strings.TrimSpace(filter)
+	filter = corexTrimSpace(filter)
 
 	// Handle default filter
-	if strings.HasPrefix(filter, "default(") {
+	if corexHasPrefix(filter, "default(") {
 		if value == "" || value == "{{ "+filter+" }}" {
 			// Extract default value
 			re := regexp.MustCompile(`default\(([^)]*)\)`)
 			if match := re.FindStringSubmatch(filter); len(match) > 1 {
-				return strings.Trim(match[1], "'\"")
+				return trimCutset(match[1], "'\"")
 			}
 		}
 		return value
@@ -845,8 +842,8 @@ func (e *Executor) applyFilter(value, filter string) string {
 
 	// Handle bool filter
 	if filter == "bool" {
-		lower := strings.ToLower(value)
-		if lower == "true" || lower == "yes" || lower == "1" {
+		lowered := lower(value)
+		if lowered == "true" || lowered == "yes" || lowered == "1" {
 			return "true"
 		}
 		return "false"
@@ -854,7 +851,7 @@ func (e *Executor) applyFilter(value, filter string) string {
 
 	// Handle trim
 	if filter == "trim" {
-		return strings.TrimSpace(value)
+		return corexTrimSpace(value)
 	}
 
 	// Handle b64decode
@@ -880,7 +877,7 @@ func (e *Executor) handleLookup(expr string) string {
 
 	switch lookupType {
 	case "env":
-		return os.Getenv(arg)
+		return env(arg)
 	case "file":
 		if data, err := coreio.Local.Read(arg); err == nil {
 			return data
@@ -978,9 +975,9 @@ func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 
 	// Convert Jinja2 to Go template syntax (basic conversion)
 	tmplContent := content
-	tmplContent = strings.ReplaceAll(tmplContent, "{{", "{{ .")
-	tmplContent = strings.ReplaceAll(tmplContent, "{%", "{{")
-	tmplContent = strings.ReplaceAll(tmplContent, "%}", "}}")
+	tmplContent = replaceAll(tmplContent, "{{", "{{ .")
+	tmplContent = replaceAll(tmplContent, "{%", "{{")
+	tmplContent = replaceAll(tmplContent, "%}", "}}")
 
 	tmpl, err := template.New("template").Parse(tmplContent)
 	if err != nil {
@@ -1010,8 +1007,8 @@ func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 		context["ansible_kernel"] = facts.Kernel
 	}
 
-	var buf strings.Builder
-	if err := tmpl.Execute(&buf, context); err != nil {
+	buf := newBuilder()
+	if err := tmpl.Execute(buf, context); err != nil {
 		return e.templateString(content, host, task), nil
 	}
 

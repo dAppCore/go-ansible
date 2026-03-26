@@ -3,11 +3,8 @@ package ansible
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 
 	coreio "dappco.re/go/core/io"
 	coreerr "dappco.re/go/core/log"
@@ -135,7 +132,7 @@ func (e *Executor) executeModule(ctx context.Context, host string, client *SSHCl
 
 	default:
 		// For unknown modules, try to execute as shell if it looks like a command
-		if strings.Contains(task.Module, " ") || task.Module == "" {
+		if contains(task.Module, " ") || task.Module == "" {
 			return e.moduleShell(ctx, client, args)
 		}
 		return nil, coreerr.E("Executor.executeModule", "unsupported module: "+module, nil)
@@ -186,7 +183,7 @@ func (e *Executor) moduleShell(ctx context.Context, client *SSHClient, args map[
 
 	// Handle chdir
 	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
-		cmd = fmt.Sprintf("cd %q && %s", chdir, cmd)
+		cmd = sprintf("cd %q && %s", chdir, cmd)
 	}
 
 	stdout, stderr, rc, err := client.RunScript(ctx, cmd)
@@ -214,7 +211,7 @@ func (e *Executor) moduleCommand(ctx context.Context, client *SSHClient, args ma
 
 	// Handle chdir
 	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
-		cmd = fmt.Sprintf("cd %q && %s", chdir, cmd)
+		cmd = sprintf("cd %q && %s", chdir, cmd)
 	}
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
@@ -305,20 +302,20 @@ func (e *Executor) moduleCopy(ctx context.Context, client *SSHClient, args map[s
 		}
 	}
 
-	err = client.Upload(ctx, strings.NewReader(content), dest, mode)
+	err = client.Upload(ctx, newReader(content), dest, mode)
 	if err != nil {
 		return nil, err
 	}
 
 	// Handle owner/group (best-effort, errors ignored)
 	if owner := getStringArg(args, "owner", ""); owner != "" {
-		_, _, _, _ = client.Run(ctx, fmt.Sprintf("chown %s %q", owner, dest))
+		_, _, _, _ = client.Run(ctx, sprintf("chown %s %q", owner, dest))
 	}
 	if group := getStringArg(args, "group", ""); group != "" {
-		_, _, _, _ = client.Run(ctx, fmt.Sprintf("chgrp %s %q", group, dest))
+		_, _, _, _ = client.Run(ctx, sprintf("chgrp %s %q", group, dest))
 	}
 
-	return &TaskResult{Changed: true, Msg: fmt.Sprintf("copied to %s", dest)}, nil
+	return &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}, nil
 }
 
 func (e *Executor) moduleTemplate(ctx context.Context, client *SSHClient, args map[string]any, host string, task *Task) (*TaskResult, error) {
@@ -341,12 +338,12 @@ func (e *Executor) moduleTemplate(ctx context.Context, client *SSHClient, args m
 		}
 	}
 
-	err = client.Upload(ctx, strings.NewReader(content), dest, mode)
+	err = client.Upload(ctx, newReader(content), dest, mode)
 	if err != nil {
 		return nil, err
 	}
 
-	return &TaskResult{Changed: true, Msg: fmt.Sprintf("templated to %s", dest)}, nil
+	return &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}, nil
 }
 
 func (e *Executor) moduleFile(ctx context.Context, client *SSHClient, args map[string]any) (*TaskResult, error) {
@@ -363,21 +360,21 @@ func (e *Executor) moduleFile(ctx context.Context, client *SSHClient, args map[s
 	switch state {
 	case "directory":
 		mode := getStringArg(args, "mode", "0755")
-		cmd := fmt.Sprintf("mkdir -p %q && chmod %s %q", path, mode, path)
+		cmd := sprintf("mkdir -p %q && chmod %s %q", path, mode, path)
 		stdout, stderr, rc, err := client.Run(ctx, cmd)
 		if err != nil || rc != 0 {
 			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 		}
 
 	case "absent":
-		cmd := fmt.Sprintf("rm -rf %q", path)
+		cmd := sprintf("rm -rf %q", path)
 		_, stderr, rc, err := client.Run(ctx, cmd)
 		if err != nil || rc != 0 {
 			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
 		}
 
 	case "touch":
-		cmd := fmt.Sprintf("touch %q", path)
+		cmd := sprintf("touch %q", path)
 		_, stderr, rc, err := client.Run(ctx, cmd)
 		if err != nil || rc != 0 {
 			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
@@ -388,7 +385,7 @@ func (e *Executor) moduleFile(ctx context.Context, client *SSHClient, args map[s
 		if src == "" {
 			return nil, coreerr.E("Executor.moduleFile", "src required for link state", nil)
 		}
-		cmd := fmt.Sprintf("ln -sf %q %q", src, path)
+		cmd := sprintf("ln -sf %q %q", src, path)
 		_, stderr, rc, err := client.Run(ctx, cmd)
 		if err != nil || rc != 0 {
 			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
@@ -397,20 +394,20 @@ func (e *Executor) moduleFile(ctx context.Context, client *SSHClient, args map[s
 	case "file":
 		// Ensure file exists and set permissions
 		if mode := getStringArg(args, "mode", ""); mode != "" {
-			_, _, _, _ = client.Run(ctx, fmt.Sprintf("chmod %s %q", mode, path))
+			_, _, _, _ = client.Run(ctx, sprintf("chmod %s %q", mode, path))
 		}
 	}
 
 	// Handle owner/group (best-effort, errors ignored)
 	if owner := getStringArg(args, "owner", ""); owner != "" {
-		_, _, _, _ = client.Run(ctx, fmt.Sprintf("chown %s %q", owner, path))
+		_, _, _, _ = client.Run(ctx, sprintf("chown %s %q", owner, path))
 	}
 	if group := getStringArg(args, "group", ""); group != "" {
-		_, _, _, _ = client.Run(ctx, fmt.Sprintf("chgrp %s %q", group, path))
+		_, _, _, _ = client.Run(ctx, sprintf("chgrp %s %q", group, path))
 	}
 	if recurse := getBoolArg(args, "recurse", false); recurse {
 		if owner := getStringArg(args, "owner", ""); owner != "" {
-			_, _, _, _ = client.Run(ctx, fmt.Sprintf("chown -R %s %q", owner, path))
+			_, _, _, _ = client.Run(ctx, sprintf("chown -R %s %q", owner, path))
 		}
 	}
 
@@ -432,7 +429,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client *SSHClient, args
 
 	if state == "absent" {
 		if regexp != "" {
-			cmd := fmt.Sprintf("sed -i '/%s/d' %q", regexp, path)
+			cmd := sprintf("sed -i '/%s/d' %q", regexp, path)
 			_, stderr, rc, _ := client.Run(ctx, cmd)
 			if rc != 0 {
 				return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
@@ -442,17 +439,17 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client *SSHClient, args
 		// state == present
 		if regexp != "" {
 			// Replace line matching regexp
-			escapedLine := strings.ReplaceAll(line, "/", "\\/")
-			cmd := fmt.Sprintf("sed -i 's/%s/%s/' %q", regexp, escapedLine, path)
+			escapedLine := replaceAll(line, "/", "\\/")
+			cmd := sprintf("sed -i 's/%s/%s/' %q", regexp, escapedLine, path)
 			_, _, rc, _ := client.Run(ctx, cmd)
 			if rc != 0 {
 				// Line not found, append
-				cmd = fmt.Sprintf("echo %q >> %q", line, path)
+				cmd = sprintf("echo %q >> %q", line, path)
 				_, _, _, _ = client.Run(ctx, cmd)
 			}
 		} else if line != "" {
 			// Ensure line is present
-			cmd := fmt.Sprintf("grep -qxF %q %q || echo %q >> %q", line, path, line, path)
+			cmd := sprintf("grep -qxF %q %q || echo %q >> %q", line, path, line, path)
 			_, _, _, _ = client.Run(ctx, cmd)
 		}
 	}
@@ -512,7 +509,7 @@ func (e *Executor) moduleFetch(ctx context.Context, client *SSHClient, args map[
 	}
 
 	// Create dest directory
-	if err := coreio.Local.EnsureDir(filepath.Dir(dest)); err != nil {
+	if err := coreio.Local.EnsureDir(pathDir(dest)); err != nil {
 		return nil, err
 	}
 
@@ -520,7 +517,7 @@ func (e *Executor) moduleFetch(ctx context.Context, client *SSHClient, args map[
 		return nil, err
 	}
 
-	return &TaskResult{Changed: true, Msg: fmt.Sprintf("fetched %s to %s", src, dest)}, nil
+	return &TaskResult{Changed: true, Msg: sprintf("fetched %s to %s", src, dest)}, nil
 }
 
 func (e *Executor) moduleGetURL(ctx context.Context, client *SSHClient, args map[string]any) (*TaskResult, error) {
@@ -531,7 +528,7 @@ func (e *Executor) moduleGetURL(ctx context.Context, client *SSHClient, args map
 	}
 
 	// Use curl or wget
-	cmd := fmt.Sprintf("curl -fsSL -o %q %q || wget -q -O %q %q", dest, url, dest, url)
+	cmd := sprintf("curl -fsSL -o %q %q || wget -q -O %q %q", dest, url, dest, url)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
@@ -539,7 +536,7 @@ func (e *Executor) moduleGetURL(ctx context.Context, client *SSHClient, args map
 
 	// Set mode if specified (best-effort)
 	if mode := getStringArg(args, "mode", ""); mode != "" {
-		_, _, _, _ = client.Run(ctx, fmt.Sprintf("chmod %s %q", mode, dest))
+		_, _, _, _ = client.Run(ctx, sprintf("chmod %s %q", mode, dest))
 	}
 
 	return &TaskResult{Changed: true}, nil
@@ -561,12 +558,12 @@ func (e *Executor) moduleApt(ctx context.Context, client *SSHClient, args map[st
 	switch state {
 	case "present", "installed":
 		if name != "" {
-			cmd = fmt.Sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq %s", name)
+			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq %s", name)
 		}
 	case "absent", "removed":
-		cmd = fmt.Sprintf("DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq %s", name)
+		cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq %s", name)
 	case "latest":
-		cmd = fmt.Sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade %s", name)
+		cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade %s", name)
 	}
 
 	if cmd == "" {
@@ -588,7 +585,7 @@ func (e *Executor) moduleAptKey(ctx context.Context, client *SSHClient, args map
 
 	if state == "absent" {
 		if keyring != "" {
-			_, _, _, _ = client.Run(ctx, fmt.Sprintf("rm -f %q", keyring))
+			_, _, _, _ = client.Run(ctx, sprintf("rm -f %q", keyring))
 		}
 		return &TaskResult{Changed: true}, nil
 	}
@@ -599,9 +596,9 @@ func (e *Executor) moduleAptKey(ctx context.Context, client *SSHClient, args map
 
 	var cmd string
 	if keyring != "" {
-		cmd = fmt.Sprintf("curl -fsSL %q | gpg --dearmor -o %q", url, keyring)
+		cmd = sprintf("curl -fsSL %q | gpg --dearmor -o %q", url, keyring)
 	} else {
-		cmd = fmt.Sprintf("curl -fsSL %q | apt-key add -", url)
+		cmd = sprintf("curl -fsSL %q | apt-key add -", url)
 	}
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
@@ -623,19 +620,19 @@ func (e *Executor) moduleAptRepository(ctx context.Context, client *SSHClient, a
 
 	if filename == "" {
 		// Generate filename from repo
-		filename = strings.ReplaceAll(repo, " ", "-")
-		filename = strings.ReplaceAll(filename, "/", "-")
-		filename = strings.ReplaceAll(filename, ":", "")
+		filename = replaceAll(repo, " ", "-")
+		filename = replaceAll(filename, "/", "-")
+		filename = replaceAll(filename, ":", "")
 	}
 
-	path := fmt.Sprintf("/etc/apt/sources.list.d/%s.list", filename)
+	path := sprintf("/etc/apt/sources.list.d/%s.list", filename)
 
 	if state == "absent" {
-		_, _, _, _ = client.Run(ctx, fmt.Sprintf("rm -f %q", path))
+		_, _, _, _ = client.Run(ctx, sprintf("rm -f %q", path))
 		return &TaskResult{Changed: true}, nil
 	}
 
-	cmd := fmt.Sprintf("echo %q > %q", repo, path)
+	cmd := sprintf("echo %q > %q", repo, path)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
@@ -652,9 +649,9 @@ func (e *Executor) moduleAptRepository(ctx context.Context, client *SSHClient, a
 func (e *Executor) modulePackage(ctx context.Context, client *SSHClient, args map[string]any) (*TaskResult, error) {
 	// Detect package manager and delegate
 	stdout, _, _, _ := client.Run(ctx, "which apt-get yum dnf 2>/dev/null | head -1")
-	stdout = strings.TrimSpace(stdout)
+	stdout = corexTrimSpace(stdout)
 
-	if strings.Contains(stdout, "apt") {
+	if contains(stdout, "apt") {
 		return e.moduleApt(ctx, client, args)
 	}
 
@@ -670,11 +667,11 @@ func (e *Executor) modulePip(ctx context.Context, client *SSHClient, args map[st
 	var cmd string
 	switch state {
 	case "present", "installed":
-		cmd = fmt.Sprintf("%s install %s", executable, name)
+		cmd = sprintf("%s install %s", executable, name)
 	case "absent", "removed":
-		cmd = fmt.Sprintf("%s uninstall -y %s", executable, name)
+		cmd = sprintf("%s uninstall -y %s", executable, name)
 	case "latest":
-		cmd = fmt.Sprintf("%s install --upgrade %s", executable, name)
+		cmd = sprintf("%s install --upgrade %s", executable, name)
 	}
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
@@ -701,21 +698,21 @@ func (e *Executor) moduleService(ctx context.Context, client *SSHClient, args ma
 	if state != "" {
 		switch state {
 		case "started":
-			cmds = append(cmds, fmt.Sprintf("systemctl start %s", name))
+			cmds = append(cmds, sprintf("systemctl start %s", name))
 		case "stopped":
-			cmds = append(cmds, fmt.Sprintf("systemctl stop %s", name))
+			cmds = append(cmds, sprintf("systemctl stop %s", name))
 		case "restarted":
-			cmds = append(cmds, fmt.Sprintf("systemctl restart %s", name))
+			cmds = append(cmds, sprintf("systemctl restart %s", name))
 		case "reloaded":
-			cmds = append(cmds, fmt.Sprintf("systemctl reload %s", name))
+			cmds = append(cmds, sprintf("systemctl reload %s", name))
 		}
 	}
 
 	if enabled != nil {
 		if getBoolArg(args, "enabled", false) {
-			cmds = append(cmds, fmt.Sprintf("systemctl enable %s", name))
+			cmds = append(cmds, sprintf("systemctl enable %s", name))
 		} else {
-			cmds = append(cmds, fmt.Sprintf("systemctl disable %s", name))
+			cmds = append(cmds, sprintf("systemctl disable %s", name))
 		}
 	}
 
@@ -749,7 +746,7 @@ func (e *Executor) moduleUser(ctx context.Context, client *SSHClient, args map[s
 	}
 
 	if state == "absent" {
-		cmd := fmt.Sprintf("userdel -r %s 2>/dev/null || true", name)
+		cmd := sprintf("userdel -r %s 2>/dev/null || true", name)
 		_, _, _, _ = client.Run(ctx, cmd)
 		return &TaskResult{Changed: true}, nil
 	}
@@ -780,12 +777,12 @@ func (e *Executor) moduleUser(ctx context.Context, client *SSHClient, args map[s
 	}
 
 	// Try usermod first, then useradd
-	optsStr := strings.Join(opts, " ")
+	optsStr := join(" ", opts)
 	var cmd string
 	if optsStr == "" {
-		cmd = fmt.Sprintf("id %s >/dev/null 2>&1 || useradd %s", name, name)
+		cmd = sprintf("id %s >/dev/null 2>&1 || useradd %s", name, name)
 	} else {
-		cmd = fmt.Sprintf("id %s >/dev/null 2>&1 && usermod %s %s || useradd %s %s",
+		cmd = sprintf("id %s >/dev/null 2>&1 && usermod %s %s || useradd %s %s",
 			name, optsStr, name, optsStr, name)
 	}
 
@@ -806,7 +803,7 @@ func (e *Executor) moduleGroup(ctx context.Context, client *SSHClient, args map[
 	}
 
 	if state == "absent" {
-		cmd := fmt.Sprintf("groupdel %s 2>/dev/null || true", name)
+		cmd := sprintf("groupdel %s 2>/dev/null || true", name)
 		_, _, _, _ = client.Run(ctx, cmd)
 		return &TaskResult{Changed: true}, nil
 	}
@@ -819,8 +816,8 @@ func (e *Executor) moduleGroup(ctx context.Context, client *SSHClient, args map[
 		opts = append(opts, "-r")
 	}
 
-	cmd := fmt.Sprintf("getent group %s >/dev/null 2>&1 || groupadd %s %s",
-		name, strings.Join(opts, " "), name)
+	cmd := sprintf("getent group %s >/dev/null 2>&1 || groupadd %s %s",
+		name, join(" ", opts), name)
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
@@ -847,7 +844,7 @@ func (e *Executor) moduleURI(ctx context.Context, client *SSHClient, args map[st
 	// Headers
 	if headers, ok := args["headers"].(map[string]any); ok {
 		for k, v := range headers {
-			curlOpts = append(curlOpts, "-H", fmt.Sprintf("%s: %v", k, v))
+			curlOpts = append(curlOpts, "-H", sprintf("%s: %v", k, v))
 		}
 	}
 
@@ -859,14 +856,14 @@ func (e *Executor) moduleURI(ctx context.Context, client *SSHClient, args map[st
 	// Status code
 	curlOpts = append(curlOpts, "-w", "\\n%{http_code}")
 
-	cmd := fmt.Sprintf("curl %s %q", strings.Join(curlOpts, " "), url)
+	cmd := sprintf("curl %s %q", join(" ", curlOpts), url)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil {
 		return &TaskResult{Failed: true, Msg: err.Error()}, nil
 	}
 
 	// Parse status code from last line
-	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	lines := split(corexTrimSpace(stdout), "\n")
 	statusCode := 0
 	if len(lines) > 0 {
 		statusCode, _ = strconv.Atoi(lines[len(lines)-1])
@@ -895,7 +892,7 @@ func (e *Executor) moduleURI(ctx context.Context, client *SSHClient, args map[st
 func (e *Executor) moduleDebug(args map[string]any) (*TaskResult, error) {
 	msg := getStringArg(args, "msg", "")
 	if v, ok := args["var"]; ok {
-		msg = fmt.Sprintf("%v = %v", v, e.vars[fmt.Sprintf("%v", v)])
+		msg = sprintf("%v = %v", v, e.vars[sprintf("%v", v)])
 	}
 
 	return &TaskResult{
@@ -921,7 +918,7 @@ func (e *Executor) moduleAssert(args map[string]any, host string) (*TaskResult, 
 	conditions := normalizeConditions(that)
 	for _, cond := range conditions {
 		if !e.evalCondition(cond, host) {
-			msg := getStringArg(args, "fail_msg", fmt.Sprintf("Assertion failed: %s", cond))
+			msg := getStringArg(args, "fail_msg", sprintf("Assertion failed: %s", cond))
 			return &TaskResult{Failed: true, Msg: msg}, nil
 		}
 	}
@@ -999,7 +996,7 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client *SSHClient, args ma
 	}
 
 	if port > 0 && state == "started" {
-		cmd := fmt.Sprintf("timeout %d bash -c 'until nc -z %s %d; do sleep 1; done'",
+		cmd := sprintf("timeout %d bash -c 'until nc -z %s %d; do sleep 1; done'",
 			timeout, host, port)
 		stdout, stderr, rc, err := client.Run(ctx, cmd)
 		if err != nil || rc != 0 {
@@ -1025,9 +1022,9 @@ func (e *Executor) moduleGit(ctx context.Context, client *SSHClient, args map[st
 	var cmd string
 	if exists {
 		// Fetch and checkout (force to ensure clean state)
-		cmd = fmt.Sprintf("cd %q && git fetch --all && git checkout --force %q", dest, version)
+		cmd = sprintf("cd %q && git fetch --all && git checkout --force %q", dest, version)
 	} else {
-		cmd = fmt.Sprintf("git clone %q %q && cd %q && git checkout %q",
+		cmd = sprintf("git clone %q %q && cd %q && git checkout %q",
 			repo, dest, dest, version)
 	}
 
@@ -1049,7 +1046,7 @@ func (e *Executor) moduleUnarchive(ctx context.Context, client *SSHClient, args 
 	}
 
 	// Create dest directory (best-effort)
-	_, _, _, _ = client.Run(ctx, fmt.Sprintf("mkdir -p %q", dest))
+	_, _, _, _ = client.Run(ctx, sprintf("mkdir -p %q", dest))
 
 	var cmd string
 	if !remote {
@@ -1058,28 +1055,28 @@ func (e *Executor) moduleUnarchive(ctx context.Context, client *SSHClient, args 
 		if err != nil {
 			return nil, coreerr.E("Executor.moduleUnarchive", "read src", err)
 		}
-		tmpPath := "/tmp/ansible_unarchive_" + filepath.Base(src)
-		err = client.Upload(ctx, strings.NewReader(data), tmpPath, 0644)
+		tmpPath := "/tmp/ansible_unarchive_" + pathBase(src)
+		err = client.Upload(ctx, newReader(data), tmpPath, 0644)
 		if err != nil {
 			return nil, err
 		}
 		src = tmpPath
-		defer func() { _, _, _, _ = client.Run(ctx, fmt.Sprintf("rm -f %q", tmpPath)) }()
+		defer func() { _, _, _, _ = client.Run(ctx, sprintf("rm -f %q", tmpPath)) }()
 	}
 
 	// Detect archive type and extract
-	if strings.HasSuffix(src, ".tar.gz") || strings.HasSuffix(src, ".tgz") {
-		cmd = fmt.Sprintf("tar -xzf %q -C %q", src, dest)
-	} else if strings.HasSuffix(src, ".tar.xz") {
-		cmd = fmt.Sprintf("tar -xJf %q -C %q", src, dest)
-	} else if strings.HasSuffix(src, ".tar.bz2") {
-		cmd = fmt.Sprintf("tar -xjf %q -C %q", src, dest)
-	} else if strings.HasSuffix(src, ".tar") {
-		cmd = fmt.Sprintf("tar -xf %q -C %q", src, dest)
-	} else if strings.HasSuffix(src, ".zip") {
-		cmd = fmt.Sprintf("unzip -o %q -d %q", src, dest)
+	if hasSuffix(src, ".tar.gz") || hasSuffix(src, ".tgz") {
+		cmd = sprintf("tar -xzf %q -C %q", src, dest)
+	} else if hasSuffix(src, ".tar.xz") {
+		cmd = sprintf("tar -xJf %q -C %q", src, dest)
+	} else if hasSuffix(src, ".tar.bz2") {
+		cmd = sprintf("tar -xjf %q -C %q", src, dest)
+	} else if hasSuffix(src, ".tar") {
+		cmd = sprintf("tar -xf %q -C %q", src, dest)
+	} else if hasSuffix(src, ".zip") {
+		cmd = sprintf("unzip -o %q -d %q", src, dest)
 	} else {
-		cmd = fmt.Sprintf("tar -xf %q -C %q", src, dest) // Guess tar
+		cmd = sprintf("tar -xf %q -C %q", src, dest) // Guess tar
 	}
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
@@ -1097,7 +1094,7 @@ func getStringArg(args map[string]any, key, def string) string {
 		if s, ok := v.(string); ok {
 			return s
 		}
-		return fmt.Sprintf("%v", v)
+		return sprintf("%v", v)
 	}
 	return def
 }
@@ -1108,8 +1105,8 @@ func getBoolArg(args map[string]any, key string, def bool) bool {
 		case bool:
 			return b
 		case string:
-			lower := strings.ToLower(b)
-			return lower == "true" || lower == "yes" || lower == "1"
+			lowered := lower(b)
+			return lowered == "true" || lowered == "yes" || lowered == "1"
 		}
 	}
 	return def
@@ -1124,14 +1121,14 @@ func (e *Executor) moduleHostname(ctx context.Context, client *SSHClient, args m
 	}
 
 	// Set hostname
-	cmd := fmt.Sprintf("hostnamectl set-hostname %q || hostname %q", name, name)
+	cmd := sprintf("hostnamectl set-hostname %q || hostname %q", name, name)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 	}
 
 	// Update /etc/hosts if needed (best-effort)
-	_, _, _, _ = client.Run(ctx, fmt.Sprintf("sed -i 's/127.0.1.1.*/127.0.1.1\t%s/' /etc/hosts", name))
+	_, _, _, _ = client.Run(ctx, sprintf("sed -i 's/127.0.1.1.*/127.0.1.1\t%s/' /etc/hosts", name))
 
 	return &TaskResult{Changed: true}, nil
 }
@@ -1147,13 +1144,13 @@ func (e *Executor) moduleSysctl(ctx context.Context, client *SSHClient, args map
 
 	if state == "absent" {
 		// Remove from sysctl.conf
-		cmd := fmt.Sprintf("sed -i '/%s/d' /etc/sysctl.conf", name)
+		cmd := sprintf("sed -i '/%s/d' /etc/sysctl.conf", name)
 		_, _, _, _ = client.Run(ctx, cmd)
 		return &TaskResult{Changed: true}, nil
 	}
 
 	// Set value
-	cmd := fmt.Sprintf("sysctl -w %s=%s", name, value)
+	cmd := sprintf("sysctl -w %s=%s", name, value)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
@@ -1161,7 +1158,7 @@ func (e *Executor) moduleSysctl(ctx context.Context, client *SSHClient, args map
 
 	// Persist if requested (best-effort)
 	if getBoolArg(args, "sysctl_set", true) {
-		cmd = fmt.Sprintf("grep -q '^%s' /etc/sysctl.conf && sed -i 's/^%s.*/%s=%s/' /etc/sysctl.conf || echo '%s=%s' >> /etc/sysctl.conf",
+		cmd = sprintf("grep -q '^%s' /etc/sysctl.conf && sed -i 's/^%s.*/%s=%s/' /etc/sysctl.conf || echo '%s=%s' >> /etc/sysctl.conf",
 			name, name, name, value, name, value)
 		_, _, _, _ = client.Run(ctx, cmd)
 	}
@@ -1184,7 +1181,7 @@ func (e *Executor) moduleCron(ctx context.Context, client *SSHClient, args map[s
 	if state == "absent" {
 		if name != "" {
 			// Remove by name (comment marker)
-			cmd := fmt.Sprintf("crontab -u %s -l 2>/dev/null | grep -v '# %s' | grep -v '%s' | crontab -u %s -",
+			cmd := sprintf("crontab -u %s -l 2>/dev/null | grep -v '# %s' | grep -v '%s' | crontab -u %s -",
 				user, name, job, user)
 			_, _, _, _ = client.Run(ctx, cmd)
 		}
@@ -1192,11 +1189,11 @@ func (e *Executor) moduleCron(ctx context.Context, client *SSHClient, args map[s
 	}
 
 	// Build cron entry
-	schedule := fmt.Sprintf("%s %s %s %s %s", minute, hour, day, month, weekday)
-	entry := fmt.Sprintf("%s %s # %s", schedule, job, name)
+	schedule := sprintf("%s %s %s %s %s", minute, hour, day, month, weekday)
+	entry := sprintf("%s %s # %s", schedule, job, name)
 
 	// Add to crontab
-	cmd := fmt.Sprintf("(crontab -u %s -l 2>/dev/null | grep -v '# %s' ; echo %q) | crontab -u %s -",
+	cmd := sprintf("(crontab -u %s -l 2>/dev/null | grep -v '# %s' ; echo %q) | crontab -u %s -",
 		user, name, entry, user)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
@@ -1220,14 +1217,14 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client *SSHClient, arg
 	state := getStringArg(args, "state", "present")
 	create := getBoolArg(args, "create", false)
 
-	beginMarker := strings.Replace(marker, "{mark}", "BEGIN", 1)
-	endMarker := strings.Replace(marker, "{mark}", "END", 1)
+	beginMarker := replaceN(marker, "{mark}", "BEGIN", 1)
+	endMarker := replaceN(marker, "{mark}", "END", 1)
 
 	if state == "absent" {
 		// Remove block
-		cmd := fmt.Sprintf("sed -i '/%s/,/%s/d' %q",
-			strings.ReplaceAll(beginMarker, "/", "\\/"),
-			strings.ReplaceAll(endMarker, "/", "\\/"),
+		cmd := sprintf("sed -i '/%s/,/%s/d' %q",
+			replaceAll(beginMarker, "/", "\\/"),
+			replaceAll(endMarker, "/", "\\/"),
 			path)
 		_, _, _, _ = client.Run(ctx, cmd)
 		return &TaskResult{Changed: true}, nil
@@ -1235,20 +1232,20 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client *SSHClient, arg
 
 	// Create file if needed (best-effort)
 	if create {
-		_, _, _, _ = client.Run(ctx, fmt.Sprintf("touch %q", path))
+		_, _, _, _ = client.Run(ctx, sprintf("touch %q", path))
 	}
 
 	// Remove existing block and add new one
-	escapedBlock := strings.ReplaceAll(block, "'", "'\\''")
-	cmd := fmt.Sprintf(`
+	escapedBlock := replaceAll(block, "'", "'\\''")
+	cmd := sprintf(`
 sed -i '/%s/,/%s/d' %q 2>/dev/null || true
 cat >> %q << 'BLOCK_EOF'
 %s
 %s
 %s
 BLOCK_EOF
-`, strings.ReplaceAll(beginMarker, "/", "\\/"),
-		strings.ReplaceAll(endMarker, "/", "\\/"),
+`, replaceAll(beginMarker, "/", "\\/"),
+		replaceAll(endMarker, "/", "\\/"),
 		path, path, beginMarker, escapedBlock, endMarker)
 
 	stdout, stderr, rc, err := client.RunScript(ctx, cmd)
@@ -1294,10 +1291,10 @@ func (e *Executor) moduleReboot(ctx context.Context, client *SSHClient, args map
 	msg := getStringArg(args, "msg", "Reboot initiated by Ansible")
 
 	if preRebootDelay > 0 {
-		cmd := fmt.Sprintf("sleep %d && shutdown -r now '%s' &", preRebootDelay, msg)
+		cmd := sprintf("sleep %d && shutdown -r now '%s' &", preRebootDelay, msg)
 		_, _, _, _ = client.Run(ctx, cmd)
 	} else {
-		_, _, _, _ = client.Run(ctx, fmt.Sprintf("shutdown -r now '%s' &", msg))
+		_, _, _, _ = client.Run(ctx, sprintf("shutdown -r now '%s' &", msg))
 	}
 
 	return &TaskResult{Changed: true, Msg: "Reboot initiated"}, nil
@@ -1336,13 +1333,13 @@ func (e *Executor) moduleUFW(ctx context.Context, client *SSHClient, args map[st
 	if rule != "" && port != "" {
 		switch rule {
 		case "allow":
-			cmd = fmt.Sprintf("ufw allow %s/%s", port, proto)
+			cmd = sprintf("ufw allow %s/%s", port, proto)
 		case "deny":
-			cmd = fmt.Sprintf("ufw deny %s/%s", port, proto)
+			cmd = sprintf("ufw deny %s/%s", port, proto)
 		case "reject":
-			cmd = fmt.Sprintf("ufw reject %s/%s", port, proto)
+			cmd = sprintf("ufw reject %s/%s", port, proto)
 		case "limit":
-			cmd = fmt.Sprintf("ufw limit %s/%s", port, proto)
+			cmd = sprintf("ufw limit %s/%s", port, proto)
 		}
 
 		stdout, stderr, rc, err := client.Run(ctx, cmd)
@@ -1364,11 +1361,11 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client *SSHClient, a
 	}
 
 	// Get user's home directory
-	stdout, _, _, err := client.Run(ctx, fmt.Sprintf("getent passwd %s | cut -d: -f6", user))
+	stdout, _, _, err := client.Run(ctx, sprintf("getent passwd %s | cut -d: -f6", user))
 	if err != nil {
 		return nil, coreerr.E("Executor.moduleAuthorizedKey", "get home dir", err)
 	}
-	home := strings.TrimSpace(stdout)
+	home := corexTrimSpace(stdout)
 	if home == "" {
 		home = "/root"
 		if user != "root" {
@@ -1376,22 +1373,22 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client *SSHClient, a
 		}
 	}
 
-	authKeysPath := filepath.Join(home, ".ssh", "authorized_keys")
+	authKeysPath := joinPath(home, ".ssh", "authorized_keys")
 
 	if state == "absent" {
 		// Remove key
-		escapedKey := strings.ReplaceAll(key, "/", "\\/")
-		cmd := fmt.Sprintf("sed -i '/%s/d' %q 2>/dev/null || true", escapedKey[:40], authKeysPath)
+		escapedKey := replaceAll(key, "/", "\\/")
+		cmd := sprintf("sed -i '/%s/d' %q 2>/dev/null || true", escapedKey[:40], authKeysPath)
 		_, _, _, _ = client.Run(ctx, cmd)
 		return &TaskResult{Changed: true}, nil
 	}
 
 	// Ensure .ssh directory exists (best-effort)
-	_, _, _, _ = client.Run(ctx, fmt.Sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
-		filepath.Dir(authKeysPath), filepath.Dir(authKeysPath), user, user, filepath.Dir(authKeysPath)))
+	_, _, _, _ = client.Run(ctx, sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
+		pathDir(authKeysPath), pathDir(authKeysPath), user, user, pathDir(authKeysPath)))
 
 	// Add key if not present
-	cmd := fmt.Sprintf("grep -qF %q %q 2>/dev/null || echo %q >> %q",
+	cmd := sprintf("grep -qF %q %q 2>/dev/null || echo %q >> %q",
 		key[:40], authKeysPath, key, authKeysPath)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
@@ -1399,7 +1396,7 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client *SSHClient, a
 	}
 
 	// Fix permissions (best-effort)
-	_, _, _, _ = client.Run(ctx, fmt.Sprintf("chmod 600 %q && chown %s:%s %q",
+	_, _, _, _ = client.Run(ctx, sprintf("chmod 600 %q && chown %s:%s %q",
 		authKeysPath, user, user, authKeysPath))
 
 	return &TaskResult{Changed: true}, nil
@@ -1416,13 +1413,13 @@ func (e *Executor) moduleDockerCompose(ctx context.Context, client *SSHClient, a
 	var cmd string
 	switch state {
 	case "present":
-		cmd = fmt.Sprintf("cd %q && docker compose up -d", projectSrc)
+		cmd = sprintf("cd %q && docker compose up -d", projectSrc)
 	case "absent":
-		cmd = fmt.Sprintf("cd %q && docker compose down", projectSrc)
+		cmd = sprintf("cd %q && docker compose down", projectSrc)
 	case "restarted":
-		cmd = fmt.Sprintf("cd %q && docker compose restart", projectSrc)
+		cmd = sprintf("cd %q && docker compose restart", projectSrc)
 	default:
-		cmd = fmt.Sprintf("cd %q && docker compose up -d", projectSrc)
+		cmd = sprintf("cd %q && docker compose up -d", projectSrc)
 	}
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
@@ -1431,7 +1428,7 @@ func (e *Executor) moduleDockerCompose(ctx context.Context, client *SSHClient, a
 	}
 
 	// Heuristic for changed
-	changed := !strings.Contains(stdout, "Up to date") && !strings.Contains(stderr, "Up to date")
+	changed := !contains(stdout, "Up to date") && !contains(stderr, "Up to date")
 
 	return &TaskResult{Changed: changed, Stdout: stdout}, nil
 }
