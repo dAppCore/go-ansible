@@ -914,6 +914,27 @@ func TestModulesAdv_ModuleURI_Good_ReturnContent(t *testing.T) {
 	assert.Equal(t, 200, result.Data["status"])
 }
 
+func TestModulesAdv_ModuleURI_Good_JSONBodyFormat(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl`, "{\"created\":true}\n201", "", 0)
+
+	result, err := moduleURIWithClient(e, mock, map[string]any{
+		"url":         "https://api.example.com/users",
+		"method":      "POST",
+		"body_format": "json",
+		"body": map[string]any{
+			"name": "test",
+		},
+		"status_code": 201,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, 201, result.RC)
+	assert.True(t, mock.containsSubstring(`-d "{\"name\":\"test\"}"`))
+	assert.True(t, mock.containsSubstring("Content-Type: application/json"))
+}
+
 func TestModulesAdv_ModuleURI_Good_MultipleExpectedStatuses(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "\n202", "", 0)

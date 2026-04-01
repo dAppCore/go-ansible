@@ -3,6 +3,7 @@ package ansible
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path"
@@ -1005,6 +1006,7 @@ func (e *Executor) moduleGroup(ctx context.Context, client sshExecutorClient, ar
 func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
 	url := getStringArg(args, "url", "")
 	method := getStringArg(args, "method", "GET")
+	bodyFormat := lower(getStringArg(args, "body_format", ""))
 	returnContent := getBoolArg(args, "return_content", false)
 
 	if url == "" {
@@ -1018,13 +1020,22 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	// Headers
 	if headers, ok := args["headers"].(map[string]any); ok {
 		for k, v := range headers {
-			curlOpts = append(curlOpts, "-H", sprintf("%s: %v", k, v))
+			curlOpts = append(curlOpts, "-H", sprintf("%q", sprintf("%s: %v", k, v)))
 		}
 	}
 
 	// Body
-	if body := getStringArg(args, "body", ""); body != "" {
-		curlOpts = append(curlOpts, "-d", body)
+	if body := args["body"]; body != nil {
+		bodyText, err := renderURIBody(body, bodyFormat)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleURI", "render body", err)
+		}
+		if bodyText != "" {
+			curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
+			if bodyFormat == "json" && !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
+				curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
+			}
+		}
 	}
 
 	// Status code
@@ -1065,6 +1076,42 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 		RC:      statusCode,
 		Data:    data,
 	}, nil
+}
+
+func renderURIBody(body any, bodyFormat string) (string, error) {
+	switch bodyFormat {
+	case "", "raw":
+		return sprintf("%v", body), nil
+	case "json":
+		switch v := body.(type) {
+		case string:
+			return v, nil
+		case []byte:
+			return string(v), nil
+		default:
+			data, err := json.Marshal(v)
+			if err != nil {
+				return "", err
+			}
+			return string(data), nil
+		}
+	default:
+		return sprintf("%v", body), nil
+	}
+}
+
+func headersMap(args map[string]any) map[string]any {
+	headers, _ := args["headers"].(map[string]any)
+	return headers
+}
+
+func hasHeaderIgnoreCase(headers map[string]any, name string) bool {
+	for key := range headers {
+		if lower(key) == lower(name) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Misc Modules ---

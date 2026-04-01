@@ -1469,6 +1469,7 @@ func moduleArchiveWithClient(_ *Executor, client sshRunner, args map[string]any)
 func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
 	url := getStringArg(args, "url", "")
 	method := getStringArg(args, "method", "GET")
+	bodyFormat := lower(getStringArg(args, "body_format", ""))
 	returnContent := getBoolArg(args, "return_content", false)
 
 	if url == "" {
@@ -1482,13 +1483,22 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	// Headers
 	if headers, ok := args["headers"].(map[string]any); ok {
 		for k, v := range headers {
-			curlOpts = append(curlOpts, "-H", sprintf("%s: %v", k, v))
+			curlOpts = append(curlOpts, "-H", sprintf("%q", sprintf("%s: %v", k, v)))
 		}
 	}
 
 	// Body
-	if body := getStringArg(args, "body", ""); body != "" {
-		curlOpts = append(curlOpts, "-d", body)
+	if body := args["body"]; body != nil {
+		bodyText, err := renderURIBody(body, bodyFormat)
+		if err != nil {
+			return nil, mockWrap("moduleURIWithClient", "render body", err)
+		}
+		if bodyText != "" {
+			curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
+			if bodyFormat == "json" && !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
+				curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
+			}
+		}
 	}
 
 	// Status code
