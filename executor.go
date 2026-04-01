@@ -502,6 +502,16 @@ func (e *Executor) runLoop(ctx context.Context, host string, client *SSHClient, 
 		}
 		results = append(results, *result)
 
+		if task.LoopControl != nil && task.LoopControl.Pause > 0 && i < len(items)-1 {
+			timer := time.NewTimer(time.Duration(task.LoopControl.Pause) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+
 		if result.Failed && !task.IgnoreErrors {
 			break
 		}

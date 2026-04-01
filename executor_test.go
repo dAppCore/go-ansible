@@ -3,6 +3,7 @@ package ansible
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -204,6 +205,26 @@ func TestExecutor_RunTaskOnHosts_Good_RunOnceSharesRegisteredResult(t *testing.T
 	require.NotNil(t, e.results["host2"]["debug_result"])
 	assert.Equal(t, "hello", e.results["host1"]["debug_result"].Msg)
 	assert.Equal(t, "hello", e.results["host2"]["debug_result"].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopControlPause(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		Name:   "Pause between loop items",
+		Module: "debug",
+		Args:   map[string]any{"msg": "ok"},
+		Loop:   []any{"one", "two"},
+		LoopControl: &LoopControl{
+			Pause: 1,
+		},
+	}
+
+	start := time.Now()
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
 }
 
 func TestExecutor_RunTaskWithRetries_Good_UntilSuccess(t *testing.T) {
