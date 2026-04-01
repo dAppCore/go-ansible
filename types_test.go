@@ -265,6 +265,54 @@ reboot:
 	}
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_ShortFormCommunityModules(t *testing.T) {
+	cases := []struct {
+		name       string
+		input      string
+		wantModule string
+	}{
+		{
+			name: "authorized_key",
+			input: `
+name: Install SSH key
+authorized_key:
+  user: deploy
+  key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD
+`,
+			wantModule: "authorized_key",
+		},
+		{
+			name: "ufw",
+			input: `
+name: Allow SSH
+ufw:
+  rule: allow
+  port: "22"
+`,
+			wantModule: "ufw",
+		},
+		{
+			name: "docker_compose",
+			input: `
+name: Start stack
+docker_compose:
+  project_src: /opt/app
+`,
+			wantModule: "docker_compose",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var task Task
+			err := yaml.Unmarshal([]byte(tc.input), &task)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantModule, task.Module)
+		})
+	}
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotifyList(t *testing.T) {
 	input := `
 name: Install package

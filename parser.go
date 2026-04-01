@@ -414,6 +414,9 @@ func isModule(key string) bool {
 //
 //	module := NormalizeModule("shell")
 func NormalizeModule(name string) string {
+	if canonical, ok := ModuleAliases[name]; ok {
+		return canonical
+	}
 	// Add ansible.builtin. prefix if missing
 	if !contains(name, ".") {
 		return "ansible.builtin." + name

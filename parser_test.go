@@ -809,6 +809,13 @@ func TestParser_NormalizeModule_Good(t *testing.T) {
 	assert.Equal(t, "ansible.builtin.apt", NormalizeModule("apt"))
 }
 
+func TestParser_NormalizeModule_Good_CommunityAliases(t *testing.T) {
+	assert.Equal(t, "ansible.posix.authorized_key", NormalizeModule("authorized_key"))
+	assert.Equal(t, "community.general.ufw", NormalizeModule("ufw"))
+	assert.Equal(t, "community.docker.docker_compose", NormalizeModule("docker_compose"))
+	assert.Equal(t, "community.docker.docker_compose_v2", NormalizeModule("docker_compose_v2"))
+}
+
 func TestParser_NormalizeModule_Good_AlreadyFQCN(t *testing.T) {
 	assert.Equal(t, "ansible.builtin.shell", NormalizeModule("ansible.builtin.shell"))
 	assert.Equal(t, "community.general.ufw", NormalizeModule("community.general.ufw"))

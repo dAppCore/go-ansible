@@ -231,6 +231,28 @@ func TestExecutor_RunTaskOnHost_Good_DelegateToUsesDelegatedClient(t *testing.T)
 	assert.Equal(t, 1, mock.commandCount())
 }
 
+func TestExecutor_ExecuteModule_Good_ShortFormCommunityAlias(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Install SSH key",
+		Module: "authorized_key",
+		Args: map[string]any{
+			"user": "deploy",
+			"key":  "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDshortformalias",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`getent passwd deploy`))
+	assert.True(t, mock.hasExecuted(`authorized_keys`))
+}
+
 func TestExecutor_RunTaskOnHost_Good_EnvironmentMergesForCommand(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
