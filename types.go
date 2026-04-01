@@ -264,6 +264,10 @@ var KnownModules = []string{
 	"ansible.builtin.group_by",
 	"ansible.builtin.meta",
 	"ansible.builtin.setup",
+	"community.general.ufw",
+	"ansible.posix.authorized_key",
+	"community.docker.docker_compose",
+	"community.docker.docker_compose_v2",
 
 	// Short forms (legacy)
 	"shell",

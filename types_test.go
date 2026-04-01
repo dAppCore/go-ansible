@@ -462,6 +462,10 @@ func TestTypes_KnownModules_Good_ContainsExpected(t *testing.T) {
 		"ansible.builtin.systemd",
 		"ansible.builtin.debug",
 		"ansible.builtin.set_fact",
+		"community.general.ufw",
+		"ansible.posix.authorized_key",
+		"community.docker.docker_compose",
+		"community.docker.docker_compose_v2",
 	}
 	for _, mod := range fqcnModules {
 		assert.Contains(t, KnownModules, mod, "expected FQCN module %s", mod)
