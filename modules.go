@@ -254,10 +254,7 @@ func (e *Executor) moduleShell(ctx context.Context, client sshExecutorClient, ar
 }
 
 func (e *Executor) moduleCommand(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	cmd := getStringArg(args, "_raw_params", "")
-	if cmd == "" {
-		cmd = getStringArg(args, "cmd", "")
-	}
+	cmd := buildCommandModuleCommand(args)
 	if cmd == "" {
 		return nil, coreerr.E("Executor.moduleCommand", "no command specified", nil)
 	}
@@ -287,6 +284,62 @@ func (e *Executor) moduleCommand(ctx context.Context, client sshExecutorClient, 
 		RC:      rc,
 		Failed:  rc != 0,
 	}, nil
+}
+
+func buildCommandModuleCommand(args map[string]any) string {
+	if argv := commandArgv(args); len(argv) > 0 {
+		return join(" ", quoteArgs(argv))
+	}
+
+	cmd := getStringArg(args, "_raw_params", "")
+	if cmd == "" {
+		cmd = getStringArg(args, "cmd", "")
+	}
+	return cmd
+}
+
+func commandArgv(args map[string]any) []string {
+	raw, ok := args["argv"]
+	if !ok {
+		return nil
+	}
+
+	switch v := raw.(type) {
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if item != "" {
+				out = append(out, item)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				if s != "" {
+					out = append(out, s)
+				}
+				continue
+			}
+			s := sprintf("%v", item)
+			if s != "" && s != "<nil>" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	default:
+		s := sprintf("%v", v)
+		if s == "" || s == "<nil>" {
+			return nil
+		}
+		return []string{s}
+	}
 }
 
 func shouldSkipCommandModule(ctx context.Context, client sshExecutorClient, args map[string]any) (bool, error) {

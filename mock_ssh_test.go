@@ -532,10 +532,7 @@ func moduleShellWithClient(_ *Executor, client sshRunner, args map[string]any) (
 }
 
 func moduleCommandWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	cmd := getStringArg(args, "_raw_params", "")
-	if cmd == "" {
-		cmd = getStringArg(args, "cmd", "")
-	}
+	cmd := buildCommandModuleCommand(args)
 	if cmd == "" {
 		return nil, mockError("moduleCommandWithClient", "command: no command specified")
 	}

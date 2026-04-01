@@ -219,6 +219,25 @@ func TestModulesCmd_ModuleCommand_Good_CmdArg(t *testing.T) {
 	assert.True(t, mock.hasExecutedMethod("Run", "whoami"))
 }
 
+func TestModulesCmd_ModuleCommand_Good_Argv(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`"echo".*"hello world"`, "hello world\n", "", 0)
+
+	task := &Task{
+		Module: "command",
+		Args: map[string]any{
+			"argv": []any{"echo", "hello world"},
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "hello world\n", result.Stdout)
+	assert.True(t, mock.hasExecuted(`hello world`))
+}
+
 func TestModulesCmd_ModuleCommand_Good_WithChdir(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`cd "/var/log" && ls`, "syslog\n", "", 0)
