@@ -619,6 +619,44 @@ func TestExecutorExtra_ParseTasksIter_Bad_InvalidFile(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestExecutorExtra_RunIncludeTasks_Good_RelativePath(t *testing.T) {
+	dir := t.TempDir()
+	includedPath := joinPath(dir, "included.yml")
+	yaml := `- name: Included first task
+  debug:
+    msg: first
+
+- name: Included second task
+  debug:
+    msg: second
+`
+	require.NoError(t, writeTestFile(includedPath, []byte(yaml), 0644))
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Include tasks",
+		Hosts:       "localhost",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:         "Load included tasks",
+				IncludeTasks: "included.yml",
+			},
+		},
+	}
+
+	e := NewExecutor(dir)
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	assert.Contains(t, started, "localhost:Included first task")
+	assert.Contains(t, started, "localhost:Included second task")
+}
+
 func TestExecutorExtra_GetHostsIter_Good(t *testing.T) {
 	inv := &Inventory{
 		All: &InventoryGroup{

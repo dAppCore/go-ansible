@@ -126,6 +126,8 @@ func (p *Parser) ParseInventory(path string) (*Inventory, error) {
 //
 //	tasks, err := parser.ParseTasks("/workspace/roles/web/tasks/main.yml")
 func (p *Parser) ParseTasks(path string) ([]Task, error) {
+	path = p.resolvePath(path)
+
 	data, err := coreio.Local.Read(path)
 	if err != nil {
 		return nil, coreerr.E("Parser.ParseTasks", "read tasks", err)
@@ -143,6 +145,25 @@ func (p *Parser) ParseTasks(path string) ([]Task, error) {
 	}
 
 	return tasks, nil
+}
+
+// resolvePath resolves a possibly relative path against the parser base path.
+func (p *Parser) resolvePath(path string) string {
+	if path == "" || pathIsAbs(path) || p.basePath == "" {
+		return path
+	}
+
+	candidates := []string{
+		joinPath(p.basePath, path),
+		path,
+	}
+	for _, candidate := range candidates {
+		if coreio.Local.Exists(candidate) {
+			return candidate
+		}
+	}
+
+	return joinPath(p.basePath, path)
 }
 
 // ParseTasksIter returns an iterator for tasks in a tasks file.
