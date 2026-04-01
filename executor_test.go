@@ -377,6 +377,37 @@ func TestExecutor_RunTaskOnHosts_Good_MetaFlushesHandlers(t *testing.T) {
 	assert.Equal(t, []string{"change config", "flush handlers", "restart app"}, executed)
 }
 
+func TestExecutor_RunPlay_Good_MetaEndPlayStopsRemainingTasks(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "all",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{Name: "before", Module: "debug", Args: map[string]any{"msg": "before"}},
+			{Name: "stop", Module: "meta", Args: map[string]any{"_raw_params": "end_play"}},
+			{Name: "after", Module: "debug", Args: map[string]any{"msg": "after"}},
+		},
+	}
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+	assert.Equal(t, []string{"before", "stop"}, executed)
+}
+
 func TestExecutor_NormalizeConditions_Good_StringSlice(t *testing.T) {
 	result := normalizeConditions([]string{"cond1", "cond2"})
 	assert.Equal(t, []string{"cond1", "cond2"}, result)

@@ -2,6 +2,7 @@ package ansible
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"slices"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 	coreio "dappco.re/go/core/io"
 	coreerr "dappco.re/go/core/log"
 )
+
+var errEndPlay = errors.New("end play")
 
 // Executor runs Ansible playbooks.
 //
@@ -159,6 +162,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		// Execute pre_tasks
 		for _, task := range play.PreTasks {
 			if err := e.runTaskOnHosts(ctx, batch, &task, play); err != nil {
+				if errors.Is(err, errEndPlay) {
+					return nil
+				}
 				return err
 			}
 		}
@@ -166,6 +172,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		// Execute roles
 		for _, roleRef := range play.Roles {
 			if err := e.runRole(ctx, batch, &roleRef, play); err != nil {
+				if errors.Is(err, errEndPlay) {
+					return nil
+				}
 				return err
 			}
 		}
@@ -173,6 +182,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		// Execute tasks
 		for _, task := range play.Tasks {
 			if err := e.runTaskOnHosts(ctx, batch, &task, play); err != nil {
+				if errors.Is(err, errEndPlay) {
+					return nil
+				}
 				return err
 			}
 		}
@@ -180,12 +192,18 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		// Execute post_tasks
 		for _, task := range play.PostTasks {
 			if err := e.runTaskOnHosts(ctx, batch, &task, play); err != nil {
+				if errors.Is(err, errEndPlay) {
+					return nil
+				}
 				return err
 			}
 		}
 
 		// Run notified handlers for this batch.
 		if err := e.runNotifiedHandlers(ctx, batch, play); err != nil {
+			if errors.Is(err, errEndPlay) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -1518,6 +1536,8 @@ func (e *Executor) handleMetaAction(ctx context.Context, hosts []string, play *P
 	switch action {
 	case "flush_handlers":
 		return e.runNotifiedHandlers(ctx, hosts, play)
+	case "end_play":
+		return errEndPlay
 	default:
 		return nil
 	}
