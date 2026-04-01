@@ -57,6 +57,25 @@ func TestModulesFile_ModuleCopy_Good_SrcFile(t *testing.T) {
 	assert.Equal(t, []byte("worker_processes auto;"), up.Content)
 }
 
+func TestModulesFile_ModuleCopy_Good_RemoteSrc(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/remote-source.txt", []byte("remote payload"))
+
+	result, err := e.moduleCopy(context.Background(), mock, map[string]any{
+		"src":        "/tmp/remote-source.txt",
+		"dest":       "/etc/app/remote.txt",
+		"remote_src": true,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Equal(t, "/etc/app/remote.txt", up.Remote)
+	assert.Equal(t, []byte("remote payload"), up.Content)
+}
+
 func TestModulesFile_ModuleCopy_Good_OwnerGroup(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 

@@ -434,15 +434,25 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 		return nil, coreerr.E("Executor.moduleCopy", "dest required", nil)
 	}
 	force := getBoolArg(args, "force", true)
+	remoteSrc := getBoolArg(args, "remote_src", false)
 
 	var content string
 	var err error
 
 	if src := getStringArg(args, "src", ""); src != "" {
-		src = e.resolveLocalPath(src)
-		content, err = coreio.Local.Read(src)
-		if err != nil {
-			return nil, coreerr.E("Executor.moduleCopy", "read src", err)
+		if remoteSrc {
+			var data []byte
+			data, err = client.Download(ctx, src)
+			if err != nil {
+				return nil, coreerr.E("Executor.moduleCopy", "download src", err)
+			}
+			content = string(data)
+		} else {
+			src = e.resolveLocalPath(src)
+			content, err = coreio.Local.Read(src)
+			if err != nil {
+				return nil, coreerr.E("Executor.moduleCopy", "read src", err)
+			}
 		}
 	} else if c := getStringArg(args, "content", ""); c != "" {
 		content = c

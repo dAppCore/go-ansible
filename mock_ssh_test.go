@@ -626,14 +626,22 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 		return nil, mockError("moduleCopyWithClient", "copy: dest required")
 	}
 	force := getBoolArg(args, "force", true)
+	remoteSrc := getBoolArg(args, "remote_src", false)
 
 	var content []byte
 	var err error
 
 	if src := getStringArg(args, "src", ""); src != "" {
-		content, err = readTestFile(src)
-		if err != nil {
-			return nil, mockWrap("moduleCopyWithClient", "read src", err)
+		if remoteSrc {
+			content, err = client.Download(context.Background(), src)
+			if err != nil {
+				return nil, mockWrap("moduleCopyWithClient", "download src", err)
+			}
+		} else {
+			content, err = readTestFile(src)
+			if err != nil {
+				return nil, mockWrap("moduleCopyWithClient", "read src", err)
+			}
 		}
 	} else if c := getStringArg(args, "content", ""); c != "" {
 		content = []byte(c)
