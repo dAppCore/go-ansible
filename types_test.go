@@ -204,6 +204,34 @@ with_dict:
 	assert.Equal(t, "two", second["value"])
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithIndexedItems(t *testing.T) {
+	input := `
+name: Indexed loop
+debug:
+  msg: "{{ item.0 }}={{ item.1 }}"
+with_indexed_items:
+  - apple
+  - banana
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	items, ok := task.Loop.([]any)
+	require.True(t, ok)
+	require.Len(t, items, 2)
+
+	first, ok := items[0].([]any)
+	require.True(t, ok)
+	assert.Equal(t, 0, first[0])
+	assert.Equal(t, "apple", first[1])
+
+	second, ok := items[1].([]any)
+	require.True(t, ok)
+	assert.Equal(t, 1, second[0])
+	assert.Equal(t, "banana", second[1])
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithFile(t *testing.T) {
 	input := `
 name: Read files

@@ -348,7 +348,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"retries": true, "delay": true, "until": true,
 		"include_tasks": true, "import_tasks": true,
 		"include_role": true, "import_role": true,
-		"with_items": true, "with_dict": true, "with_file": true,
+		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_file": true,
 	}
 
 	for key, val := range m {
@@ -408,6 +408,24 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 					"key":   key,
 					"value": v[key],
 				})
+			}
+			t.Loop = items
+		}
+	}
+
+	// Handle with_indexed_items as a loop of [index, value] pairs.
+	if indexed, ok := m["with_indexed_items"]; ok && t.Loop == nil {
+		switch v := indexed.(type) {
+		case []any:
+			items := make([]any, 0, len(v))
+			for i, item := range v {
+				items = append(items, []any{i, item})
+			}
+			t.Loop = items
+		case []string:
+			items := make([]any, 0, len(v))
+			for i, item := range v {
+				items = append(items, []any{i, item})
 			}
 			t.Loop = items
 		}

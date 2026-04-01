@@ -1965,12 +1965,26 @@ func lookupNestedValue(value any, path string) (any, bool) {
 
 	current := value
 	for _, segment := range split(path, ".") {
-		next, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		current, ok = next[segment]
-		if !ok {
+		switch next := current.(type) {
+		case map[string]any:
+			var ok bool
+			current, ok = next[segment]
+			if !ok {
+				return nil, false
+			}
+		case []any:
+			index, err := strconv.Atoi(segment)
+			if err != nil || index < 0 || index >= len(next) {
+				return nil, false
+			}
+			current = next[index]
+		case []string:
+			index, err := strconv.Atoi(segment)
+			if err != nil || index < 0 || index >= len(next) {
+				return nil, false
+			}
+			current = next[index]
+		default:
 			return nil, false
 		}
 	}

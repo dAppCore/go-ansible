@@ -639,6 +639,33 @@ func TestExecutor_RunTaskOnHost_Good_LoopFromWithDictItems(t *testing.T) {
 	assert.Equal(t, "beta=two", result.Results[1].Msg)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithIndexedItems(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Indexed loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0 }}={{ item.1 }}",
+		},
+		Loop: []any{
+			[]any{0, "apple"},
+			[]any{1, "banana"},
+		},
+		Register: "indexed_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["indexed_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "0=apple", result.Results[0].Msg)
+	assert.Equal(t, "1=banana", result.Results[1].Msg)
+}
+
 func TestExecutor_RunTaskWithRetries_Good_UntilSuccess(t *testing.T) {
 	e := NewExecutor("/tmp")
 	attempts := 0
