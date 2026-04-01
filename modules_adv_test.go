@@ -814,6 +814,27 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *testing.T) 
 	assert.Equal(t, 2, nested["b"])
 }
 
+// --- sysctl module ---
+
+func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`sysctl -w net.ipv4.ip_forward=1`, "", "", 0)
+	mock.expectCommand(`grep -q .*net.ipv4.ip_forward`, "", "", 0)
+	mock.expectCommand(`sysctl -p`, "", "", 0)
+
+	result, err := e.moduleSysctl(context.Background(), mock, map[string]any{
+		"name":   "net.ipv4.ip_forward",
+		"value":  "1",
+		"reload": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`sysctl -w net.ipv4.ip_forward=1`))
+	assert.True(t, mock.hasExecuted(`sysctl -p`))
+}
+
 // --- uri module ---
 
 func TestModulesAdv_ModuleURI_Good_GetRequestDefault(t *testing.T) {
