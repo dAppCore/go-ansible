@@ -2018,6 +2018,7 @@ func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFacts
 	}
 
 	factMap := factsToMap(facts)
+	factMap = applyGatherSubsetFilter(factMap, normalizeStringList(args["gather_subset"]))
 	filteredFactMap := filterFactsMap(factMap, normalizeStringList(args["filter"]))
 	filteredFacts := factsFromMap(filteredFactMap)
 
@@ -2030,6 +2031,155 @@ func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFacts
 		Msg:     "facts gathered",
 		Data:    map[string]any{"ansible_facts": filteredFactMap},
 	}, nil
+}
+
+func applyGatherSubsetFilter(facts map[string]any, subsets []string) map[string]any {
+	if len(facts) == 0 || len(subsets) == 0 {
+		return facts
+	}
+
+	normalized := make([]string, 0, len(subsets))
+	for _, subset := range subsets {
+		if trimmed := lower(corexTrimSpace(subset)); trimmed != "" {
+			normalized = append(normalized, trimmed)
+		}
+	}
+	if len(normalized) == 0 {
+		return facts
+	}
+
+	includeAll := false
+	excludeAll := false
+	excludeMin := false
+	positives := make([]string, 0, len(normalized))
+	exclusions := make([]string, 0, len(normalized))
+	for _, subset := range normalized {
+		if corexHasPrefix(subset, "!") {
+			name := corexTrimPrefix(subset, "!")
+			if name != "" {
+				exclusions = append(exclusions, name)
+			}
+			switch name {
+			case "all":
+				excludeAll = true
+			case "min":
+				excludeMin = true
+			}
+			continue
+		}
+
+		positives = append(positives, subset)
+		switch subset {
+		case "all":
+			includeAll = true
+		case "min":
+			// handled below
+		}
+	}
+
+	if includeAll && !excludeAll {
+		return facts
+	}
+
+	selected := make(map[string]bool)
+	if len(positives) == 0 {
+		if !excludeAll {
+			for key := range facts {
+				selected[key] = true
+			}
+		} else if !excludeMin {
+			addSubsetKeys(selected, "min")
+		}
+	} else {
+		if !excludeMin {
+			addSubsetKeys(selected, "min")
+		}
+	}
+
+	for _, subset := range positives {
+		addSubsetKeys(selected, subset)
+	}
+	for _, subset := range exclusions {
+		removeSubsetKeys(selected, subset)
+	}
+
+	if len(selected) == 0 {
+		return map[string]any{}
+	}
+
+	filtered := make(map[string]any)
+	for key, value := range facts {
+		if selected[key] {
+			filtered[key] = value
+		}
+	}
+
+	return filtered
+}
+
+func addSubsetKeys(selected map[string]bool, subset string) {
+	for _, key := range gatherSubsetKeys(subset) {
+		selected[key] = true
+	}
+}
+
+func removeSubsetKeys(selected map[string]bool, subset string) {
+	if subset == "all" {
+		return
+	}
+	for _, key := range gatherSubsetKeys(subset) {
+		delete(selected, key)
+	}
+	delete(selected, subset)
+}
+
+func gatherSubsetKeys(subset string) []string {
+	switch subset {
+	case "all":
+		return []string{
+			"ansible_hostname",
+			"ansible_fqdn",
+			"ansible_os_family",
+			"ansible_distribution",
+			"ansible_distribution_version",
+			"ansible_architecture",
+			"ansible_kernel",
+			"ansible_memtotal_mb",
+			"ansible_processor_vcpus",
+			"ansible_default_ipv4_address",
+		}
+	case "min":
+		return []string{
+			"ansible_hostname",
+			"ansible_fqdn",
+			"ansible_os_family",
+			"ansible_distribution",
+			"ansible_distribution_version",
+			"ansible_architecture",
+			"ansible_kernel",
+		}
+	case "hardware":
+		return []string{
+			"ansible_architecture",
+			"ansible_kernel",
+			"ansible_memtotal_mb",
+			"ansible_processor_vcpus",
+		}
+	case "network":
+		return []string{
+			"ansible_default_ipv4_address",
+		}
+	case "distribution":
+		return []string{
+			"ansible_os_family",
+			"ansible_distribution",
+			"ansible_distribution_version",
+		}
+	case "virtual":
+		return nil
+	default:
+		return nil
+	}
 }
 
 func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner) (*Facts, error) {
