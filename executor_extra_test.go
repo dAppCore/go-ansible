@@ -609,8 +609,7 @@ func TestExecutorExtra_ResolveExpr_Good_Facts(t *testing.T) {
 
 func TestExecutorExtra_ApplyFilter_Good_B64Decode(t *testing.T) {
 	e := NewExecutor("/tmp")
-	// b64decode is a no-op stub currently
-	assert.Equal(t, "hello", e.applyFilter("hello", "b64decode"))
+	assert.Equal(t, "hello", e.applyFilter("aGVsbG8=", "b64decode"))
 }
 
 func TestExecutorExtra_ApplyFilter_Good_UnknownFilter(t *testing.T) {

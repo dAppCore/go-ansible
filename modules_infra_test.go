@@ -501,8 +501,7 @@ func TestModulesInfra_ApplyFilter_Good_TrimFilter(t *testing.T) {
 
 func TestModulesInfra_ApplyFilter_Good_B64Decode(t *testing.T) {
 	e := NewExecutor("/tmp")
-	// b64decode currently returns value unchanged (placeholder)
-	assert.Equal(t, "dGVzdA==", e.applyFilter("dGVzdA==", "b64decode"))
+	assert.Equal(t, "test", e.applyFilter("dGVzdA==", "b64decode"))
 }
 
 func TestModulesInfra_ApplyFilter_Good_UnknownFilter(t *testing.T) {

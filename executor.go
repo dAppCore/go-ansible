@@ -2,6 +2,7 @@ package ansible
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"io/fs"
@@ -1498,7 +1499,13 @@ func (e *Executor) applyFilter(value, filter string) string {
 
 	// Handle b64decode
 	if filter == "b64decode" {
-		// Would need base64 decode
+		decoded, err := base64.StdEncoding.DecodeString(value)
+		if err == nil {
+			return string(decoded)
+		}
+		if decoded, err := base64.RawStdEncoding.DecodeString(value); err == nil {
+			return string(decoded)
+		}
 		return value
 	}
 
