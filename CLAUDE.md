@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`core/go-ansible` is a pure Go Ansible playbook engine. It parses YAML playbooks, inventories, and roles, then executes tasks on remote hosts via SSH. 41 module handler implementations (plus 3 community modules), Jinja2-compatible templating, privilege escalation (become), and event-driven callbacks. This is a library — there is no standalone binary. The CLI integration lives in `cmd/ansible/` and is compiled as part of the `core` CLI binary.
+`core/go-ansible` is a pure Go Ansible playbook engine. It parses YAML playbooks, inventories, and roles, then executes tasks on remote hosts via SSH. 42 module handler implementations (plus 3 community modules), Jinja2-compatible templating, privilege escalation (become), and event-driven callbacks. This is a library — there is no standalone binary. The CLI integration lives in `cmd/ansible/` and is compiled as part of the `core` CLI binary.
 
 ## Build & Test
 

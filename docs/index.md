@@ -126,7 +126,7 @@ go-ansible/
 
 ## Supported Modules
 
-41 module handlers are implemented, covering the most commonly used Ansible modules:
+42 module handlers are implemented, covering the most commonly used Ansible modules:
 
 | Category | Modules |
 |----------|---------|
@@ -139,7 +139,7 @@ go-ansible/
 | **Source control** | `git` |
 | **Archive** | `unarchive` |
 | **System** | `hostname`, `sysctl`, `cron`, `reboot`, `setup` |
-| **Flow control** | `debug`, `fail`, `assert`, `set_fact`, `pause`, `wait_for`, `meta`, `include_vars` |
+| **Flow control** | `debug`, `fail`, `assert`, `set_fact`, `add_host`, `pause`, `wait_for`, `meta`, `include_vars` |
 | **Community** | `community.general.ufw`, `ansible.posix.authorized_key`, `community.docker.docker_compose` |
 
 Both fully-qualified collection names (e.g. `ansible.builtin.shell`) and short-form names (e.g. `shell`) are accepted.

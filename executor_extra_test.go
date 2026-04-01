@@ -1,6 +1,7 @@
 package ansible
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -145,6 +146,72 @@ func TestExecutorExtra_ModuleSetFact_Good_SkipsCacheable(t *testing.T) {
 	assert.Equal(t, "value", e.vars["my_fact"])
 	_, hasCacheable := e.vars["cacheable"]
 	assert.False(t, hasCacheable)
+}
+
+// --- moduleAddHost ---
+
+func TestExecutorExtra_ModuleAddHost_Good_AddsHostAndGroups(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleAddHost(map[string]any{
+		"name":                    "db1",
+		"groups":                  "databases,production",
+		"ansible_host":            "10.0.0.5",
+		"ansible_port":            "2222",
+		"ansible_user":            "deploy",
+		"ansible_connection":      "ssh",
+		"ansible_become_password": "secret",
+		"environment":             "prod",
+		"custom_var":              "custom-value",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "db1", result.Data["host"])
+	assert.Contains(t, result.Msg, "db1")
+
+	require.NotNil(t, e.inventory)
+	require.NotNil(t, e.inventory.All)
+	require.NotNil(t, e.inventory.All.Hosts["db1"])
+
+	host := e.inventory.All.Hosts["db1"]
+	assert.Equal(t, "10.0.0.5", host.AnsibleHost)
+	assert.Equal(t, 2222, host.AnsiblePort)
+	assert.Equal(t, "deploy", host.AnsibleUser)
+	assert.Equal(t, "ssh", host.AnsibleConnection)
+	assert.Equal(t, "secret", host.AnsibleBecomePassword)
+	assert.Equal(t, "custom-value", host.Vars["custom_var"])
+
+	require.NotNil(t, e.inventory.All.Children["databases"])
+	require.NotNil(t, e.inventory.All.Children["production"])
+	assert.Same(t, host, e.inventory.All.Children["databases"].Hosts["db1"])
+	assert.Same(t, host, e.inventory.All.Children["production"].Hosts["db1"])
+
+	assert.Equal(t, []string{"db1"}, GetHosts(e.inventory, "all"))
+	assert.Equal(t, []string{"db1"}, GetHosts(e.inventory, "databases"))
+	assert.Equal(t, []string{"db1"}, GetHosts(e.inventory, "production"))
+}
+
+func TestExecutorExtra_ModuleAddHost_Good_ThroughDispatcher(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		Module: "add_host",
+		Args: map[string]any{
+			"name":  "cache1",
+			"group": "caches",
+			"role":  "redis",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", &SSHClient{}, task, &Play{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "cache1", result.Data["host"])
+	assert.Equal(t, []string{"caches"}, result.Data["groups"])
+	assert.Equal(t, []string{"cache1"}, GetHosts(e.inventory, "all"))
+	assert.Equal(t, []string{"cache1"}, GetHosts(e.inventory, "caches"))
+	assert.Equal(t, "redis", e.inventory.All.Hosts["cache1"].Vars["role"])
 }
 
 // --- moduleIncludeVars ---

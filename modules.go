@@ -99,6 +99,8 @@ func (e *Executor) executeModule(ctx context.Context, host string, client *SSHCl
 		return e.moduleAssert(args, host)
 	case "ansible.builtin.set_fact":
 		return e.moduleSetFact(args)
+	case "ansible.builtin.add_host":
+		return e.moduleAddHost(args)
 	case "ansible.builtin.pause":
 		return e.modulePause(ctx, args)
 	case "ansible.builtin.wait_for":
@@ -939,6 +941,126 @@ func (e *Executor) moduleSetFact(args map[string]any) (*TaskResult, error) {
 	return &TaskResult{Changed: true}, nil
 }
 
+func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
+	name := getStringArg(args, "name", "")
+	if name == "" {
+		name = getStringArg(args, "hostname", "")
+	}
+	if name == "" {
+		return nil, coreerr.E("Executor.moduleAddHost", "name required", nil)
+	}
+
+	groups := normalizeStringList(args["groups"])
+	if len(groups) == 0 {
+		groups = normalizeStringList(args["group"])
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.inventory == nil {
+		e.inventory = &Inventory{}
+	}
+	if e.inventory.All == nil {
+		e.inventory.All = &InventoryGroup{}
+	}
+
+	host := findInventoryHost(e.inventory.All, name)
+	if host == nil {
+		host = &Host{}
+	}
+	if host.Vars == nil {
+		host.Vars = make(map[string]any)
+	}
+
+	if v := getStringArg(args, "ansible_host", ""); v != "" {
+		host.AnsibleHost = v
+	}
+	switch v := args["ansible_port"].(type) {
+	case int:
+		host.AnsiblePort = v
+	case int8:
+		host.AnsiblePort = int(v)
+	case int16:
+		host.AnsiblePort = int(v)
+	case int32:
+		host.AnsiblePort = int(v)
+	case int64:
+		host.AnsiblePort = int(v)
+	case uint:
+		host.AnsiblePort = int(v)
+	case uint8:
+		host.AnsiblePort = int(v)
+	case uint16:
+		host.AnsiblePort = int(v)
+	case uint32:
+		host.AnsiblePort = int(v)
+	case uint64:
+		host.AnsiblePort = int(v)
+	case string:
+		if port, err := strconv.Atoi(v); err == nil {
+			host.AnsiblePort = port
+		}
+	}
+	if v := getStringArg(args, "ansible_user", ""); v != "" {
+		host.AnsibleUser = v
+	}
+	if v := getStringArg(args, "ansible_password", ""); v != "" {
+		host.AnsiblePassword = v
+	}
+	if v := getStringArg(args, "ansible_ssh_private_key_file", ""); v != "" {
+		host.AnsibleSSHPrivateKeyFile = v
+	}
+	if v := getStringArg(args, "ansible_connection", ""); v != "" {
+		host.AnsibleConnection = v
+	}
+	if v := getStringArg(args, "ansible_become_password", ""); v != "" {
+		host.AnsibleBecomePassword = v
+	}
+
+	reserved := map[string]bool{
+		"name": true, "hostname": true, "groups": true, "group": true,
+		"ansible_host": true, "ansible_port": true, "ansible_user": true,
+		"ansible_password": true, "ansible_ssh_private_key_file": true,
+		"ansible_connection": true, "ansible_become_password": true,
+	}
+	for key, val := range args {
+		if reserved[key] {
+			continue
+		}
+		host.Vars[key] = val
+	}
+
+	if e.inventory.All.Hosts == nil {
+		e.inventory.All.Hosts = make(map[string]*Host)
+	}
+	e.inventory.All.Hosts[name] = host
+
+	for _, groupName := range groups {
+		if groupName == "" {
+			continue
+		}
+
+		group := ensureInventoryGroup(e.inventory.All, groupName)
+		if group.Hosts == nil {
+			group.Hosts = make(map[string]*Host)
+		}
+		group.Hosts[name] = host
+	}
+
+	msg := sprintf("host %s added", name)
+	if len(groups) > 0 {
+		msg += " to groups: " + join(", ", groups)
+	}
+
+	data := map[string]any{"host": name}
+	if len(groups) > 0 {
+		data["groups"] = groups
+	}
+
+	return &TaskResult{Changed: true, Msg: msg, Data: data}, nil
+}
+
 func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskResult, error) {
 	seconds := 0
 	if s, ok := args["seconds"].(int); ok {
@@ -985,6 +1107,86 @@ func sleepChan(seconds int) <-chan struct{} {
 		close(ch)
 	}()
 	return ch
+}
+
+func normalizeStringList(value any) []string {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case string:
+		if v == "" {
+			return nil
+		}
+		parts := corexSplit(v, ",")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if trimmed := corexTrimSpace(part); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		if len(out) == 0 && corexTrimSpace(v) != "" {
+			return []string{corexTrimSpace(v)}
+		}
+		return out
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if trimmed := corexTrimSpace(item); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				if trimmed := corexTrimSpace(s); trimmed != "" {
+					out = append(out, trimmed)
+				}
+			}
+		}
+		return out
+	default:
+		s := corexTrimSpace(corexSprint(v))
+		if s == "" {
+			return nil
+		}
+		return []string{s}
+	}
+}
+
+func ensureInventoryGroup(parent *InventoryGroup, name string) *InventoryGroup {
+	if parent == nil {
+		return nil
+	}
+	if parent.Children == nil {
+		parent.Children = make(map[string]*InventoryGroup)
+	}
+	if group, ok := parent.Children[name]; ok && group != nil {
+		return group
+	}
+
+	group := &InventoryGroup{}
+	parent.Children[name] = group
+	return group
+}
+
+func findInventoryHost(group *InventoryGroup, name string) *Host {
+	if group == nil {
+		return nil
+	}
+
+	if host, ok := group.Hosts[name]; ok {
+		return host
+	}
+
+	for _, child := range group.Children {
+		if host := findInventoryHost(child, name); host != nil {
+			return host
+		}
+	}
+
+	return nil
 }
 
 func (e *Executor) moduleWaitFor(ctx context.Context, client *SSHClient, args map[string]any) (*TaskResult, error) {

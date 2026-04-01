@@ -416,13 +416,30 @@ func getAllHosts(group *InventoryGroup) []string {
 	}
 
 	var hosts []string
-	for name := range group.Hosts {
-		hosts = append(hosts, name)
-	}
-	for _, child := range group.Children {
-		hosts = append(hosts, getAllHosts(child)...)
-	}
+	seen := make(map[string]bool)
+	collectAllHosts(group, seen, &hosts)
 	return hosts
+}
+
+func collectAllHosts(group *InventoryGroup, seen map[string]bool, hosts *[]string) {
+	if group == nil {
+		return
+	}
+
+	// Sort keys for deterministic traversal.
+	hostKeys := slices.Sorted(maps.Keys(group.Hosts))
+	for _, name := range hostKeys {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		*hosts = append(*hosts, name)
+	}
+
+	childKeys := slices.Sorted(maps.Keys(group.Children))
+	for _, name := range childKeys {
+		collectAllHosts(group.Children[name], seen, hosts)
+	}
 }
 
 // AllHostsIter returns an iterator for all hosts in an inventory group.
@@ -432,25 +449,9 @@ func getAllHosts(group *InventoryGroup) []string {
 //	seq := AllHostsIter(inv.All)
 func AllHostsIter(group *InventoryGroup) iter.Seq[string] {
 	return func(yield func(string) bool) {
-		if group == nil {
-			return
-		}
-		// Sort keys for deterministic iteration
-		keys := slices.Sorted(maps.Keys(group.Hosts))
-		for _, name := range keys {
-			if !yield(name) {
+		for _, host := range getAllHosts(group) {
+			if !yield(host) {
 				return
-			}
-		}
-
-		// Sort children keys for deterministic iteration
-		childKeys := slices.Sorted(maps.Keys(group.Children))
-		for _, name := range childKeys {
-			child := group.Children[name]
-			for host := range AllHostsIter(child) {
-				if !yield(host) {
-					return
-				}
 			}
 		}
 	}
