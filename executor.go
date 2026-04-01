@@ -39,15 +39,16 @@ type sshExecutorClient interface {
 //
 //	exec := NewExecutor("/workspace/playbooks")
 type Executor struct {
-	parser    *Parser
-	inventory *Inventory
-	vars      map[string]any
-	facts     map[string]*Facts
-	results   map[string]map[string]*TaskResult // host -> register_name -> result
-	handlers  map[string][]Task
-	notified  map[string]bool
-	clients   map[string]sshExecutorClient
-	mu        sync.RWMutex
+	parser           *Parser
+	inventory        *Inventory
+	vars             map[string]any
+	facts            map[string]*Facts
+	results          map[string]map[string]*TaskResult // host -> register_name -> result
+	handlers         map[string][]Task
+	notified         map[string]bool
+	clients          map[string]sshExecutorClient
+	batchFailedHosts map[string]bool
+	mu               sync.RWMutex
 
 	// Callbacks
 	OnPlayStart func(play *Play)
@@ -161,6 +162,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		if len(batch) == 0 {
 			continue
 		}
+		e.batchFailedHosts = make(map[string]bool)
 
 		// Gather facts if needed
 		gatherFacts := play.GatherFacts == nil || *play.GatherFacts
@@ -404,6 +406,10 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 				return err
 			}
 		}
+
+		if err := e.checkMaxFailPercentage(play, hosts); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -536,7 +542,46 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	}
 
 	if result.Failed && !task.IgnoreErrors {
+		e.markBatchHostFailed(host)
 		return coreerr.E("Executor.runTaskOnHost", "task failed: "+result.Msg, nil)
+	}
+	if result.Failed {
+		e.markBatchHostFailed(host)
+	}
+
+	return nil
+}
+
+func (e *Executor) markBatchHostFailed(host string) {
+	if host == "" {
+		return
+	}
+	if e.batchFailedHosts == nil {
+		e.batchFailedHosts = make(map[string]bool)
+	}
+	e.batchFailedHosts[host] = true
+}
+
+func (e *Executor) checkMaxFailPercentage(play *Play, hosts []string) error {
+	if play == nil || play.MaxFailPercent <= 0 || len(hosts) == 0 {
+		return nil
+	}
+
+	threshold := play.MaxFailPercent
+	failed := 0
+	for _, host := range hosts {
+		if e.batchFailedHosts != nil && e.batchFailedHosts[host] {
+			failed++
+		}
+	}
+
+	if failed == 0 {
+		return nil
+	}
+
+	percentage := (failed * 100) / len(hosts)
+	if percentage > threshold {
+		return coreerr.E("Executor.runTaskOnHosts", sprintf("max fail percentage exceeded: %d%% failed (threshold %d%%)", percentage, threshold), nil)
 	}
 
 	return nil

@@ -487,6 +487,51 @@ func TestExecutor_RunPlay_Good_MetaEndPlayStopsRemainingTasks(t *testing.T) {
 	assert.Equal(t, []string{"before", "stop"}, executed)
 }
 
+func TestExecutor_RunPlay_Bad_MaxFailPercentageStopsPlay(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"should_fail": true}},
+				"host2": {Vars: map[string]any{"should_fail": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:          "all",
+		GatherFacts:    &gatherFacts,
+		MaxFailPercent: 49,
+		Tasks: []Task{
+			{
+				Name:         "fail one host",
+				Module:       "fail",
+				Args:         map[string]any{"msg": "boom"},
+				When:         "should_fail",
+				IgnoreErrors: true,
+			},
+			{
+				Name:   "after threshold",
+				Module: "debug",
+				Args:   map[string]any{"msg": "after"},
+			},
+		},
+	}
+
+	var executed []string
+	e.OnTaskEnd = func(host string, task *Task, _ *TaskResult) {
+		executed = append(executed, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max fail percentage exceeded")
+	assert.Equal(t, []string{"host1:fail one host"}, executed)
+}
+
 func TestExecutor_NormalizeConditions_Good_StringSlice(t *testing.T) {
 	result := normalizeConditions([]string{"cond1", "cond2"})
 	assert.Equal(t, []string{"cond1", "cond2"}, result)
