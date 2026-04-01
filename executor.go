@@ -597,38 +597,10 @@ func (e *Executor) gatherFacts(ctx context.Context, host string, play *Play) err
 		return err
 	}
 
-	// Gather basic facts
-	facts := &Facts{}
-
-	// Hostname
-	stdout, _, _, err := client.Run(ctx, "hostname -f 2>/dev/null || hostname")
-	if err == nil {
-		facts.FQDN = corexTrimSpace(stdout)
+	facts, err := e.collectFacts(ctx, client)
+	if err != nil {
+		return err
 	}
-
-	stdout, _, _, err = client.Run(ctx, "hostname -s 2>/dev/null || hostname")
-	if err == nil {
-		facts.Hostname = corexTrimSpace(stdout)
-	}
-
-	// OS info
-	stdout, _, _, _ = client.Run(ctx, "cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID)=' | head -2")
-	for _, line := range split(stdout, "\n") {
-		if corexHasPrefix(line, "ID=") {
-			facts.Distribution = trimCutset(corexTrimPrefix(line, "ID="), "\"")
-		}
-		if corexHasPrefix(line, "VERSION_ID=") {
-			facts.Version = trimCutset(corexTrimPrefix(line, "VERSION_ID="), "\"")
-		}
-	}
-
-	// Architecture
-	stdout, _, _, _ = client.Run(ctx, "uname -m")
-	facts.Architecture = corexTrimSpace(stdout)
-
-	// Kernel
-	stdout, _, _, _ = client.Run(ctx, "uname -r")
-	facts.Kernel = corexTrimSpace(stdout)
 
 	e.mu.Lock()
 	e.facts[host] = facts
@@ -834,6 +806,14 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 			return facts.Hostname
 		case "ansible_fqdn":
 			return facts.FQDN
+		case "ansible_os_family":
+			return facts.OS
+		case "ansible_memtotal_mb":
+			return sprintf("%d", facts.Memory)
+		case "ansible_processor_vcpus":
+			return sprintf("%d", facts.CPUs)
+		case "ansible_default_ipv4_address":
+			return facts.IPv4
 		case "ansible_distribution":
 			return facts.Distribution
 		case "ansible_distribution_version":
@@ -1033,6 +1013,10 @@ func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 	if facts, ok := e.facts[host]; ok {
 		context["ansible_hostname"] = facts.Hostname
 		context["ansible_fqdn"] = facts.FQDN
+		context["ansible_os_family"] = facts.OS
+		context["ansible_memtotal_mb"] = facts.Memory
+		context["ansible_processor_vcpus"] = facts.CPUs
+		context["ansible_default_ipv4_address"] = facts.IPv4
 		context["ansible_distribution"] = facts.Distribution
 		context["ansible_distribution_version"] = facts.Version
 		context["ansible_architecture"] = facts.Architecture

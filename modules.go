@@ -14,6 +14,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type sshFactsRunner interface {
+	Run(ctx context.Context, cmd string) (string, string, int, error)
+}
+
 // executeModule dispatches to the appropriate module handler.
 func (e *Executor) executeModule(ctx context.Context, host string, client *SSHClient, task *Task, play *Play) (*TaskResult, error) {
 	module := NormalizeModule(task.Module)
@@ -124,7 +128,7 @@ func (e *Executor) executeModule(ctx context.Context, host string, client *SSHCl
 	case "ansible.builtin.meta":
 		return e.moduleMeta(args)
 	case "ansible.builtin.setup":
-		return e.moduleSetup(ctx, client)
+		return e.moduleSetup(ctx, host, client)
 	case "ansible.builtin.reboot":
 		return e.moduleReboot(ctx, client, args)
 
@@ -1568,9 +1572,125 @@ func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {
 	return &TaskResult{Changed: false}, nil
 }
 
-func (e *Executor) moduleSetup(ctx context.Context, client *SSHClient) (*TaskResult, error) {
-	// Gather facts - similar to what we do in gatherFacts
-	return &TaskResult{Changed: false, Msg: "facts gathered"}, nil
+func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFactsRunner) (*TaskResult, error) {
+	facts, err := e.collectFacts(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+
+	e.mu.Lock()
+	e.facts[host] = facts
+	e.mu.Unlock()
+
+	return &TaskResult{
+		Changed: false,
+		Msg:     "facts gathered",
+		Data:    factsToData(facts),
+	}, nil
+}
+
+func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner) (*Facts, error) {
+	facts := &Facts{}
+
+	stdout, _, _, err := client.Run(ctx, "hostname -f 2>/dev/null || hostname")
+	if err == nil {
+		facts.FQDN = corexTrimSpace(stdout)
+	}
+
+	stdout, _, _, err = client.Run(ctx, "hostname -s 2>/dev/null || hostname")
+	if err == nil {
+		facts.Hostname = corexTrimSpace(stdout)
+	}
+
+	stdout, _, _, err = client.Run(ctx, "cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID|NAME)=' | head -3")
+	if err == nil {
+		for _, line := range split(stdout, "\n") {
+			switch {
+			case corexHasPrefix(line, "ID="):
+				id := trimCutset(corexTrimPrefix(line, "ID="), "\"'")
+				if facts.Distribution == "" {
+					facts.Distribution = id
+				}
+				if facts.OS == "" {
+					facts.OS = osFamilyFromReleaseID(id)
+				}
+			case corexHasPrefix(line, "NAME="):
+				name := trimCutset(corexTrimPrefix(line, "NAME="), "\"'")
+				if facts.OS == "" {
+					facts.OS = osFamilyFromReleaseID(name)
+				}
+			case corexHasPrefix(line, "VERSION_ID="):
+				facts.Version = trimCutset(corexTrimPrefix(line, "VERSION_ID="), "\"'")
+			}
+		}
+	}
+
+	stdout, _, _, err = client.Run(ctx, "uname -m")
+	if err == nil {
+		facts.Architecture = corexTrimSpace(stdout)
+	}
+
+	stdout, _, _, err = client.Run(ctx, "uname -r")
+	if err == nil {
+		facts.Kernel = corexTrimSpace(stdout)
+	}
+
+	stdout, _, _, err = client.Run(ctx, "nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null")
+	if err == nil {
+		if n, parseErr := strconv.Atoi(corexTrimSpace(stdout)); parseErr == nil {
+			facts.CPUs = n
+		}
+	}
+
+	stdout, _, _, err = client.Run(ctx, "free -m 2>/dev/null | awk '/^Mem:/ {print $2}'")
+	if err == nil {
+		if n, parseErr := strconv.ParseInt(corexTrimSpace(stdout), 10, 64); parseErr == nil {
+			facts.Memory = n
+		}
+	}
+
+	stdout, _, _, err = client.Run(ctx, "hostname -I 2>/dev/null | awk '{print $1}'")
+	if err == nil {
+		facts.IPv4 = corexTrimSpace(stdout)
+	}
+
+	return facts, nil
+}
+
+func factsToData(facts *Facts) map[string]any {
+	if facts == nil {
+		return nil
+	}
+
+	return map[string]any{
+		"ansible_facts": map[string]any{
+			"ansible_hostname":             facts.Hostname,
+			"ansible_fqdn":                 facts.FQDN,
+			"ansible_os_family":            facts.OS,
+			"ansible_distribution":         facts.Distribution,
+			"ansible_distribution_version": facts.Version,
+			"ansible_architecture":         facts.Architecture,
+			"ansible_kernel":               facts.Kernel,
+			"ansible_memtotal_mb":          facts.Memory,
+			"ansible_processor_vcpus":      facts.CPUs,
+			"ansible_default_ipv4_address": facts.IPv4,
+		},
+	}
+}
+
+func osFamilyFromReleaseID(id string) string {
+	switch lower(corexTrimSpace(id)) {
+	case "debian", "ubuntu":
+		return "Debian"
+	case "rhel", "redhat", "centos", "fedora", "rocky", "almalinux", "oracle":
+		return "RedHat"
+	case "arch", "manjaro":
+		return "Archlinux"
+	case "alpine":
+		return "Alpine"
+	default:
+		return ""
+	}
 }
 
 func (e *Executor) moduleReboot(ctx context.Context, client *SSHClient, args map[string]any) (*TaskResult, error) {

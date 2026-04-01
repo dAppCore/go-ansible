@@ -461,6 +461,9 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 	case "ansible.builtin.unarchive":
 		return moduleUnarchiveWithClient(e, mock, args)
 
+	case "ansible.builtin.setup":
+		return e.moduleSetup(context.Background(), host, mock)
+
 	// HTTP
 	case "ansible.builtin.uri":
 		return moduleURIWithClient(e, mock, args)

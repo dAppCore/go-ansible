@@ -960,6 +960,48 @@ func TestModulesInfra_Facts_Good_LocalhostFacts(t *testing.T) {
 	assert.Equal(t, "localhost", result)
 }
 
+func TestModulesInfra_ModuleSetup_Good_GathersAndStoresFacts(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	mock.expectCommand(`hostname -f`, "web1.example.com\n", "", 0)
+	mock.expectCommand(`hostname -s`, "web1\n", "", 0)
+	mock.expectCommand(`cat /etc/os-release`, "ID=debian\nVERSION_ID=12\n", "", 0)
+	mock.expectCommand(`uname -m`, "x86_64\n", "", 0)
+	mock.expectCommand(`uname -r`, "6.1.0\n", "", 0)
+	mock.expectCommand(`nproc`, "8\n", "", 0)
+	mock.expectCommand(`free -m`, "16384\n", "", 0)
+	mock.expectCommand(`hostname -I`, "10.0.0.11\n", "", 0)
+
+	task := &Task{Module: "setup"}
+	result, err := executeModuleWithMock(e, mock, "host1", task)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Changed)
+	assert.Equal(t, "facts gathered", result.Msg)
+	require.NotNil(t, result.Data)
+
+	facts, ok := result.Data["ansible_facts"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "web1", facts["ansible_hostname"])
+	assert.Equal(t, "web1.example.com", facts["ansible_fqdn"])
+	assert.Equal(t, "Debian", facts["ansible_os_family"])
+	assert.Equal(t, "debian", facts["ansible_distribution"])
+	assert.Equal(t, "12", facts["ansible_distribution_version"])
+	assert.Equal(t, "x86_64", facts["ansible_architecture"])
+	assert.Equal(t, "6.1.0", facts["ansible_kernel"])
+	assert.EqualValues(t, 8, facts["ansible_processor_vcpus"])
+	assert.EqualValues(t, 16384, facts["ansible_memtotal_mb"])
+	assert.Equal(t, "10.0.0.11", facts["ansible_default_ipv4_address"])
+
+	require.NotNil(t, e.facts["host1"])
+	assert.Equal(t, "web1", e.templateString("{{ ansible_hostname }}", "host1", nil))
+	assert.Equal(t, "Debian", e.templateString("{{ ansible_os_family }}", "host1", nil))
+	assert.Equal(t, "16384", e.templateString("{{ ansible_memtotal_mb }}", "host1", nil))
+	assert.Equal(t, "8", e.templateString("{{ ansible_processor_vcpus }}", "host1", nil))
+	assert.Equal(t, "10.0.0.11", e.templateString("{{ ansible_default_ipv4_address }}", "host1", nil))
+}
+
 // ===========================================================================
 // 4. Idempotency
 // ===========================================================================
