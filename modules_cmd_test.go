@@ -127,6 +127,25 @@ func TestModulesCmd_MockSSHClient_Good_BecomeTracking(t *testing.T) {
 	assert.Equal(t, "secret", mock.becomePass)
 }
 
+func TestModulesCmd_ModuleScript_Good_RelativePathResolvedAgainstBasePath(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := joinPath(dir, "scripts", "deploy.sh")
+	require.NoError(t, writeTestFile(scriptPath, []byte("echo deploy"), 0755))
+
+	e := NewExecutor(dir)
+	mock := NewMockSSHClient()
+	mock.expectCommand("echo deploy", "deploy\n", "", 0)
+
+	result, err := e.moduleScript(context.Background(), mock, map[string]any{
+		"_raw_params": "scripts/deploy.sh",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "deploy\n", result.Stdout)
+	assert.True(t, mock.hasExecuted("echo deploy"))
+}
+
 func TestModulesCmd_MockSSHClient_Good_HasExecuted(t *testing.T) {
 	mock := NewMockSSHClient()
 	_, _, _, _ = mock.Run(nil, "systemctl restart nginx")

@@ -339,6 +339,7 @@ func (e *Executor) moduleScript(ctx context.Context, client sshExecutorClient, a
 	}
 
 	// Read local script
+	script = e.resolveLocalPath(script)
 	data, err := coreio.Local.Read(script)
 	if err != nil {
 		return nil, coreerr.E("Executor.moduleScript", "read script", err)
@@ -370,6 +371,7 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 	var err error
 
 	if src := getStringArg(args, "src", ""); src != "" {
+		src = e.resolveLocalPath(src)
 		content, err = coreio.Local.Read(src)
 		if err != nil {
 			return nil, coreerr.E("Executor.moduleCopy", "read src", err)
@@ -424,6 +426,7 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 	}
 
 	// Process template
+	src = e.resolveLocalPath(src)
 	content, err := e.TemplateFile(src, host, task)
 	if err != nil {
 		return nil, coreerr.E("Executor.moduleTemplate", "template", err)
@@ -1576,6 +1579,7 @@ func (e *Executor) moduleUnarchive(ctx context.Context, client sshExecutorClient
 	var cmd string
 	if !remote {
 		// Upload local file first
+		src = e.resolveLocalPath(src)
 		data, err := coreio.Local.Read(src)
 		if err != nil {
 			return nil, coreerr.E("Executor.moduleUnarchive", "read src", err)
@@ -1984,6 +1988,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	}
 
 	if file != "" {
+		file = e.resolveLocalPath(file)
 		sources = append(sources, file)
 		if err := loadFile(file); err != nil {
 			return nil, err
@@ -1991,6 +1996,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	}
 
 	if dir != "" {
+		dir = e.resolveLocalPath(dir)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)

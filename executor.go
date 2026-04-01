@@ -1258,6 +1258,16 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 	return client, nil
 }
 
+// resolveLocalPath resolves a local file path relative to the executor's base
+// path when possible.
+func (e *Executor) resolveLocalPath(path string) string {
+	if path == "" || e == nil || e.parser == nil {
+		return path
+	}
+
+	return e.parser.resolvePath(path)
+}
+
 // gatherFacts collects facts from a host.
 func (e *Executor) gatherFacts(ctx context.Context, host string, play *Play) error {
 	client, err := e.getClient(host, play)

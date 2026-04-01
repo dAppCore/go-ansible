@@ -858,6 +858,26 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *testing.T) 
 	assert.Equal(t, 2, nested["b"])
 }
 
+func TestModulesAdv_ModuleIncludeVars_Good_ResolvesRelativePathsAgainstBasePath(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "vars.yml"), []byte("app_name: demo\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "01-extra.yaml"), []byte("app_port: 8080\n"), 0644))
+
+	e := NewExecutor(dir)
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"file": "vars.yml",
+		"dir":  "vars",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Contains(t, result.Msg, "vars.yml")
+	assert.Contains(t, result.Msg, joinPath(dir, "vars", "01-extra.yaml"))
+	assert.Equal(t, "demo", e.vars["app_name"])
+	assert.Equal(t, 8080, e.vars["app_port"])
+}
+
 // --- sysctl module ---
 
 func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {
