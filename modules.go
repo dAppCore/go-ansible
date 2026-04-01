@@ -1,9 +1,11 @@
 package ansible
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -1411,6 +1413,9 @@ func (e *Executor) moduleGroupBy(host string, args map[string]any) (*TaskResult,
 }
 
 func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskResult, error) {
+	prompt := getStringArg(args, "prompt", "")
+	echo := getBoolArg(args, "echo", true)
+
 	duration := time.Duration(0)
 	if s, ok := args["seconds"].(int); ok {
 		duration += time.Duration(s) * time.Second
@@ -1429,6 +1434,24 @@ func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskR
 		}
 	}
 
+	if prompt != "" && os.Stdin != nil {
+		if stat, err := os.Stdin.Stat(); err == nil && (stat.Mode()&os.ModeCharDevice) != 0 {
+			if echo {
+				_, _ = fmt.Fprintln(os.Stdout, prompt)
+			} else {
+				_, _ = fmt.Fprint(os.Stdout, prompt)
+			}
+
+			reader := bufio.NewReader(os.Stdin)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+				_, _ = reader.ReadString('\n')
+			}
+		}
+	}
+
 	if duration > 0 {
 		timer := time.NewTimer(duration)
 		defer timer.Stop()
@@ -1440,7 +1463,11 @@ func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskR
 		}
 	}
 
-	return &TaskResult{Changed: false}, nil
+	result := &TaskResult{Changed: false}
+	if prompt != "" {
+		result.Msg = prompt
+	}
+	return result, nil
 }
 
 func normalizeStringList(value any) []string {
@@ -1532,6 +1559,7 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 	host := getStringArg(args, "host", "127.0.0.1")
 	state := getStringArg(args, "state", "started")
 	searchRegex := getStringArg(args, "search_regex", "")
+	timeoutMsg := getStringArg(args, "msg", "wait_for timed out")
 	timeout := 300
 	if t, ok := args["timeout"].(int); ok {
 		timeout = t
@@ -1586,7 +1614,7 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			case <-deadline.C:
-				return &TaskResult{Failed: true, Msg: "wait_for timed out", RC: 1}, nil
+				return &TaskResult{Failed: true, Msg: timeoutMsg, RC: 1}, nil
 			case <-ticker.C:
 			}
 		}

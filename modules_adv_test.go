@@ -763,6 +763,23 @@ func TestModulesAdv_ModulePause_Good_WaitsForSeconds(t *testing.T) {
 	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
 }
 
+func TestModulesAdv_ModulePause_Good_PromptReturnsImmediatelyWithoutTTY(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	start := time.Now()
+	result, err := e.modulePause(context.Background(), map[string]any{
+		"prompt": "Press enter to continue",
+		"echo":   false,
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Changed)
+	assert.Equal(t, "Press enter to continue", result.Msg)
+	assert.Less(t, elapsed, 250*time.Millisecond)
+}
+
 // --- wait_for module ---
 
 func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathPresent(t *testing.T) {
@@ -829,6 +846,23 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathRegexMatch(t *testing.T) {
 	assert.False(t, result.Failed)
 	assert.False(t, result.Changed)
 	assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond)
+}
+
+func TestModulesAdv_ModuleWaitFor_Bad_CustomTimeoutMessage(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/config", []byte("ready=false\n"))
+
+	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
+		"path":         "/tmp/config",
+		"search_regex": "ready=true",
+		"timeout":      0,
+		"msg":          "service never became ready",
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.True(t, result.Failed)
+	assert.Equal(t, "service never became ready", result.Msg)
 }
 
 func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortAbsent(t *testing.T) {
