@@ -306,4 +306,7 @@ var KnownModules = []string{
 	"group_by",
 	"meta",
 	"setup",
+	"hostname",
+	"sysctl",
+	"reboot",
 }

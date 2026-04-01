@@ -218,6 +218,53 @@ notify: restart nginx
 	assert.Equal(t, "restart nginx", task.Notify)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_ShortFormSystemModules(t *testing.T) {
+	cases := []struct {
+		name       string
+		input      string
+		wantModule string
+	}{
+		{
+			name: "hostname",
+			input: `
+name: Set hostname
+hostname:
+  name: web01
+`,
+			wantModule: "hostname",
+		},
+		{
+			name: "sysctl",
+			input: `
+name: Tune kernel
+sysctl:
+  name: net.ipv4.ip_forward
+  value: "1"
+`,
+			wantModule: "sysctl",
+		},
+		{
+			name: "reboot",
+			input: `
+name: Reboot host
+reboot:
+`,
+			wantModule: "reboot",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var task Task
+			err := yaml.Unmarshal([]byte(tc.input), &task)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantModule, task.Module)
+			assert.NotNil(t, task.Args)
+		})
+	}
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotifyList(t *testing.T) {
 	input := `
 name: Install package
