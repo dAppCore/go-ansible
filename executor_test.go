@@ -137,6 +137,22 @@ func TestExecutor_MatchesTags_Good_AllTag(t *testing.T) {
 	assert.True(t, e.matchesTags([]string{"anything"}))
 }
 
+func TestExecutor_MatchesTags_Good_AlwaysTagIgnoresIncludeFilter(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Tags = []string{"deploy"}
+
+	assert.True(t, e.matchesTags([]string{"always"}))
+	assert.True(t, e.matchesTags([]string{"always", "other"}))
+}
+
+func TestExecutor_MatchesTags_Good_AlwaysTagStillRespectsSkipFilter(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Tags = []string{"deploy"}
+	e.SkipTags = []string{"always"}
+
+	assert.False(t, e.matchesTags([]string{"always"}))
+}
+
 func TestExecutor_MatchesTags_Good_NoTaskTags(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Tags = []string{"deploy"}

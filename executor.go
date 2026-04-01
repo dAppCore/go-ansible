@@ -1887,6 +1887,17 @@ func (e *Executor) resolveLoop(loop any, host string) []any {
 
 // matchesTags checks if task tags match execution tags.
 func (e *Executor) matchesTags(taskTags []string) bool {
+	// Tasks tagged "always" should run even when an explicit include filter is
+	// set, unless the caller explicitly skips that tag.
+	if slices.Contains(taskTags, "always") {
+		for _, skip := range e.SkipTags {
+			if skip == "always" {
+				return false
+			}
+		}
+		return true
+	}
+
 	// If no tags specified, run all
 	if len(e.Tags) == 0 && len(e.SkipTags) == 0 {
 		return true
