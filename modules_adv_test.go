@@ -998,6 +998,28 @@ func TestModulesAdv_ModuleIncludeVars_Good_RespectsDepthLimit(t *testing.T) {
 	assert.NotContains(t, result.Msg, joinPath(dir, "nested", "deep", "03-grandchild.yml"))
 }
 
+func TestModulesAdv_ModuleIncludeVars_Good_FiltersFilesMatching(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("base_value: base\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "02-extra.yaml"), []byte("extra_value: extra\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "notes.txt"), []byte("ignored: true\n"), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"dir":            dir,
+		"files_matching": `^02-.*\.ya?ml$`,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "extra", e.vars["extra_value"])
+	_, hasBase := e.vars["base_value"]
+	assert.False(t, hasBase)
+	assert.Contains(t, result.Msg, joinPath(dir, "02-extra.yaml"))
+	assert.NotContains(t, result.Msg, joinPath(dir, "01-base.yml"))
+}
+
 // --- sysctl module ---
 
 func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {

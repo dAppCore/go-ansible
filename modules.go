@@ -2114,6 +2114,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	}
 	dir := getStringArg(args, "dir", "")
 	name := getStringArg(args, "name", "")
+	filesMatching := getStringArg(args, "files_matching", "")
 	hashBehaviour := lower(getStringArg(args, "hash_behaviour", "replace"))
 	depth := getIntArg(args, "depth", 0)
 
@@ -2148,7 +2149,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 
 	if dir != "" {
 		dir = e.resolveLocalPath(dir)
-		files, err := collectIncludeVarsFiles(dir, depth)
+		files, err := collectIncludeVarsFiles(dir, depth, filesMatching)
 		if err != nil {
 			return nil, err
 		}
@@ -2175,7 +2176,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	return &TaskResult{Changed: true, Msg: msg}, nil
 }
 
-func collectIncludeVarsFiles(dir string, depth int) ([]string, error) {
+func collectIncludeVarsFiles(dir string, depth int, filesMatching string) ([]string, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
@@ -2187,6 +2188,14 @@ func collectIncludeVarsFiles(dir string, depth int) ([]string, error) {
 	type dirEntry struct {
 		path  string
 		depth int
+	}
+
+	var matcher *regexp.Regexp
+	if filesMatching != "" {
+		matcher, err = regexp.Compile(filesMatching)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleIncludeVars", "compile files_matching", err)
+		}
 	}
 
 	var files []string
@@ -2213,6 +2222,9 @@ func collectIncludeVarsFiles(dir string, depth int) ([]string, error) {
 
 			ext := lower(filepath.Ext(entry.Name()))
 			if ext == ".yml" || ext == ".yaml" {
+				if matcher != nil && !matcher.MatchString(entry.Name()) {
+					continue
+				}
 				files = append(files, fullPath)
 			}
 		}
