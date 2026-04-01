@@ -1506,13 +1506,9 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 		statusCode, _ = strconv.Atoi(lines[len(lines)-1])
 	}
 
-	// Check expected status
-	expectedStatus := 200
-	if s, ok := args["status_code"].(int); ok {
-		expectedStatus = s
-	}
-
-	failed := rc != 0 || statusCode != expectedStatus
+	// Check expected status codes
+	expectedStatuses := normalizeStatusCodes(args["status_code"], 200)
+	failed := rc != 0 || !containsInt(expectedStatuses, statusCode)
 
 	return &TaskResult{
 		Changed: false,

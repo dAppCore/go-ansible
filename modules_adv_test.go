@@ -897,6 +897,21 @@ func TestModulesAdv_ModuleURI_Good_CustomExpectedStatus(t *testing.T) {
 	assert.Equal(t, 204, result.RC)
 }
 
+func TestModulesAdv_ModuleURI_Good_MultipleExpectedStatuses(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl`, "\n202", "", 0)
+
+	result, err := e.moduleURI(context.Background(), mock, map[string]any{
+		"url":         "https://example.com/jobs/123",
+		"status_code": []any{200, 202, 204},
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, 202, result.RC)
+	assert.Equal(t, 202, result.Data["status"])
+}
+
 func TestModulesAdv_ModuleURI_Bad_MissingURL(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()

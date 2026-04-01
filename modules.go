@@ -1042,13 +1042,9 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 		statusCode, _ = strconv.Atoi(lines[len(lines)-1])
 	}
 
-	// Check expected status
-	expectedStatus := 200
-	if s, ok := args["status_code"].(int); ok {
-		expectedStatus = s
-	}
-
-	failed := rc != 0 || statusCode != expectedStatus
+	// Check expected status codes.
+	expectedStatuses := normalizeStatusCodes(args["status_code"], 200)
+	failed := rc != 0 || !containsInt(expectedStatuses, statusCode)
 
 	return &TaskResult{
 		Changed: false,
@@ -1632,6 +1628,68 @@ func getBoolArg(args map[string]any, key string, def bool) bool {
 		}
 	}
 	return def
+}
+
+func normalizeStatusCodes(value any, def int) []int {
+	switch v := value.(type) {
+	case nil:
+		return []int{def}
+	case int:
+		return []int{v}
+	case int8:
+		return []int{int(v)}
+	case int16:
+		return []int{int(v)}
+	case int32:
+		return []int{int(v)}
+	case int64:
+		return []int{int(v)}
+	case uint:
+		return []int{int(v)}
+	case uint8:
+		return []int{int(v)}
+	case uint16:
+		return []int{int(v)}
+	case uint32:
+		return []int{int(v)}
+	case uint64:
+		return []int{int(v)}
+	case string:
+		if parsed, err := strconv.Atoi(v); err == nil {
+			return []int{parsed}
+		}
+	case []int:
+		return v
+	case []any:
+		out := make([]int, 0, len(v))
+		for _, item := range v {
+			out = append(out, normalizeStatusCodes(item, def)...)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	case []string:
+		out := make([]int, 0, len(v))
+		for _, item := range v {
+			if parsed, err := strconv.Atoi(item); err == nil {
+				out = append(out, parsed)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+
+	return []int{def}
+}
+
+func containsInt(values []int, target int) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Additional Modules ---
