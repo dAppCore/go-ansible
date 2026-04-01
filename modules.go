@@ -2115,6 +2115,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	dir := getStringArg(args, "dir", "")
 	name := getStringArg(args, "name", "")
 	filesMatching := getStringArg(args, "files_matching", "")
+	ignoreFiles := normalizeStringList(args["ignore_files"])
 	extensions := normalizeIncludeVarsExtensions(normalizeStringList(args["extensions"]))
 	hashBehaviour := lower(getStringArg(args, "hash_behaviour", "replace"))
 	depth := getIntArg(args, "depth", 0)
@@ -2150,7 +2151,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 
 	if dir != "" {
 		dir = e.resolveLocalPath(dir)
-		files, err := collectIncludeVarsFiles(dir, depth, filesMatching, extensions)
+		files, err := collectIncludeVarsFiles(dir, depth, filesMatching, extensions, ignoreFiles)
 		if err != nil {
 			return nil, err
 		}
@@ -2201,7 +2202,7 @@ func normalizeIncludeVarsExtensions(values []string) []string {
 	return extensions
 }
 
-func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extensions []string) ([]string, error) {
+func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extensions []string, ignoreFiles []string) ([]string, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
@@ -2228,6 +2229,12 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extens
 	for _, ext := range extensions {
 		allowed[ext] = true
 	}
+	ignored := make(map[string]bool, len(ignoreFiles))
+	for _, name := range ignoreFiles {
+		if name = corexTrimSpace(name); name != "" {
+			ignored[name] = true
+		}
+	}
 	stack := []dirEntry{{path: dir, depth: 0}}
 	for len(stack) > 0 {
 		current := stack[len(stack)-1]
@@ -2249,6 +2256,9 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extens
 				continue
 			}
 
+			if ignored[entry.Name()] {
+				continue
+			}
 			ext := lower(filepath.Ext(entry.Name()))
 			if !allowed[ext] {
 				continue

@@ -1059,6 +1059,31 @@ func TestModulesAdv_ModuleIncludeVars_Good_FiltersFilesMatching(t *testing.T) {
 	assert.NotContains(t, result.Msg, joinPath(dir, "01-base.yml"))
 }
 
+func TestModulesAdv_ModuleIncludeVars_Good_IgnoresNamedFiles(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("base_value: base\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "02-skip.yml"), []byte("skip_value: skipped\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "nested", "02-skip.yml"), []byte("nested_skip_value: skipped\n"), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"dir":          dir,
+		"ignore_files": []any{"02-skip.yml"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "base", e.vars["base_value"])
+	_, hasSkip := e.vars["skip_value"]
+	assert.False(t, hasSkip)
+	_, hasNestedSkip := e.vars["nested_skip_value"]
+	assert.False(t, hasNestedSkip)
+	assert.Contains(t, result.Msg, joinPath(dir, "01-base.yml"))
+	assert.NotContains(t, result.Msg, joinPath(dir, "02-skip.yml"))
+	assert.NotContains(t, result.Msg, joinPath(dir, "nested", "02-skip.yml"))
+}
+
 // --- sysctl module ---
 
 func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {
