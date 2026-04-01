@@ -391,11 +391,23 @@ func (e *Executor) moduleScript(ctx context.Context, client sshExecutorClient, a
 		return nil, coreerr.E("Executor.moduleScript", "no script specified", nil)
 	}
 
+	skip, err := shouldSkipCommandModule(ctx, client, args)
+	if err != nil {
+		return nil, err
+	}
+	if skip {
+		return &TaskResult{Changed: false}, nil
+	}
+
 	// Read local script
 	script = e.resolveLocalPath(script)
 	data, err := coreio.Local.Read(script)
 	if err != nil {
 		return nil, coreerr.E("Executor.moduleScript", "read script", err)
+	}
+
+	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
+		data = sprintf("cd %q && %s", chdir, data)
 	}
 
 	stdout, stderr, rc, err := client.RunScript(ctx, data)

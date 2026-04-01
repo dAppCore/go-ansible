@@ -562,6 +562,47 @@ func TestModulesCmd_ModuleScript_Good_BasicScript(t *testing.T) {
 	assert.Equal(t, scriptContent, last.Cmd)
 }
 
+func TestModulesCmd_ModuleScript_Good_CreatesSkipsExecution(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := joinPath(tmpDir, "setup.sh")
+	require.NoError(t, writeTestFile(scriptPath, []byte("echo should-not-run"), 0755))
+
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/already-there", []byte("present"))
+
+	result, err := e.moduleScript(context.Background(), mock, map[string]any{
+		"_raw_params": scriptPath,
+		"creates":     "/tmp/already-there",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.commandCount())
+}
+
+func TestModulesCmd_ModuleScript_Good_ChdirPrefixesScript(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := joinPath(tmpDir, "work.sh")
+	require.NoError(t, writeTestFile(scriptPath, []byte("pwd"), 0755))
+
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleScript(context.Background(), mock, map[string]any{
+		"_raw_params": scriptPath,
+		"chdir":       "/opt/app",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Changed)
+
+	last := mock.lastCommand()
+	require.NotNil(t, last)
+	assert.Equal(t, "RunScript", last.Method)
+	assert.Equal(t, `cd "/opt/app" && pwd`, last.Cmd)
+}
+
 func TestModulesCmd_ModuleScript_Bad_NoScript(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
