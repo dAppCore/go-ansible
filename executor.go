@@ -18,6 +18,7 @@ import (
 
 	coreio "dappco.re/go/core/io"
 	coreerr "dappco.re/go/core/log"
+	"gopkg.in/yaml.v3"
 )
 
 var errEndPlay = errors.New("end play")
@@ -183,6 +184,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 	e.endedHosts = make(map[string]bool)
 
 	// Merge play vars
+	if err := e.loadPlayVarsFiles(play); err != nil {
+		return err
+	}
 	for k, v := range play.Vars {
 		e.vars[k] = v
 	}
@@ -275,6 +279,48 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 	nextBatch:
 	}
+
+	return nil
+}
+
+// loadPlayVarsFiles loads any play-level vars_files entries and merges them
+// into the play's Vars map before execution begins.
+func (e *Executor) loadPlayVarsFiles(play *Play) error {
+	if play == nil {
+		return nil
+	}
+
+	files := normalizeStringList(play.VarsFiles)
+	if len(files) == 0 {
+		return nil
+	}
+
+	merged := make(map[string]any)
+	for _, file := range files {
+		resolved := e.resolveLocalPath(file)
+		data, err := coreio.Local.Read(resolved)
+		if err != nil {
+			return coreerr.E("Executor.loadPlayVarsFiles", "read vars file", err)
+		}
+
+		var vars map[string]any
+		if err := yaml.Unmarshal([]byte(data), &vars); err != nil {
+			return coreerr.E("Executor.loadPlayVarsFiles", "parse vars file", err)
+		}
+
+		mergeVars(merged, vars, false)
+	}
+
+	if len(merged) == 0 {
+		return nil
+	}
+
+	if play.Vars == nil {
+		play.Vars = make(map[string]any)
+	}
+
+	mergeVars(merged, play.Vars, false)
+	play.Vars = merged
 
 	return nil
 }

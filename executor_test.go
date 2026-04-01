@@ -249,6 +249,43 @@ func TestExecutor_RunTaskOnHost_Good_DelegateToUsesDelegatedClient(t *testing.T)
 	assert.Equal(t, 1, mock.commandCount())
 }
 
+func TestExecutor_Run_Good_VarsFilesMergeIntoPlayVars(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "common.yml"), []byte(`---
+http_port: 8080
+app_name: base
+environment: staging
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "override.yml"), []byte(`---
+app_name: demo
+`), 0644))
+
+	playbookPath := joinPath(dir, "playbook.yml")
+	require.NoError(t, writeTestFile(playbookPath, []byte(`---
+- name: Vars files
+  hosts: localhost
+  gather_facts: false
+  vars:
+    environment: prod
+  vars_files:
+    - vars/common.yml
+    - vars/override.yml
+  tasks:
+    - name: Show merged vars
+      debug:
+        msg: "{{ http_port }} {{ app_name }} {{ environment }}"
+      register: vars_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.Run(context.Background(), playbookPath))
+
+	require.NotNil(t, e.results["localhost"])
+	require.NotNil(t, e.results["localhost"]["vars_result"])
+	assert.Equal(t, "8080 demo prod", e.results["localhost"]["vars_result"].Msg)
+}
+
 func TestExecutor_RunTaskOnHosts_Good_WithFileUsesFileContents(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "fragments", "hello.txt"), []byte("hello from file"), 0644))
