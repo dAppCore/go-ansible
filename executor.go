@@ -663,7 +663,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 
 	// Handle loops, including legacy with_file, with_fileglob, and with_sequence syntax.
 	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil {
-		return e.runLoop(ctx, host, client, task, play)
+		return e.runLoop(ctx, host, client, task, play, start)
 	}
 
 	// Execute the task, honouring retries/until when configured.
@@ -853,7 +853,7 @@ func shouldRetryTask(task *Task, host string, e *Executor, result *TaskResult) b
 }
 
 // runLoop handles task loops.
-func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play) error {
+func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play, start time.Time) error {
 	var (
 		items []any
 		err   error
@@ -991,7 +991,42 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 				combined.Failed = true
 			}
 		}
+		combined.Duration = time.Since(start)
 		e.results[host][task.Register] = combined
+	}
+
+	result := &TaskResult{
+		Results: results,
+		Changed: false,
+	}
+	for _, r := range results {
+		if r.Changed {
+			result.Changed = true
+		}
+		if r.Failed {
+			result.Failed = true
+		}
+	}
+	result.Duration = time.Since(start)
+
+	displayResult := result
+	if task.NoLog {
+		displayResult = redactTaskResult(result)
+	}
+
+	if result.Changed && task.Notify != nil {
+		e.handleNotify(task.Notify)
+	}
+
+	if e.OnTaskEnd != nil {
+		e.OnTaskEnd(host, task, displayResult)
+	}
+
+	if result.Failed {
+		e.markBatchHostFailed(host)
+		if !task.IgnoreErrors {
+			return taskFailureError(task, result)
+		}
 	}
 
 	return nil

@@ -919,6 +919,59 @@ func TestExecutor_RunTaskOnHost_Good_LoopFromWithNested(t *testing.T) {
 	assert.Equal(t, "blue-large", result.Results[3].Msg)
 }
 
+func TestExecutor_RunTaskOnHosts_Good_LoopNotifiesAndCallsCallback(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	var ended *TaskResult
+	task := &Task{
+		Name:   "Looped change",
+		Module: "set_fact",
+		Args: map[string]any{
+			"changed_flag": true,
+		},
+		Loop:   []any{"one", "two"},
+		Notify: "restart app",
+	}
+	play := &Play{
+		Handlers: []Task{
+			{
+				Name:   "restart app",
+				Module: "debug",
+				Args:   map[string]any{"msg": "handler"},
+			},
+		},
+	}
+
+	e.OnTaskEnd = func(_ string, _ *Task, result *TaskResult) {
+		ended = result
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, play)
+	require.NoError(t, err)
+
+	require.NotNil(t, ended)
+	assert.True(t, ended.Changed)
+	assert.Len(t, ended.Results, 2)
+	assert.True(t, e.notified["restart app"])
+}
+
+func TestExecutor_RunTaskOnHosts_Bad_LoopFailurePropagates(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Looped failure",
+		Module: "fail",
+		Args:   map[string]any{"msg": "bad"},
+		Loop:   []any{"one", "two"},
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task failed")
+}
+
 func TestExecutor_RunTaskWithRetries_Good_UntilSuccess(t *testing.T) {
 	e := NewExecutor("/tmp")
 	attempts := 0
