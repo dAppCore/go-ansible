@@ -284,6 +284,20 @@ notify: restart nginx
 	assert.Equal(t, "restart nginx", task.Notify)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithListen(t *testing.T) {
+	input := `
+name: Restart service
+debug:
+  msg: "handler"
+listen: reload nginx
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.Equal(t, "reload nginx", task.Listen)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_ShortFormSystemModules(t *testing.T) {
 	cases := []struct {
 		name       string

@@ -888,6 +888,53 @@ func TestExecutor_RunTaskOnHosts_Good_MetaFlushesHandlers(t *testing.T) {
 	assert.Equal(t, []string{"change config", "flush handlers", "restart app"}, executed)
 }
 
+func TestExecutor_RunTaskOnHosts_Good_MetaFlushesHandlerListenAlias(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	play := &Play{
+		Handlers: []Task{
+			{
+				Name:   "restart app",
+				Listen: "reload app",
+				Module: "debug",
+				Args:   map[string]any{"msg": "handler"},
+			},
+		},
+	}
+
+	notifyTask := &Task{
+		Name:   "change config",
+		Module: "set_fact",
+		Args:   map[string]any{"restart_required": true},
+		Notify: "reload app",
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, notifyTask, play))
+	assert.True(t, e.notified["reload app"])
+
+	metaTask := &Task{
+		Name:   "flush handlers",
+		Module: "meta",
+		Args:   map[string]any{"_raw_params": "flush_handlers"},
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, metaTask, play))
+
+	assert.False(t, e.notified["reload app"])
+	assert.Equal(t, []string{"change config", "flush handlers", "restart app"}, executed)
+}
+
 func TestExecutor_HandleMetaAction_Good_ClearHostErrors(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.batchFailedHosts = map[string]bool{

@@ -107,6 +107,7 @@ type Task struct {
 	Rescue       []Task            `yaml:"rescue,omitempty"`
 	Always       []Task            `yaml:"always,omitempty"`
 	Notify       any               `yaml:"notify,omitempty"` // string or []string
+	Listen       any               `yaml:"listen,omitempty"` // string or []string
 	Retries      int               `yaml:"retries,omitempty"`
 	Delay        int               `yaml:"delay,omitempty"`
 	Until        string            `yaml:"until,omitempty"`

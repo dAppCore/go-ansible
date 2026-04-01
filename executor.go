@@ -2232,7 +2232,7 @@ func (e *Executor) runNotifiedHandlers(ctx context.Context, hosts []string, play
 	}
 
 	for _, handler := range play.Handlers {
-		if pending[handler.Name] {
+		if handlerMatchesNotifications(&handler, pending) {
 			if err := e.runTaskOnHosts(ctx, hosts, &handler, play); err != nil {
 				return err
 			}
@@ -2240,6 +2240,24 @@ func (e *Executor) runNotifiedHandlers(ctx context.Context, hosts []string, play
 	}
 
 	return nil
+}
+
+func handlerMatchesNotifications(handler *Task, pending map[string]bool) bool {
+	if handler == nil || len(pending) == 0 {
+		return false
+	}
+
+	if handler.Name != "" && pending[handler.Name] {
+		return true
+	}
+
+	for _, listen := range normalizeStringList(handler.Listen) {
+		if pending[listen] {
+			return true
+		}
+	}
+
+	return false
 }
 
 // handleMetaAction applies module meta side effects after the task result has
