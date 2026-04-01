@@ -438,6 +438,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client *SSHClient, args
 	line := getStringArg(args, "line", "")
 	regexp := getStringArg(args, "regexp", "")
 	state := getStringArg(args, "state", "present")
+	backrefs := getBoolArg(args, "backrefs", false)
 
 	if state == "absent" {
 		if regexp != "" {
@@ -450,12 +451,26 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client *SSHClient, args
 	} else {
 		// state == present
 		if regexp != "" {
-			// Replace line matching regexp
+			// Replace line matching regexp.
 			escapedLine := replaceAll(line, "/", "\\/")
-			cmd := sprintf("sed -i 's/%s/%s/' %q", regexp, escapedLine, path)
+			sedFlags := "-i"
+			if backrefs {
+				// When backrefs is enabled, Ansible only replaces matching lines
+				// and does not append a new line when the pattern is absent.
+				matchCmd := sprintf("grep -Eq %q %q", regexp, path)
+				_, _, matchRC, _ := client.Run(ctx, matchCmd)
+				if matchRC != 0 {
+					return &TaskResult{Changed: false}, nil
+				}
+				sedFlags = "-E -i"
+			}
+			cmd := sprintf("sed %s 's/%s/%s/' %q", sedFlags, regexp, escapedLine, path)
 			_, _, rc, _ := client.Run(ctx, cmd)
 			if rc != 0 {
-				// Line not found, append
+				if backrefs {
+					return &TaskResult{Changed: false}, nil
+				}
+				// Line not found, append.
 				cmd = sprintf("echo %q >> %q", line, path)
 				_, _, _, _ = client.Run(ctx, cmd)
 			}

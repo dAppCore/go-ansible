@@ -752,6 +752,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 	line := getStringArg(args, "line", "")
 	regexpArg := getStringArg(args, "regexp", "")
 	state := getStringArg(args, "state", "present")
+	backrefs := getBoolArg(args, "backrefs", false)
 
 	if state == "absent" {
 		if regexpArg != "" {
@@ -764,12 +765,24 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 	} else {
 		// state == present
 		if regexpArg != "" {
-			// Replace line matching regexp
+			// Replace line matching regexp.
 			escapedLine := replaceAll(line, "/", "\\/")
-			cmd := sprintf("sed -i 's/%s/%s/' %q", regexpArg, escapedLine, path)
+			sedFlags := "-i"
+			if backrefs {
+				matchCmd := sprintf("grep -Eq %q %q", regexpArg, path)
+				_, _, matchRC, _ := client.Run(context.Background(), matchCmd)
+				if matchRC != 0 {
+					return &TaskResult{Changed: false}, nil
+				}
+				sedFlags = "-E -i"
+			}
+			cmd := sprintf("sed %s 's/%s/%s/' %q", sedFlags, regexpArg, escapedLine, path)
 			_, _, rc, _ := client.Run(context.Background(), cmd)
 			if rc != 0 {
-				// Line not found, append
+				if backrefs {
+					return &TaskResult{Changed: false}, nil
+				}
+				// Line not found, append.
 				cmd = sprintf("echo %q >> %q", line, path)
 				_, _, _, _ = client.Run(context.Background(), cmd)
 			}

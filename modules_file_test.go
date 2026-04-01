@@ -387,6 +387,46 @@ func TestModulesFile_ModuleLineinfile_Good_RegexpFallsBackToAppend(t *testing.T)
 	assert.True(t, mock.hasExecuted(`echo`))
 }
 
+func TestModulesFile_ModuleLineinfile_Good_BackrefsReplaceMatchOnly(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
+		"path":     "/etc/example.conf",
+		"regexp":   "^(foo=).*$",
+		"line":     "\\1bar",
+		"backrefs": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`grep -Eq`))
+	cmd := mock.lastCommand()
+	assert.Equal(t, "Run", cmd.Method)
+	assert.Contains(t, cmd.Cmd, "sed -E -i")
+	assert.Contains(t, cmd.Cmd, "s/^(foo=).*$")
+	assert.Contains(t, cmd.Cmd, "\\1bar")
+	assert.Contains(t, cmd.Cmd, `"/etc/example.conf"`)
+	assert.False(t, mock.hasExecuted(`echo`))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_BackrefsNoMatchNoAppend(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand("grep -Eq", "", "", 1)
+
+	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
+		"path":     "/etc/example.conf",
+		"regexp":   "^(foo=).*$",
+		"line":     "\\1bar",
+		"backrefs": true,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 1, mock.commandCount())
+	assert.Contains(t, mock.lastCommand().Cmd, "grep -Eq")
+	assert.False(t, mock.hasExecuted(`echo`))
+}
+
 func TestModulesFile_ModuleLineinfile_Bad_MissingPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
