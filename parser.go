@@ -191,13 +191,19 @@ func (p *Parser) ParseTasksIter(path string) (iter.Seq[Task], error) {
 //
 //	tasks, err := parser.ParseRole("nginx", "main.yml")
 func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
-	tasks, _, _, err := p.loadRoleData(name, tasksFrom)
+	tasks, _, _, err := p.loadRoleData(name, tasksFrom, "", "")
 	return tasks, err
 }
 
-func (p *Parser) loadRoleData(name string, tasksFrom string) ([]Task, map[string]any, map[string]any, error) {
+func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string, varsFrom string) ([]Task, map[string]any, map[string]any, error) {
 	if tasksFrom == "" {
 		tasksFrom = "main.yml"
+	}
+	if defaultsFrom == "" {
+		defaultsFrom = "main.yml"
+	}
+	if varsFrom == "" {
+		varsFrom = "main.yml"
 	}
 
 	// Search paths for roles (in order of precedence)
@@ -230,7 +236,7 @@ func (p *Parser) loadRoleData(name string, tasksFrom string) ([]Task, map[string
 
 	defaults := make(map[string]any)
 	// Load role defaults
-	defaultsPath := joinPath(pathDir(pathDir(tasksPath)), "defaults", "main.yml")
+	defaultsPath := joinPath(pathDir(pathDir(tasksPath)), "defaults", defaultsFrom)
 	if data, err := coreio.Local.Read(defaultsPath); err == nil {
 		if yaml.Unmarshal([]byte(data), &defaults) != nil {
 			defaults = make(map[string]any)
@@ -239,7 +245,7 @@ func (p *Parser) loadRoleData(name string, tasksFrom string) ([]Task, map[string
 
 	roleVars := make(map[string]any)
 	// Load role vars
-	varsPath := joinPath(pathDir(pathDir(tasksPath)), "vars", "main.yml")
+	varsPath := joinPath(pathDir(pathDir(tasksPath)), "vars", varsFrom)
 	if data, err := coreio.Local.Read(varsPath); err == nil {
 		if yaml.Unmarshal([]byte(data), &roleVars) != nil {
 			roleVars = make(map[string]any)

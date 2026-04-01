@@ -527,6 +527,52 @@ role_value: vars-value
 	assert.False(t, leaked)
 }
 
+func TestExecutor_RunRole_Good_UsesCustomRoleDefaultsAndVarsFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(`---
+- name: role file selector task
+  debug:
+    msg: "{{ role_value }}|{{ role_param }}"
+  register: role_result
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "defaults", "main.yml"), []byte(`---
+role_value: default-main
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "defaults", "custom.yml"), []byte(`---
+role_value: default-custom
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "vars", "main.yml"), []byte(`---
+role_value: vars-main
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "vars", "custom.yml"), []byte(`---
+role_value: vars-custom
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	err := e.runRole(context.Background(), []string{"host1"}, &RoleRef{
+		Role:         "webserver",
+		DefaultsFrom: "custom.yml",
+		VarsFrom:     "custom.yml",
+		Vars: map[string]any{
+			"role_param": "include-value",
+		},
+	}, &Play{Connection: "local"})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["role_result"])
+	assert.Equal(t, "vars-custom|include-value", e.results["host1"]["role_result"].Msg)
+}
+
 func TestExecutor_RunPlay_Good_AppliesPlayTagsToTasks(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Tags = []string{"deploy"}

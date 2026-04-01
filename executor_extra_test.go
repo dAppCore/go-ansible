@@ -770,9 +770,11 @@ func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
 	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
 		Name: "Load role",
 		IncludeRole: &struct {
-			Name      string         `yaml:"name"`
-			TasksFrom string         `yaml:"tasks_from,omitempty"`
-			Vars      map[string]any `yaml:"vars,omitempty"`
+			Name         string         `yaml:"name"`
+			TasksFrom    string         `yaml:"tasks_from,omitempty"`
+			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
+			VarsFrom     string         `yaml:"vars_from,omitempty"`
+			Vars         map[string]any `yaml:"vars,omitempty"`
 		}{
 			Name: "demo",
 		},

@@ -431,7 +431,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 		oldVars[k] = v
 	}
 
-	tasks, defaults, roleVars, err := e.parser.loadRoleData(roleRef.Role, roleRef.TasksFrom)
+	tasks, defaults, roleVars, err := e.parser.loadRoleData(roleRef.Role, roleRef.TasksFrom, roleRef.DefaultsFrom, roleRef.VarsFrom)
 	if err != nil {
 		e.vars = oldVars
 		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
@@ -1448,23 +1448,29 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 
 // runIncludeRole handles include_role/import_role.
 func (e *Executor) runIncludeRole(ctx context.Context, hosts []string, task *Task, play *Play) error {
-	var roleName, tasksFrom string
+	var roleName, tasksFrom, defaultsFrom, varsFrom string
 	var roleVars map[string]any
 
 	if task.IncludeRole != nil {
 		roleName = task.IncludeRole.Name
 		tasksFrom = task.IncludeRole.TasksFrom
+		defaultsFrom = task.IncludeRole.DefaultsFrom
+		varsFrom = task.IncludeRole.VarsFrom
 		roleVars = task.IncludeRole.Vars
 	} else {
 		roleName = task.ImportRole.Name
 		tasksFrom = task.ImportRole.TasksFrom
+		defaultsFrom = task.ImportRole.DefaultsFrom
+		varsFrom = task.ImportRole.VarsFrom
 		roleVars = task.ImportRole.Vars
 	}
 
 	roleRef := &RoleRef{
-		Role:      roleName,
-		TasksFrom: tasksFrom,
-		Vars:      mergeTaskVars(roleVars, task.Vars),
+		Role:         roleName,
+		TasksFrom:    tasksFrom,
+		DefaultsFrom: defaultsFrom,
+		VarsFrom:     varsFrom,
+		Vars:         mergeTaskVars(roleVars, task.Vars),
 	}
 
 	return e.runRole(ctx, hosts, roleRef, play)

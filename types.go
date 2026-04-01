@@ -45,12 +45,14 @@ type Play struct {
 //
 //	role := RoleRef{Role: "nginx", TasksFrom: "install.yml"}
 type RoleRef struct {
-	Role      string         `yaml:"role,omitempty"`
-	Name      string         `yaml:"name,omitempty"` // Alternative to role
-	TasksFrom string         `yaml:"tasks_from,omitempty"`
-	Vars      map[string]any `yaml:"vars,omitempty"`
-	When      any            `yaml:"when,omitempty"`
-	Tags      []string       `yaml:"tags,omitempty"`
+	Role         string         `yaml:"role,omitempty"`
+	Name         string         `yaml:"name,omitempty"` // Alternative to role
+	TasksFrom    string         `yaml:"tasks_from,omitempty"`
+	DefaultsFrom string         `yaml:"defaults_from,omitempty"`
+	VarsFrom     string         `yaml:"vars_from,omitempty"`
+	Vars         map[string]any `yaml:"vars,omitempty"`
+	When         any            `yaml:"when,omitempty"`
+	Tags         []string       `yaml:"tags,omitempty"`
 }
 
 // UnmarshalYAML handles both string and struct role refs.
@@ -120,14 +122,18 @@ type Task struct {
 	WithFileGlob any    `yaml:"with_fileglob,omitempty"`
 	WithSequence any    `yaml:"with_sequence,omitempty"`
 	IncludeRole  *struct {
-		Name      string         `yaml:"name"`
-		TasksFrom string         `yaml:"tasks_from,omitempty"`
-		Vars      map[string]any `yaml:"vars,omitempty"`
+		Name         string         `yaml:"name"`
+		TasksFrom    string         `yaml:"tasks_from,omitempty"`
+		DefaultsFrom string         `yaml:"defaults_from,omitempty"`
+		VarsFrom     string         `yaml:"vars_from,omitempty"`
+		Vars         map[string]any `yaml:"vars,omitempty"`
 	} `yaml:"include_role,omitempty"`
 	ImportRole *struct {
-		Name      string         `yaml:"name"`
-		TasksFrom string         `yaml:"tasks_from,omitempty"`
-		Vars      map[string]any `yaml:"vars,omitempty"`
+		Name         string         `yaml:"name"`
+		TasksFrom    string         `yaml:"tasks_from,omitempty"`
+		DefaultsFrom string         `yaml:"defaults_from,omitempty"`
+		VarsFrom     string         `yaml:"vars_from,omitempty"`
+		Vars         map[string]any `yaml:"vars,omitempty"`
 	} `yaml:"import_role,omitempty"`
 
 	// Raw YAML for module extraction

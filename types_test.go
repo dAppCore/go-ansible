@@ -63,6 +63,23 @@ when: ansible_os_family == "Debian"
 	assert.NotNil(t, ref.When)
 }
 
+func TestTypes_RoleRef_UnmarshalYAML_Good_CustomRoleFiles(t *testing.T) {
+	input := `
+name: web
+tasks_from: setup.yml
+defaults_from: custom-defaults.yml
+vars_from: custom-vars.yml
+`
+	var ref RoleRef
+	err := yaml.Unmarshal([]byte(input), &ref)
+
+	require.NoError(t, err)
+	assert.Equal(t, "web", ref.Role)
+	assert.Equal(t, "setup.yml", ref.TasksFrom)
+	assert.Equal(t, "custom-defaults.yml", ref.DefaultsFrom)
+	assert.Equal(t, "custom-vars.yml", ref.VarsFrom)
+}
+
 // --- Task UnmarshalYAML ---
 
 func TestTypes_Task_UnmarshalYAML_Good_ModuleWithArgs(t *testing.T) {
@@ -446,6 +463,8 @@ name: Include role
 include_role:
   name: common
   tasks_from: setup.yml
+  defaults_from: defaults.yml
+  vars_from: vars.yml
 `
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
@@ -454,6 +473,8 @@ include_role:
 	require.NotNil(t, task.IncludeRole)
 	assert.Equal(t, "common", task.IncludeRole.Name)
 	assert.Equal(t, "setup.yml", task.IncludeRole.TasksFrom)
+	assert.Equal(t, "defaults.yml", task.IncludeRole.DefaultsFrom)
+	assert.Equal(t, "vars.yml", task.IncludeRole.VarsFrom)
 }
 
 func TestTypes_Task_UnmarshalYAML_Good_BecomeFields(t *testing.T) {
