@@ -1761,8 +1761,19 @@ func mergeVars(dst, src map[string]any, mergeMaps bool) {
 
 func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {
 	// meta module controls play execution
-	// Most actions are no-ops for us
-	return &TaskResult{Changed: false}, nil
+	// Most actions are no-ops for us, but we preserve the requested action so
+	// the executor can apply side effects such as handler flushing.
+	action := getStringArg(args, "_raw_params", "")
+	if action == "" {
+		action = getStringArg(args, "free_form", "")
+	}
+
+	result := &TaskResult{Changed: false}
+	if action != "" {
+		result.Data = map[string]any{"action": action}
+	}
+
+	return result, nil
 }
 
 func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFactsRunner) (*TaskResult, error) {

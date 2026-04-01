@@ -308,6 +308,8 @@ func TestExecutorExtra_ModuleMeta_Good(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "flush_handlers", result.Data["action"])
 }
 
 // ============================================================

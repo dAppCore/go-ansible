@@ -271,7 +271,7 @@ func TestExecutor_RunTaskOnHost_Good_CheckModeSkipsMutatingTask(t *testing.T) {
 		ended = result
 	}
 
-	err := e.runTaskOnHost(context.Background(), "host1", task, &Play{})
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
 	require.NoError(t, err)
 
 	require.NotNil(t, ended)
@@ -287,6 +287,54 @@ func TestExecutor_RunTaskOnHost_Good_CheckModeSkipsMutatingTask(t *testing.T) {
 func TestExecutor_NormalizeConditions_Good_String(t *testing.T) {
 	result := normalizeConditions("my_var is defined")
 	assert.Equal(t, []string{"my_var is defined"}, result)
+}
+
+// --- meta flush handlers ---
+
+func TestExecutor_RunTaskOnHosts_Good_MetaFlushesHandlers(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	play := &Play{
+		Handlers: []Task{
+			{
+				Name:   "restart app",
+				Module: "debug",
+				Args:   map[string]any{"msg": "handler"},
+			},
+		},
+	}
+
+	notifyTask := &Task{
+		Name:   "change config",
+		Module: "set_fact",
+		Args:   map[string]any{"restart_required": true},
+		Notify: "restart app",
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, notifyTask, play))
+	assert.True(t, e.notified["restart app"])
+
+	metaTask := &Task{
+		Name:   "flush handlers",
+		Module: "meta",
+		Args:   map[string]any{"_raw_params": "flush_handlers"},
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, metaTask, play))
+
+	assert.False(t, e.notified["restart app"])
+	assert.Equal(t, []string{"change config", "flush handlers", "restart app"}, executed)
 }
 
 func TestExecutor_NormalizeConditions_Good_StringSlice(t *testing.T) {

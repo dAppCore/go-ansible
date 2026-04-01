@@ -178,12 +178,8 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 	}
 
 	// Run notified handlers
-	for _, handler := range play.Handlers {
-		if e.notified[handler.Name] {
-			if err := e.runTaskOnHosts(ctx, hosts, &handler, play); err != nil {
-				return err
-			}
-		}
+	if err := e.runNotifiedHandlers(ctx, hosts, play); err != nil {
+		return err
 	}
 
 	return nil
@@ -262,7 +258,7 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 	}
 
 	for _, host := range hosts {
-		if err := e.runTaskOnHost(ctx, host, task, play); err != nil {
+		if err := e.runTaskOnHost(ctx, host, hosts, task, play); err != nil {
 			if !task.IgnoreErrors {
 				return err
 			}
@@ -312,7 +308,7 @@ func (e *Executor) copyRegisteredResultToHosts(hosts []string, sourceHost, regis
 }
 
 // runTaskOnHost runs a task on a single host.
-func (e *Executor) runTaskOnHost(ctx context.Context, host string, task *Task, play *Play) error {
+func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []string, task *Task, play *Play) error {
 	start := time.Now()
 
 	if e.OnTaskStart != nil {
@@ -382,6 +378,12 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, task *Task, p
 
 	if e.OnTaskEnd != nil {
 		e.OnTaskEnd(host, task, result)
+	}
+
+	if NormalizeModule(task.Module) == "ansible.builtin.meta" {
+		if err := e.handleMetaAction(ctx, hosts, play, result); err != nil {
+			return err
+		}
 	}
 
 	if result.Failed && !task.IgnoreErrors {
@@ -1365,6 +1367,52 @@ func (e *Executor) handleNotify(notify any) {
 		for _, s := range v {
 			e.notified[s] = true
 		}
+	}
+}
+
+// runNotifiedHandlers executes any handlers that have been notified and then
+// clears the notification state for those handlers.
+func (e *Executor) runNotifiedHandlers(ctx context.Context, hosts []string, play *Play) error {
+	if play == nil || len(play.Handlers) == 0 {
+		return nil
+	}
+
+	pending := make(map[string]bool)
+	for name, notified := range e.notified {
+		if notified {
+			pending[name] = true
+			e.notified[name] = false
+		}
+	}
+
+	if len(pending) == 0 {
+		return nil
+	}
+
+	for _, handler := range play.Handlers {
+		if pending[handler.Name] {
+			if err := e.runTaskOnHosts(ctx, hosts, &handler, play); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// handleMetaAction applies module meta side effects after the task result has
+// been recorded and callbacks have fired.
+func (e *Executor) handleMetaAction(ctx context.Context, hosts []string, play *Play, result *TaskResult) error {
+	if result == nil || result.Data == nil {
+		return nil
+	}
+
+	action, _ := result.Data["action"].(string)
+	switch action {
+	case "flush_handlers":
+		return e.runNotifiedHandlers(ctx, hosts, play)
+	default:
+		return nil
 	}
 }
 
