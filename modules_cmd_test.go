@@ -1,6 +1,7 @@
 package ansible
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -269,6 +270,24 @@ func TestModulesCmd_ModuleCommand_Good_RawParamsTakesPrecedence(t *testing.T) {
 	assert.True(t, mock.hasExecuted("from_raw"))
 }
 
+func TestModulesCmd_ModuleCommand_Good_SkipsWhenCreatesExists(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/output.txt", []byte("done"))
+
+	task := &Task{
+		Module: "ansible.builtin.command",
+		Args: map[string]any{
+			"_raw_params": "echo should-not-run",
+			"creates":     "/tmp/output.txt",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.commandCount())
+}
+
 // --- shell module ---
 
 func TestModulesCmd_ModuleShell_Good_BasicShell(t *testing.T) {
@@ -340,6 +359,23 @@ func TestModulesCmd_ModuleShell_Good_NonZeroRC(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Failed)
 	assert.Equal(t, 2, result.RC)
+}
+
+func TestModulesCmd_ModuleShell_Good_SkipsWhenRemovesMissing(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	task := &Task{
+		Module: "ansible.builtin.shell",
+		Args: map[string]any{
+			"_raw_params": "echo should-not-run",
+			"removes":     "/tmp/missing.txt",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.commandCount())
 }
 
 func TestModulesCmd_ModuleShell_Good_SSHError(t *testing.T) {

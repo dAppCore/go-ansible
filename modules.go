@@ -217,6 +217,14 @@ func (e *Executor) moduleShell(ctx context.Context, client sshExecutorClient, ar
 		return nil, coreerr.E("Executor.moduleShell", "no command specified", nil)
 	}
 
+	skip, err := shouldSkipCommandModule(ctx, client, args)
+	if err != nil {
+		return nil, err
+	}
+	if skip {
+		return &TaskResult{Changed: false}, nil
+	}
+
 	// Handle chdir
 	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
 		cmd = sprintf("cd %q && %s", chdir, cmd)
@@ -245,6 +253,14 @@ func (e *Executor) moduleCommand(ctx context.Context, client sshExecutorClient, 
 		return nil, coreerr.E("Executor.moduleCommand", "no command specified", nil)
 	}
 
+	skip, err := shouldSkipCommandModule(ctx, client, args)
+	if err != nil {
+		return nil, err
+	}
+	if skip {
+		return &TaskResult{Changed: false}, nil
+	}
+
 	// Handle chdir
 	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
 		cmd = sprintf("cd %q && %s", chdir, cmd)
@@ -262,6 +278,30 @@ func (e *Executor) moduleCommand(ctx context.Context, client sshExecutorClient, 
 		RC:      rc,
 		Failed:  rc != 0,
 	}, nil
+}
+
+func shouldSkipCommandModule(ctx context.Context, client sshExecutorClient, args map[string]any) (bool, error) {
+	if path := getStringArg(args, "creates", ""); path != "" {
+		exists, err := client.FileExists(ctx, path)
+		if err != nil {
+			return false, coreerr.E("Executor.shouldSkipCommandModule", "creates check", err)
+		}
+		if exists {
+			return true, nil
+		}
+	}
+
+	if path := getStringArg(args, "removes", ""); path != "" {
+		exists, err := client.FileExists(ctx, path)
+		if err != nil {
+			return false, coreerr.E("Executor.shouldSkipCommandModule", "removes check", err)
+		}
+		if !exists {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (e *Executor) moduleRaw(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
