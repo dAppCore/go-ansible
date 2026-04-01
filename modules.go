@@ -34,6 +34,13 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		defer client.SetBecome(oldBecome, oldUser, oldPass)
 	}
 
+	if prefix := e.buildEnvironmentPrefix(host, task, play); prefix != "" {
+		client = &environmentSSHClient{
+			sshExecutorClient: client,
+			prefix:            prefix,
+		}
+	}
+
 	// Template the args
 	args := e.templateArgs(task.Args, host, task)
 

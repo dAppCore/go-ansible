@@ -231,6 +231,68 @@ func TestExecutor_RunTaskOnHost_Good_DelegateToUsesDelegatedClient(t *testing.T)
 	assert.Equal(t, 1, mock.commandCount())
 }
 
+func TestExecutor_RunTaskOnHost_Good_EnvironmentMergesForCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	play := &Play{
+		Environment: map[string]string{
+			"APP_ENV":   "play",
+			"PLAY_ONLY": "from-play",
+		},
+	}
+	task := &Task{
+		Name:   "Environment command",
+		Module: "command",
+		Args: map[string]any{
+			"cmd": `echo "$APP_ENV:$PLAY_ONLY:$TASK_ONLY"`,
+		},
+		Environment: map[string]string{
+			"APP_ENV":   "task",
+			"TASK_ONLY": "from-task",
+		},
+		Register: "env_result",
+	}
+
+	mock.expectCommand(`export APP_ENV='task'; export PLAY_ONLY='from-play'; export TASK_ONLY='from-task'; echo`, "task:from-play:from-task\n", "", 0)
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, play)
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["env_result"])
+	assert.Equal(t, "task:from-play:from-task\n", e.results["host1"]["env_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`export APP_ENV='task'; export PLAY_ONLY='from-play'; export TASK_ONLY='from-task'; echo`))
+}
+
+func TestExecutor_RunTaskOnHost_Good_EnvironmentAppliesToShellScript(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	play := &Play{
+		Environment: map[string]string{
+			"SHELL_ONLY": "from-play",
+		},
+	}
+	task := &Task{
+		Name:   "Environment shell",
+		Module: "shell",
+		Args: map[string]any{
+			"_raw_params": `echo "$SHELL_ONLY"`,
+		},
+		Environment: map[string]string{
+			"SHELL_ONLY": "from-task",
+		},
+		Register: "shell_env_result",
+	}
+
+	mock.expectCommand(`export SHELL_ONLY='from-task'; echo`, "from-task\n", "", 0)
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, play)
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["shell_env_result"])
+	assert.Equal(t, "from-task\n", e.results["host1"]["shell_env_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`export SHELL_ONLY='from-task'; echo`))
+}
+
 func TestExecutor_RunRole_Good_AppliesRoleTagsToTasks(t *testing.T) {
 	dir := t.TempDir()
 	roleTasks := `---

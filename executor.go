@@ -34,6 +34,21 @@ type sshExecutorClient interface {
 	Close() error
 }
 
+// environmentSSHClient wraps another SSH client and prefixes commands with
+// shell exports so play/task environment variables reach remote execution.
+type environmentSSHClient struct {
+	sshExecutorClient
+	prefix string
+}
+
+func (c *environmentSSHClient) Run(ctx context.Context, cmd string) (string, string, int, error) {
+	return c.sshExecutorClient.Run(ctx, c.prefix+cmd)
+}
+
+func (c *environmentSSHClient) RunScript(ctx context.Context, script string) (string, string, int, error) {
+	return c.sshExecutorClient.RunScript(ctx, c.prefix+script)
+}
+
 // Executor runs Ansible playbooks.
 //
 // Example:
@@ -1496,6 +1511,55 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 	}
 
 	return "{{ " + expr + " }}" // Return as-is if unresolved
+}
+
+// buildEnvironmentPrefix renders merged play/task environment variables as
+// shell export statements.
+func (e *Executor) buildEnvironmentPrefix(host string, task *Task, play *Play) string {
+	env := make(map[string]string)
+
+	if play != nil {
+		for key, value := range play.Environment {
+			env[key] = value
+		}
+	}
+	if task != nil {
+		for key, value := range task.Environment {
+			env[key] = value
+		}
+	}
+
+	if len(env) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		renderedKey := e.templateString(key, host, task)
+		if renderedKey == "" {
+			continue
+		}
+
+		renderedValue := e.templateString(env[key], host, task)
+		parts = append(parts, sprintf("export %s=%s", renderedKey, shellQuote(renderedValue)))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return join("; ", parts) + "; "
+}
+
+// shellQuote wraps a string in single quotes for shell use.
+func shellQuote(value string) string {
+	return "'" + replaceAll(value, "'", "'\\''") + "'"
 }
 
 // lookupExprValue resolves the first segment of an expression against the
