@@ -334,6 +334,16 @@ func TestExecutorExtra_ModuleMeta_Good_ResetConnection(t *testing.T) {
 	assert.Equal(t, "reset_connection", result.Data["action"])
 }
 
+func TestExecutorExtra_ModuleMeta_Good_EndHost(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result, err := e.moduleMeta(map[string]any{"_raw_params": "end_host"})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "end_host", result.Data["action"])
+}
+
 func TestExecutorExtra_HandleMetaAction_Good_ClearFacts(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.facts["host1"] = &Facts{Hostname: "web01"}
@@ -346,6 +356,17 @@ func TestExecutorExtra_HandleMetaAction_Good_ClearFacts(t *testing.T) {
 	assert.False(t, ok)
 	require.NotNil(t, e.facts["host2"])
 	assert.Equal(t, "web02", e.facts["host2"].Hostname)
+}
+
+func TestExecutorExtra_HandleMetaAction_Good_EndHost(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := &TaskResult{Data: map[string]any{"action": "end_host"}}
+	err := e.handleMetaAction(context.Background(), "host1", []string{"host1", "host2"}, nil, result)
+
+	require.ErrorIs(t, err, errEndHost)
+	assert.True(t, e.isHostEnded("host1"))
+	assert.False(t, e.isHostEnded("host2"))
 }
 
 func TestExecutorExtra_HandleMetaAction_Good_ResetConnection(t *testing.T) {
@@ -362,6 +383,47 @@ func TestExecutorExtra_HandleMetaAction_Good_ResetConnection(t *testing.T) {
 	_, ok = e.clients["host2"]
 	assert.True(t, ok)
 	assert.True(t, mock.closed)
+}
+
+func TestExecutorExtra_RunTaskOnHosts_Good_EndHostSkipsFutureTasks(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"retire_host": true}},
+				"host2": {Vars: map[string]any{"retire_host": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	play := &Play{}
+	first := &Task{
+		Name:   "Retire host",
+		Module: "meta",
+		Args:   map[string]any{"_raw_params": "end_host"},
+		When:   "retire_host",
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1", "host2"}, first, play))
+	assert.True(t, e.isHostEnded("host1"))
+	assert.False(t, e.isHostEnded("host2"))
+
+	second := &Task{
+		Name:   "Follow-up",
+		Module: "debug",
+		Args:   map[string]any{"msg": "still running"},
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1", "host2"}, second, play))
+
+	assert.Contains(t, started, "host1:Retire host")
+	assert.Contains(t, started, "host2:Follow-up")
+	assert.NotContains(t, started, "host1:Follow-up")
 }
 
 // ============================================================

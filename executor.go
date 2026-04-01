@@ -19,6 +19,7 @@ import (
 )
 
 var errEndPlay = errors.New("end play")
+var errEndHost = errors.New("end host")
 
 // sshExecutorClient is the client contract used by the executor.
 type sshExecutorClient interface {
@@ -48,6 +49,7 @@ type Executor struct {
 	notified         map[string]bool
 	clients          map[string]sshExecutorClient
 	batchFailedHosts map[string]bool
+	endedHosts       map[string]bool
 	mu               sync.RWMutex
 
 	// Callbacks
@@ -72,13 +74,14 @@ type Executor struct {
 //	exec := NewExecutor("/workspace/playbooks")
 func NewExecutor(basePath string) *Executor {
 	return &Executor{
-		parser:   NewParser(basePath),
-		vars:     make(map[string]any),
-		facts:    make(map[string]*Facts),
-		results:  make(map[string]map[string]*TaskResult),
-		handlers: make(map[string][]Task),
-		notified: make(map[string]bool),
-		clients:  make(map[string]sshExecutorClient),
+		parser:     NewParser(basePath),
+		vars:       make(map[string]any),
+		facts:      make(map[string]*Facts),
+		results:    make(map[string]map[string]*TaskResult),
+		handlers:   make(map[string][]Task),
+		notified:   make(map[string]bool),
+		clients:    make(map[string]sshExecutorClient),
+		endedHosts: make(map[string]bool),
 	}
 }
 
@@ -152,6 +155,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 	if len(hosts) == 0 {
 		return nil // No hosts matched
 	}
+	e.endedHosts = make(map[string]bool)
 
 	// Merge play vars
 	for k, v := range play.Vars {
@@ -159,6 +163,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 	}
 
 	for _, batch := range splitSerialHosts(hosts, play.Serial) {
+		if len(batch) == 0 {
+			continue
+		}
+		batch = e.filterActiveHosts(batch)
 		if len(batch) == 0 {
 			continue
 		}
@@ -410,7 +418,13 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 	}
 
 	for _, host := range hosts {
+		if e.isHostEnded(host) {
+			continue
+		}
 		if err := e.runTaskOnHost(ctx, host, hosts, task, play); err != nil {
+			if errors.Is(err, errEndHost) {
+				continue
+			}
 			if !task.IgnoreErrors {
 				return err
 			}
@@ -465,6 +479,10 @@ func (e *Executor) copyRegisteredResultToHosts(hosts []string, sourceHost, regis
 
 // runTaskOnHost runs a task on a single host.
 func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []string, task *Task, play *Play) error {
+	if e.isHostEnded(host) {
+		return nil
+	}
+
 	start := time.Now()
 
 	if e.OnTaskStart != nil {
@@ -1704,6 +1722,9 @@ func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []st
 		return nil
 	case "end_play":
 		return errEndPlay
+	case "end_host":
+		e.markHostEnded(host)
+		return errEndHost
 	case "reset_connection":
 		e.resetConnection(host)
 		return nil
@@ -1720,6 +1741,49 @@ func (e *Executor) clearFacts(hosts []string) {
 	for _, host := range hosts {
 		delete(e.facts, host)
 	}
+}
+
+// markHostEnded records that a host should be skipped for the rest of the play.
+func (e *Executor) markHostEnded(host string) {
+	if host == "" {
+		return
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.endedHosts == nil {
+		e.endedHosts = make(map[string]bool)
+	}
+	e.endedHosts[host] = true
+}
+
+// isHostEnded reports whether a host has been retired for the current play.
+func (e *Executor) isHostEnded(host string) bool {
+	if host == "" {
+		return false
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.endedHosts[host]
+}
+
+// filterActiveHosts removes hosts that have already been ended.
+func (e *Executor) filterActiveHosts(hosts []string) []string {
+	if len(hosts) == 0 {
+		return hosts
+	}
+
+	filtered := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		if !e.isHostEnded(host) {
+			filtered = append(filtered, host)
+		}
+	}
+
+	return filtered
 }
 
 // resetConnection closes and removes the cached SSH client for a host.
