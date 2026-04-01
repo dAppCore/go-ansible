@@ -1,7 +1,9 @@
 package ansible
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -700,6 +702,23 @@ func TestModulesAdv_ModuleUnarchive_Bad_LocalFileNotFound(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "read src")
+}
+
+// --- pause module ---
+
+func TestModulesAdv_ModulePause_Good_WaitsForSeconds(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	start := time.Now()
+	result, err := e.modulePause(context.Background(), map[string]any{
+		"seconds": 1,
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Changed)
+	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
 }
 
 // --- include_vars module ---
