@@ -954,6 +954,50 @@ func TestModulesAdv_ModuleIncludeVars_Good_ResolvesRelativePathsAgainstBasePath(
 	assert.Equal(t, 8080, e.vars["app_port"])
 }
 
+func TestModulesAdv_ModuleIncludeVars_Good_RecursesIntoNestedDirectories(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "01-root.yml"), []byte("root_value: root\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "nested", "02-child.yaml"), []byte("child_value: child\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "nested", "deep", "03-grandchild.yml"), []byte("grandchild_value: grandchild\n"), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"dir": dir,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "root", e.vars["root_value"])
+	assert.Equal(t, "child", e.vars["child_value"])
+	assert.Equal(t, "grandchild", e.vars["grandchild_value"])
+	assert.Contains(t, result.Msg, joinPath(dir, "01-root.yml"))
+	assert.Contains(t, result.Msg, joinPath(dir, "nested", "02-child.yaml"))
+	assert.Contains(t, result.Msg, joinPath(dir, "nested", "deep", "03-grandchild.yml"))
+}
+
+func TestModulesAdv_ModuleIncludeVars_Good_RespectsDepthLimit(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "01-root.yml"), []byte("root_value: root\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "nested", "02-child.yaml"), []byte("child_value: child\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "nested", "deep", "03-grandchild.yml"), []byte("grandchild_value: grandchild\n"), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"dir":   dir,
+		"depth": 1,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "root", e.vars["root_value"])
+	assert.Equal(t, "child", e.vars["child_value"])
+	_, hasGrandchild := e.vars["grandchild_value"]
+	assert.False(t, hasGrandchild)
+	assert.NotContains(t, result.Msg, joinPath(dir, "nested", "deep", "03-grandchild.yml"))
+}
+
 // --- sysctl module ---
 
 func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {

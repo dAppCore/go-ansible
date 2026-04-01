@@ -2115,6 +2115,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	dir := getStringArg(args, "dir", "")
 	name := getStringArg(args, "name", "")
 	hashBehaviour := lower(getStringArg(args, "hash_behaviour", "replace"))
+	depth := getIntArg(args, "depth", 0)
 
 	if file == "" && dir == "" {
 		return &TaskResult{Changed: false}, nil
@@ -2147,23 +2148,10 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 
 	if dir != "" {
 		dir = e.resolveLocalPath(dir)
-		entries, err := os.ReadDir(dir)
+		files, err := collectIncludeVarsFiles(dir, depth)
 		if err != nil {
-			return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
+			return nil, err
 		}
-
-		var files []string
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-
-			ext := lower(filepath.Ext(entry.Name()))
-			if ext == ".yml" || ext == ".yaml" {
-				files = append(files, joinPath(dir, entry.Name()))
-			}
-		}
-		sort.Strings(files)
 
 		for _, path := range files {
 			sources = append(sources, path)
@@ -2185,6 +2173,53 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	}
 
 	return &TaskResult{Changed: true, Msg: msg}, nil
+}
+
+func collectIncludeVarsFiles(dir string, depth int) ([]string, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
+	}
+	if !info.IsDir() {
+		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir: not a directory", nil)
+	}
+
+	type dirEntry struct {
+		path  string
+		depth int
+	}
+
+	var files []string
+	stack := []dirEntry{{path: dir, depth: 0}}
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		entries, err := os.ReadDir(current.path)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
+		}
+
+		for i := len(entries) - 1; i >= 0; i-- {
+			entry := entries[i]
+			fullPath := joinPath(current.path, entry.Name())
+
+			if entry.IsDir() {
+				if depth == 0 || current.depth < depth {
+					stack = append(stack, dirEntry{path: fullPath, depth: current.depth + 1})
+				}
+				continue
+			}
+
+			ext := lower(filepath.Ext(entry.Name()))
+			if ext == ".yml" || ext == ".yaml" {
+				files = append(files, fullPath)
+			}
+		}
+	}
+
+	sort.Strings(files)
+	return files, nil
 }
 
 func mergeVars(dst, src map[string]any, mergeMaps bool) {
