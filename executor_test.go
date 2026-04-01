@@ -206,6 +206,32 @@ func TestExecutor_RunTaskOnHosts_Good_RunOnceSharesRegisteredResult(t *testing.T
 	assert.Equal(t, "hello", e.results["host2"]["debug_result"].Msg)
 }
 
+func TestExecutor_RunTaskWithRetries_Good_UntilSuccess(t *testing.T) {
+	e := NewExecutor("/tmp")
+	attempts := 0
+
+	task := &Task{
+		Until:   "result is success",
+		Retries: 2,
+		Delay:   0,
+	}
+
+	result, err := e.runTaskWithRetries(context.Background(), "host1", task, &Play{}, func() (*TaskResult, error) {
+		attempts++
+		if attempts < 2 {
+			return &TaskResult{Failed: true, Msg: "not yet", RC: 1}, nil
+		}
+		return &TaskResult{Changed: true, Msg: "ok", RC: 0}, nil
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 2, attempts)
+	assert.False(t, result.Failed)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "ok", result.Msg)
+}
+
 // --- check mode ---
 
 func TestExecutor_RunTaskOnHost_Good_CheckModeSkipsMutatingTask(t *testing.T) {

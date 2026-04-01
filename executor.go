@@ -361,13 +361,14 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, task *Task, p
 		return e.runLoop(ctx, host, client, task, play)
 	}
 
-	// Execute the task
-	result, err := e.executeModule(ctx, host, client, task, play)
+	// Execute the task, honouring retries/until when configured.
+	result, err := e.runTaskWithRetries(ctx, host, task, play, func() (*TaskResult, error) {
+		return e.executeModule(ctx, host, client, task, play)
+	})
 	if err != nil {
 		result = &TaskResult{Failed: true, Msg: err.Error()}
 	}
 	result.Duration = time.Since(start)
-	e.applyTaskResultConditions(host, task, result)
 
 	// Store result
 	if task.Register != "" {
@@ -388,6 +389,79 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, task *Task, p
 	}
 
 	return nil
+}
+
+// runTaskWithRetries executes a task once or multiple times when retries,
+// delay, or until are configured.
+func (e *Executor) runTaskWithRetries(ctx context.Context, host string, task *Task, play *Play, execute func() (*TaskResult, error)) (*TaskResult, error) {
+	attempts := 1
+	if task != nil {
+		if task.Until != "" {
+			if task.Retries > 0 {
+				attempts = task.Retries + 1
+			} else {
+				attempts = 4
+			}
+		} else if task.Retries > 0 {
+			attempts = task.Retries + 1
+		}
+	}
+
+	var result *TaskResult
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		result, err = execute()
+		if err != nil {
+			result = &TaskResult{Failed: true, Msg: err.Error()}
+		}
+		if result == nil {
+			result = &TaskResult{}
+		}
+
+		e.applyTaskResultConditions(host, task, result)
+
+		if !shouldRetryTask(task, host, e, result) || attempt == attempts {
+			break
+		}
+
+		if task != nil && task.Delay > 0 {
+			timer := time.NewTimer(time.Duration(task.Delay) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return result, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func shouldRetryTask(task *Task, host string, e *Executor, result *TaskResult) bool {
+	if task == nil || result == nil {
+		return false
+	}
+
+	if task.Until != "" {
+		return !e.evaluateWhenWithLocals(task.Until, host, task, map[string]any{
+			"result":   result,
+			"stdout":   result.Stdout,
+			"stderr":   result.Stderr,
+			"rc":       result.RC,
+			"changed":  result.Changed,
+			"failed":   result.Failed,
+			"skipped":  result.Skipped,
+			"msg":      result.Msg,
+			"duration": result.Duration,
+		})
+	}
+
+	if task.Retries > 0 {
+		return result.Failed
+	}
+
+	return false
 }
 
 // runLoop handles task loops.
@@ -420,11 +494,12 @@ func (e *Executor) runLoop(ctx context.Context, host string, client *SSHClient, 
 			e.vars[indexVar] = i
 		}
 
-		result, err := e.executeModule(ctx, host, client, task, play)
+		result, err := e.runTaskWithRetries(ctx, host, task, play, func() (*TaskResult, error) {
+			return e.executeModule(ctx, host, client, task, play)
+		})
 		if err != nil {
 			result = &TaskResult{Failed: true, Msg: err.Error()}
 		}
-		e.applyTaskResultConditions(host, task, result)
 		results = append(results, *result)
 
 		if result.Failed && !task.IgnoreErrors {
