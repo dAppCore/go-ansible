@@ -1720,6 +1720,9 @@ func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []st
 	case "clear_facts":
 		e.clearFacts(hosts)
 		return nil
+	case "clear_host_errors":
+		e.clearHostErrors()
+		return nil
 	case "end_play":
 		return errEndPlay
 	case "end_host":
@@ -1741,6 +1744,15 @@ func (e *Executor) clearFacts(hosts []string) {
 	for _, host := range hosts {
 		delete(e.facts, host)
 	}
+}
+
+// clearHostErrors resets the current batch failure tracking so later tasks can
+// proceed after a meta clear_host_errors action.
+func (e *Executor) clearHostErrors() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.batchFailedHosts = make(map[string]bool)
 }
 
 // markHostEnded records that a host should be skipped for the rest of the play.

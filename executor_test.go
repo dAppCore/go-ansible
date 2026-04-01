@@ -532,6 +532,21 @@ func TestExecutor_RunTaskOnHosts_Good_MetaFlushesHandlers(t *testing.T) {
 	assert.Equal(t, []string{"change config", "flush handlers", "restart app"}, executed)
 }
 
+func TestExecutor_HandleMetaAction_Good_ClearHostErrors(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.batchFailedHosts = map[string]bool{
+		"host1": true,
+		"host2": true,
+	}
+
+	result := &TaskResult{
+		Data: map[string]any{"action": "clear_host_errors"},
+	}
+
+	require.NoError(t, e.handleMetaAction(context.Background(), "host1", []string{"host1", "host2"}, &Play{}, result))
+	assert.Empty(t, e.batchFailedHosts)
+}
+
 func TestExecutor_RunPlay_Good_MetaEndPlayStopsRemainingTasks(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
