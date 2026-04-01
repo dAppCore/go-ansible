@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"time"
@@ -1447,9 +1448,18 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 	path := getStringArg(args, "path", "")
 	host := getStringArg(args, "host", "127.0.0.1")
 	state := getStringArg(args, "state", "started")
+	searchRegex := getStringArg(args, "search_regex", "")
 	timeout := 300
 	if t, ok := args["timeout"].(int); ok {
 		timeout = t
+	}
+	var compiledRegex *regexp.Regexp
+	if searchRegex != "" {
+		var err error
+		compiledRegex, err = regexp.Compile(searchRegex)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleWaitFor", "compile search_regex", err)
+		}
 	}
 
 	if path != "" {
@@ -1464,9 +1474,26 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 				return &TaskResult{Failed: true, Msg: err.Error()}, nil
 			}
 
-			satisfied := exists
-			if state == "absent" {
+			satisfied := false
+			switch state {
+			case "absent":
 				satisfied = !exists
+				if exists && compiledRegex != nil {
+					data, err := client.Download(ctx, path)
+					if err == nil {
+						satisfied = !compiledRegex.Match(data)
+					}
+				}
+			default:
+				satisfied = exists
+				if satisfied && compiledRegex != nil {
+					data, err := client.Download(ctx, path)
+					if err != nil {
+						satisfied = false
+					} else {
+						satisfied = compiledRegex.Match(data)
+					}
+				}
 			}
 			if satisfied {
 				return &TaskResult{Changed: false}, nil

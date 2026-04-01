@@ -763,6 +763,32 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathAbsent(t *testing.T) {
 	assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond)
 }
 
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathRegexMatch(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/config", []byte("ready=false\n"))
+
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		mock.mu.Lock()
+		mock.files["/tmp/config"] = []byte("ready=true\n")
+		mock.mu.Unlock()
+	}()
+
+	start := time.Now()
+	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
+		"path":         "/tmp/config",
+		"search_regex": "ready=true",
+		"timeout":      2,
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond)
+}
+
 func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortAbsent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`timeout 2 bash -c 'until ! nc -z 127.0.0.1 8080; do sleep 1; done'`, "", "", 0)
