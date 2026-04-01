@@ -2585,9 +2585,9 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 	authKeysPath := joinPath(home, ".ssh", "authorized_keys")
 
 	if state == "absent" {
-		// Remove key
-		escapedKey := replaceAll(key, "/", "\\/")
-		cmd := sprintf("sed -i '/%s/d' %q 2>/dev/null || true", escapedKey[:40], authKeysPath)
+		// Remove the exact key line when present.
+		cmd := sprintf("if [ -f %q ]; then sed -i '\\|^%s$|d' %q; fi",
+			authKeysPath, sedExactLinePattern(key), authKeysPath)
 		_, _, _, _ = client.Run(ctx, cmd)
 		return &TaskResult{Changed: true}, nil
 	}
@@ -2596,9 +2596,9 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 	_, _, _, _ = client.Run(ctx, sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
 		pathDir(authKeysPath), pathDir(authKeysPath), user, user, pathDir(authKeysPath)))
 
-	// Add key if not present
+	// Add the key if it is not already present.
 	cmd := sprintf("grep -qF %q %q 2>/dev/null || echo %q >> %q",
-		key[:40], authKeysPath, key, authKeysPath)
+		key, authKeysPath, key, authKeysPath)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
@@ -2609,6 +2609,11 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 		authKeysPath, user, user, authKeysPath))
 
 	return &TaskResult{Changed: true}, nil
+}
+
+func sedExactLinePattern(value string) string {
+	pattern := regexp.QuoteMeta(value)
+	return replaceAll(pattern, "|", "\\|")
 }
 
 func (e *Executor) moduleDockerCompose(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {

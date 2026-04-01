@@ -1318,9 +1318,9 @@ func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[strin
 	authKeysPath := joinPath(home, ".ssh", "authorized_keys")
 
 	if state == "absent" {
-		// Remove key
-		escapedKey := replaceAll(key, "/", "\\/")
-		cmd := sprintf("sed -i '/%s/d' %q 2>/dev/null || true", escapedKey[:40], authKeysPath)
+		// Remove the exact key line when present.
+		cmd := sprintf("if [ -f %q ]; then sed -i '\\|^%s$|d' %q; fi",
+			authKeysPath, sedExactLinePattern(key), authKeysPath)
 		_, _, _, _ = client.Run(context.Background(), cmd)
 		return &TaskResult{Changed: true}, nil
 	}
@@ -1331,7 +1331,7 @@ func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[strin
 
 	// Add key if not present
 	cmd := sprintf("grep -qF %q %q 2>/dev/null || echo %q >> %q",
-		key[:40], authKeysPath, key, authKeysPath)
+		key, authKeysPath, key, authKeysPath)
 	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil

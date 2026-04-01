@@ -354,6 +354,25 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_AddKey(t *testing.T) {
 	assert.True(t, mock.containsSubstring("authorized_keys"))
 }
 
+func TestModulesAdv_ModuleAuthorizedKey_Good_ShortKeyDoesNotPanic(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	testKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA short@host"
+	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
+	mock.expectCommand(`mkdir -p`, "", "", 0)
+	mock.expectCommand(`grep -qF.*echo`, "", "", 0)
+	mock.expectCommand(`chmod 600`, "", "", 0)
+
+	result, err := moduleAuthorizedKeyWithClient(e, mock, map[string]any{
+		"user": "deploy",
+		"key":  testKey,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`grep -qF`))
+}
+
 func TestModulesAdv_ModuleAuthorizedKey_Good_RemoveKey(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
