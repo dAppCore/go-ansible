@@ -354,7 +354,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"retries": true, "delay": true, "until": true,
 		"include_tasks": true, "import_tasks": true,
 		"include_role": true, "import_role": true,
-		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_file": true, "with_fileglob": true, "with_sequence": true,
+		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_nested": true, "with_file": true, "with_fileglob": true, "with_sequence": true,
 	}
 
 	for key, val := range m {
@@ -437,6 +437,13 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		}
 	}
 
+	// Handle with_nested as a cartesian product of input lists.
+	if nested, ok := m["with_nested"]; ok && t.Loop == nil {
+		if items := expandNestedLoop(nested); len(items) > 0 {
+			t.Loop = items
+		}
+	}
+
 	// Preserve with_file so the executor can resolve file contents at runtime.
 	if files, ok := m["with_file"]; ok && t.WithFile == nil {
 		t.WithFile = files
@@ -453,6 +460,96 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	return nil
+}
+
+// expandNestedLoop converts with_nested input into a loop of cartesian
+// product items. Each output item is a slice containing one value from each
+// nested list.
+func expandNestedLoop(loop any) []any {
+	groups, ok := nestedLoopGroups(loop)
+	if !ok || len(groups) == 0 {
+		return nil
+	}
+
+	products := [][]any{{}}
+	for _, group := range groups {
+		if len(group) == 0 {
+			return nil
+		}
+
+		next := make([][]any, 0, len(products)*len(group))
+		for _, prefix := range products {
+			for _, item := range group {
+				combo := make([]any, len(prefix)+1)
+				copy(combo, prefix)
+				combo[len(prefix)] = item
+				next = append(next, combo)
+			}
+		}
+		products = next
+	}
+
+	items := make([]any, len(products))
+	for i, combo := range products {
+		items[i] = combo
+	}
+	return items
+}
+
+func nestedLoopGroups(loop any) ([][]any, bool) {
+	switch v := loop.(type) {
+	case []any:
+		groups := make([][]any, 0, len(v))
+		for _, group := range v {
+			items := nestedLoopItems(group)
+			if len(items) == 0 {
+				return nil, false
+			}
+			groups = append(groups, items)
+		}
+		return groups, true
+	case []string:
+		items := make([]any, 0, len(v))
+		for _, item := range v {
+			items = append(items, item)
+		}
+		if len(items) == 0 {
+			return nil, false
+		}
+		return [][]any{items}, true
+	case string:
+		if v == "" {
+			return nil, false
+		}
+		return [][]any{{v}}, true
+	default:
+		items := nestedLoopItems(v)
+		if len(items) == 0 {
+			return nil, false
+		}
+		return [][]any{items}, true
+	}
+}
+
+func nestedLoopItems(value any) []any {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []any:
+		items := make([]any, len(v))
+		for i, item := range v {
+			items[i] = item
+		}
+		return items
+	case []string:
+		items := make([]any, len(v))
+		for i, item := range v {
+			items[i] = item
+		}
+		return items
+	default:
+		return []any{v}
+	}
 }
 
 // isModule checks if a key is a known module.

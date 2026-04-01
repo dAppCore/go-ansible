@@ -304,6 +304,42 @@ with_sequence: "start=1 end=3 format=%02d"
 	assert.Equal(t, "start=1 end=3 format=%02d", sequence)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithNested(t *testing.T) {
+	input := `
+name: Nested loop values
+debug:
+  msg: "{{ item.0 }} {{ item.1 }}"
+with_nested:
+  - - red
+    - blue
+  - - small
+    - large
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	items, ok := task.Loop.([]any)
+	require.True(t, ok)
+	require.Len(t, items, 4)
+
+	first, ok := items[0].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"red", "small"}, first)
+
+	second, ok := items[1].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"red", "large"}, second)
+
+	third, ok := items[2].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"blue", "small"}, third)
+
+	fourth, ok := items[3].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"blue", "large"}, fourth)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
 	input := `
 name: Install package

@@ -844,6 +844,37 @@ func TestExecutor_RunTaskOnHost_Good_LoopFromWithSequence(t *testing.T) {
 	assert.Equal(t, "03", result.Results[2].Msg)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithNested(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Nested loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0 }}-{{ item.1 }}",
+		},
+		Loop: []any{
+			[]any{"red", "small"},
+			[]any{"red", "large"},
+			[]any{"blue", "small"},
+			[]any{"blue", "large"},
+		},
+		Register: "nested_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["nested_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 4)
+	assert.Equal(t, "red-small", result.Results[0].Msg)
+	assert.Equal(t, "red-large", result.Results[1].Msg)
+	assert.Equal(t, "blue-small", result.Results[2].Msg)
+	assert.Equal(t, "blue-large", result.Results[3].Msg)
+}
+
 func TestExecutor_RunTaskWithRetries_Good_UntilSuccess(t *testing.T) {
 	e := NewExecutor("/tmp")
 	attempts := 0
