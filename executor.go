@@ -384,7 +384,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	for _, task := range tasks {
 		effectiveTask := task
 		if len(roleRef.Tags) > 0 {
-			effectiveTask.Tags = append(append([]string(nil), roleRef.Tags...), task.Tags...)
+			effectiveTask.Tags = mergeStringSlices(roleRef.Tags, task.Tags)
 		}
 		if err := e.runTaskOnHosts(ctx, eligibleHosts, &effectiveTask, play); err != nil {
 			// Restore vars
@@ -401,7 +401,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 // runTaskOnHosts runs a task on all hosts.
 func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Task, play *Play) error {
 	// Check tags
-	if !e.matchesTags(task.Tags) {
+	if !e.matchesTags(effectiveTaskTags(task, play)) {
 		return nil
 	}
 
@@ -451,6 +451,33 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 	}
 
 	return nil
+}
+
+func effectiveTaskTags(task *Task, play *Play) []string {
+	var tags []string
+	if play != nil && len(play.Tags) > 0 {
+		tags = append(tags, play.Tags...)
+	}
+	if task != nil && len(task.Tags) > 0 {
+		tags = append(tags, task.Tags...)
+	}
+	return tags
+}
+
+func mergeStringSlices(parts ...[]string) []string {
+	total := 0
+	for _, part := range parts {
+		total += len(part)
+	}
+	if total == 0 {
+		return nil
+	}
+
+	merged := make([]string, 0, total)
+	for _, part := range parts {
+		merged = append(merged, part...)
+	}
+	return merged
 }
 
 // copyRegisteredResultToHosts shares a registered task result from one host to

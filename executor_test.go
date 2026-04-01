@@ -386,6 +386,44 @@ func TestExecutor_RunRole_Good_AppliesRoleTagsToTasks(t *testing.T) {
 	assert.Equal(t, "role ran", e.results["host1"]["role_result"].Msg)
 }
 
+func TestExecutor_RunPlay_Good_AppliesPlayTagsToTasks(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Tags = []string{"deploy"}
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	play := &Play{
+		Hosts: "all",
+		Tags:  []string{"deploy"},
+		Tasks: []Task{
+			{
+				Name:     "tagged play task",
+				Module:   "debug",
+				Args:     map[string]any{"msg": "play ran"},
+				Register: "play_result",
+			},
+		},
+	}
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"host1:tagged play task"}, started)
+	require.NotNil(t, e.results["host1"]["play_result"])
+	assert.Equal(t, "play ran", e.results["host1"]["play_result"].Msg)
+}
+
 func TestExecutor_RunRole_Good_HostSpecificWhen(t *testing.T) {
 	dir := t.TempDir()
 	roleTasks := `---
