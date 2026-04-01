@@ -1,6 +1,7 @@
 package ansible
 
 import (
+	"context"
 	"io/fs"
 	"testing"
 
@@ -401,6 +402,22 @@ func TestModulesFile_ModuleLineinfile_Good_RegexpFallsBackToAppend(t *testing.T)
 	cmds := mock.executedCommands()
 	assert.GreaterOrEqual(t, len(cmds), 2)
 	assert.True(t, mock.hasExecuted(`echo`))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_CreateFile(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":   "/etc/example.conf",
+		"regexp": "^setting=",
+		"line":   "setting=value",
+		"create": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`touch "/etc/example\.conf"`))
+	assert.True(t, mock.hasExecuted(`sed -i`))
 }
 
 func TestModulesFile_ModuleLineinfile_Good_BackrefsReplaceMatchOnly(t *testing.T) {

@@ -592,6 +592,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	regexp := getStringArg(args, "regexp", "")
 	state := getStringArg(args, "state", "present")
 	backrefs := getBoolArg(args, "backrefs", false)
+	create := getBoolArg(args, "create", false)
 
 	if state == "absent" {
 		if regexp != "" {
@@ -602,6 +603,12 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 			}
 		}
 	} else {
+		// Create the file first when requested so regexp-based updates have a
+		// target to operate on.
+		if create {
+			_, _, _, _ = client.Run(ctx, sprintf("touch %q", path))
+		}
+
 		// state == present
 		if regexp != "" {
 			// Replace line matching regexp.
