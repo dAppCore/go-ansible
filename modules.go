@@ -2185,7 +2185,10 @@ func (e *Executor) moduleDockerCompose(ctx context.Context, client sshExecutorCl
 	}
 
 	// Heuristic for changed
-	changed := !contains(stdout, "Up to date") && !contains(stderr, "Up to date")
+	changed := true
+	if contains(stdout, "Up to date") || contains(stderr, "Up to date") {
+		changed = false
+	}
 
 	return &TaskResult{Changed: changed, Stdout: stdout}, nil
 }

@@ -1128,6 +1128,22 @@ func TestModulesAdv_ModuleDockerCompose_Good_DefaultStateIsPresent(t *testing.T)
 	assert.True(t, mock.hasExecuted(`docker compose up -d`))
 }
 
+func TestModulesAdv_ModuleDockerCompose_Production_Good_AlreadyUpToDate(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	mock.expectCommand(`docker compose up -d`, "Container myapp-web-1  Up to date\n", "", 0)
+
+	result, err := e.moduleDockerCompose(context.Background(), mock, map[string]any{
+		"project_src": "/opt/myapp",
+		"state":       "present",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.Equal(t, "Container myapp-web-1  Up to date\n", result.Stdout)
+}
+
 // --- Cross-module dispatch tests for advanced modules ---
 
 func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchUser(t *testing.T) {
