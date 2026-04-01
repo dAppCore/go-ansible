@@ -231,6 +231,40 @@ func TestExecutor_RunTaskOnHost_Good_DelegateToUsesDelegatedClient(t *testing.T)
 	assert.Equal(t, 1, mock.commandCount())
 }
 
+func TestExecutor_RunTaskOnHosts_Good_WithFileUsesFileContents(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "fragments", "hello.txt"), []byte("hello from file"), 0644))
+
+	e := NewExecutor(dir)
+	mock := NewMockSSHClient()
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = mock
+
+	task := &Task{
+		Name:     "Read file loop",
+		Module:   "debug",
+		Args:     map[string]any{"msg": "{{ item }}"},
+		Register: "debug_result",
+		WithFile: []any{
+			"fragments/hello.txt",
+		},
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"])
+	require.NotNil(t, e.results["host1"]["debug_result"])
+	require.Len(t, e.results["host1"]["debug_result"].Results, 1)
+	assert.Equal(t, "hello from file", e.results["host1"]["debug_result"].Results[0].Msg)
+}
+
 func TestExecutor_ExecuteModule_Good_ShortFormCommunityAlias(t *testing.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()

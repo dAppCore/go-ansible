@@ -388,6 +388,11 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		}
 	}
 
+	// Preserve with_file so the executor can resolve file contents at runtime.
+	if files, ok := m["with_file"]; ok && t.WithFile == nil {
+		t.WithFile = files
+	}
+
 	return nil
 }
 

@@ -549,8 +549,8 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", executionHost), err)
 	}
 
-	// Handle loops
-	if task.Loop != nil {
+	// Handle loops, including legacy with_file syntax.
+	if task.Loop != nil || task.WithFile != nil {
 		return e.runLoop(ctx, host, client, task, play)
 	}
 
@@ -704,7 +704,18 @@ func shouldRetryTask(task *Task, host string, e *Executor, result *TaskResult) b
 
 // runLoop handles task loops.
 func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play) error {
-	items := e.resolveLoop(task.Loop, host)
+	var (
+		items []any
+		err   error
+	)
+	if task.WithFile != nil {
+		items, err = e.resolveWithFileLoop(task.WithFile, host, task)
+	} else {
+		items = e.resolveLoop(task.Loop, host)
+	}
+	if err != nil {
+		return err
+	}
 
 	loopVar := "item"
 	if task.LoopControl != nil && task.LoopControl.LoopVar != "" {
@@ -815,6 +826,61 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 	}
 
 	return nil
+}
+
+// resolveWithFileLoop resolves legacy with_file loop items into file contents.
+func (e *Executor) resolveWithFileLoop(loop any, host string, task *Task) ([]any, error) {
+	var paths []string
+
+	switch v := loop.(type) {
+	case []any:
+		paths = make([]string, 0, len(v))
+		for _, item := range v {
+			s := sprintf("%v", item)
+			if s = e.templateString(s, host, task); s != "" {
+				paths = append(paths, s)
+			}
+		}
+	case []string:
+		paths = make([]string, 0, len(v))
+		for _, item := range v {
+			if s := e.templateString(item, host, task); s != "" {
+				paths = append(paths, s)
+			}
+		}
+	case string:
+		if s := e.templateString(v, host, task); s != "" {
+			paths = []string{s}
+		}
+	default:
+		return nil, nil
+	}
+
+	items := make([]any, 0, len(paths))
+	for _, filePath := range paths {
+		content, err := e.readLoopFile(filePath)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, content)
+	}
+
+	return items, nil
+}
+
+func (e *Executor) readLoopFile(filePath string) (string, error) {
+	candidates := []string{filePath}
+	if e.parser != nil && e.parser.basePath != "" {
+		candidates = append([]string{joinPath(e.parser.basePath, filePath)}, candidates...)
+	}
+
+	for _, candidate := range candidates {
+		if data, err := coreio.Local.Read(candidate); err == nil {
+			return data, nil
+		}
+	}
+
+	return "", coreerr.E("Executor.readLoopFile", "read file "+filePath, nil)
 }
 
 // isCheckModeSafeTask reports whether a task can run without changing state

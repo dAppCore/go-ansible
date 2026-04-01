@@ -204,6 +204,25 @@ with_dict:
 	assert.Equal(t, "two", second["value"])
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithFile(t *testing.T) {
+	input := `
+name: Read files
+debug:
+  msg: "{{ item }}"
+with_file:
+  - templates/a.txt
+  - templates/b.txt
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.WithFile)
+	files, ok := task.WithFile.([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"templates/a.txt", "templates/b.txt"}, files)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
 	input := `
 name: Install package

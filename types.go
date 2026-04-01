@@ -114,6 +114,7 @@ type Task struct {
 	// Include/import directives
 	IncludeTasks string `yaml:"include_tasks,omitempty"`
 	ImportTasks  string `yaml:"import_tasks,omitempty"`
+	WithFile     any    `yaml:"with_file,omitempty"`
 	IncludeRole  *struct {
 		Name      string         `yaml:"name"`
 		TasksFrom string         `yaml:"tasks_from,omitempty"`
