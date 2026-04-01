@@ -117,6 +117,7 @@ type Task struct {
 	ImportTasks  string `yaml:"import_tasks,omitempty"`
 	WithFile     any    `yaml:"with_file,omitempty"`
 	WithFileGlob any    `yaml:"with_fileglob,omitempty"`
+	WithSequence any    `yaml:"with_sequence,omitempty"`
 	IncludeRole  *struct {
 		Name      string         `yaml:"name"`
 		TasksFrom string         `yaml:"tasks_from,omitempty"`

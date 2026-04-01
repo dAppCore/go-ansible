@@ -615,8 +615,8 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", executionHost), err)
 	}
 
-	// Handle loops, including legacy with_file and with_fileglob syntax.
-	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil {
+	// Handle loops, including legacy with_file, with_fileglob, and with_sequence syntax.
+	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil {
 		return e.runLoop(ctx, host, client, task, play)
 	}
 
@@ -816,6 +816,8 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 		items, err = e.resolveWithFileLoop(task.WithFile, host, task)
 	} else if task.WithFileGlob != nil {
 		items, err = e.resolveWithFileGlobLoop(task.WithFileGlob, host, task)
+	} else if task.WithSequence != nil {
+		items, err = e.resolveWithSequenceLoop(task.WithSequence, host, task)
 	} else {
 		items = e.resolveLoop(task.Loop, host)
 	}
@@ -1014,6 +1016,213 @@ func (e *Executor) resolveWithFileGlobLoop(loop any, host string, task *Task) ([
 	}
 
 	return items, nil
+}
+
+type sequenceSpec struct {
+	start  int
+	end    int
+	count  int
+	step   int
+	format string
+	hasEnd bool
+}
+
+func (e *Executor) resolveWithSequenceLoop(loop any, host string, task *Task) ([]any, error) {
+	spec, err := parseSequenceSpec(loop)
+	if err != nil {
+		return nil, err
+	}
+
+	values, err := buildSequenceValues(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]any, len(values))
+	for i, value := range values {
+		items[i] = value
+	}
+	return items, nil
+}
+
+func parseSequenceSpec(loop any) (*sequenceSpec, error) {
+	spec := &sequenceSpec{
+		step:   1,
+		format: "%d",
+	}
+
+	switch v := loop.(type) {
+	case string:
+		if err := parseSequenceSpecString(spec, v); err != nil {
+			return nil, err
+		}
+	case map[string]any:
+		if err := parseSequenceSpecMap(spec, v); err != nil {
+			return nil, err
+		}
+	case map[any]any:
+		converted := make(map[string]any, len(v))
+		for key, value := range v {
+			if s, ok := key.(string); ok {
+				converted[s] = value
+			}
+		}
+		if err := parseSequenceSpecMap(spec, converted); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence requires a string or mapping", nil)
+	}
+
+	if spec.count > 0 && !spec.hasEnd {
+		spec.end = spec.start + (spec.count-1)*spec.step
+		spec.hasEnd = true
+	}
+	if !spec.hasEnd {
+		return nil, coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence requires end or count", nil)
+	}
+	if spec.step == 0 {
+		return nil, coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence stride must not be zero", nil)
+	}
+
+	if spec.end < spec.start && spec.step > 0 {
+		spec.step = -spec.step
+	}
+	if spec.end > spec.start && spec.step < 0 {
+		spec.step = -spec.step
+	}
+
+	return spec, nil
+}
+
+func parseSequenceSpecString(spec *sequenceSpec, raw string) error {
+	fields := strings.Fields(strings.ReplaceAll(raw, ",", " "))
+	for _, field := range fields {
+		parts := strings.SplitN(field, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if err := applySequenceSpecValue(spec, key, value); err != nil {
+			return err
+		}
+	}
+
+	if spec.start == 0 && !strings.Contains(raw, "start=") {
+		spec.start = 0
+	}
+
+	return nil
+}
+
+func parseSequenceSpecMap(spec *sequenceSpec, values map[string]any) error {
+	for key, value := range values {
+		if err := applySequenceSpecValue(spec, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applySequenceSpecValue(spec *sequenceSpec, key string, value any) error {
+	switch lower(strings.TrimSpace(key)) {
+	case "start":
+		n, ok := sequenceSpecInt(value)
+		if !ok {
+			return coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence start must be numeric", nil)
+		}
+		spec.start = n
+	case "end":
+		n, ok := sequenceSpecInt(value)
+		if !ok {
+			return coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence end must be numeric", nil)
+		}
+		spec.end = n
+		spec.hasEnd = true
+	case "count":
+		n, ok := sequenceSpecInt(value)
+		if !ok {
+			return coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence count must be numeric", nil)
+		}
+		spec.count = n
+	case "stride":
+		n, ok := sequenceSpecInt(value)
+		if !ok {
+			return coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence stride must be numeric", nil)
+		}
+		spec.step = n
+	case "format":
+		spec.format = sprintf("%v", value)
+	default:
+		// Ignore unrecognised keys so the parser stays tolerant of extra
+		// Ansible sequence options we do not currently model.
+	}
+	return nil
+}
+
+func sequenceSpecInt(value any) (int, bool) {
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case int8:
+		return int(v), true
+	case int16:
+		return int(v), true
+	case int32:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case uint:
+		return int(v), true
+	case uint8:
+		return int(v), true
+	case uint16:
+		return int(v), true
+	case uint32:
+		return int(v), true
+	case uint64:
+		return int(v), true
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func buildSequenceValues(spec *sequenceSpec) ([]string, error) {
+	if spec.count > 0 && !spec.hasEnd {
+		spec.end = spec.start + (spec.count-1)*spec.step
+		spec.hasEnd = true
+	}
+
+	values := make([]string, 0)
+	if spec.step > 0 {
+		for value := spec.start; value <= spec.end; value += spec.step {
+			values = append(values, formatSequenceValue(spec.format, value))
+		}
+		return values, nil
+	}
+
+	for value := spec.start; value >= spec.end; value += spec.step {
+		values = append(values, formatSequenceValue(spec.format, value))
+	}
+	return values, nil
+}
+
+func formatSequenceValue(format string, value int) string {
+	if format == "" {
+		return sprintf("%d", value)
+	}
+
+	formatted := sprintf(format, value)
+	if formatted == "" {
+		return sprintf("%d", value)
+	}
+	return formatted
 }
 
 func (e *Executor) resolveFileGlob(pattern string) ([]any, error) {

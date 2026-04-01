@@ -270,6 +270,23 @@ with_fileglob:
 	assert.Equal(t, []any{"templates/*.txt", "files/*.yml"}, files)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithSequence(t *testing.T) {
+	input := `
+name: Read sequence values
+debug:
+  msg: "{{ item }}"
+with_sequence: "start=1 end=3 format=%02d"
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.WithSequence)
+	sequence, ok := task.WithSequence.(string)
+	require.True(t, ok)
+	assert.Equal(t, "start=1 end=3 format=%02d", sequence)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
 	input := `
 name: Install package
