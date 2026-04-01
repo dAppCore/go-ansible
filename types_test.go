@@ -176,6 +176,34 @@ with_items:
 	assert.Len(t, items, 2)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithDict(t *testing.T) {
+	input := `
+name: Old-style dict loop
+debug:
+  msg: "{{ item.key }}={{ item.value }}"
+with_dict:
+  alpha: one
+  beta: two
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	items, ok := task.Loop.([]any)
+	require.True(t, ok)
+	require.Len(t, items, 2)
+
+	first, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "alpha", first["key"])
+	assert.Equal(t, "one", first["value"])
+
+	second, ok := items[1].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "beta", second["key"])
+	assert.Equal(t, "two", second["value"])
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
 	input := `
 name: Install package

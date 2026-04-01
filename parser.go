@@ -332,6 +332,38 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		t.Loop = items
 	}
 
+	// Handle with_dict as a loop of key/value maps.
+	if dict, ok := m["with_dict"]; ok && t.Loop == nil {
+		switch v := dict.(type) {
+		case map[string]any:
+			keys := slices.Sorted(maps.Keys(v))
+			items := make([]any, 0, len(keys))
+			for _, key := range keys {
+				items = append(items, map[string]any{
+					"key":   key,
+					"value": v[key],
+				})
+			}
+			t.Loop = items
+		case map[any]any:
+			keys := make([]string, 0, len(v))
+			for key := range v {
+				if s, ok := key.(string); ok {
+					keys = append(keys, s)
+				}
+			}
+			slices.Sort(keys)
+			items := make([]any, 0, len(keys))
+			for _, key := range keys {
+				items = append(items, map[string]any{
+					"key":   key,
+					"value": v[key],
+				})
+			}
+			t.Loop = items
+		}
+	}
+
 	return nil
 }
 
