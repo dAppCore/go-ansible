@@ -23,6 +23,49 @@ func args(opts core.Options) []string {
 	return out
 }
 
+// extraVars collects all repeated extra-vars values from Options.
+func extraVars(opts core.Options) map[string]string {
+	vars := make(map[string]string)
+
+	for _, o := range opts.Items() {
+		if o.Key != "extra-vars" {
+			continue
+		}
+
+		var values []string
+		switch v := o.Value.(type) {
+		case string:
+			values = append(values, v)
+		case []string:
+			values = append(values, v...)
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					values = append(values, s)
+				}
+			}
+		}
+
+		for _, value := range values {
+			for _, pair := range split(value, ",") {
+				parts := splitN(pair, "=", 2)
+				if len(parts) != 2 {
+					continue
+				}
+
+				key := trimSpace(parts[0])
+				if key == "" {
+					continue
+				}
+
+				vars[key] = parts[1]
+			}
+		}
+	}
+
+	return vars
+}
+
 func runAnsible(opts core.Options) core.Result {
 	positional := args(opts)
 	if len(positional) < 1 {
@@ -58,13 +101,8 @@ func runAnsible(opts core.Options) core.Result {
 	}
 
 	// Parse extra vars
-	if extraVars := opts.String("extra-vars"); extraVars != "" {
-		for _, v := range split(extraVars, ",") {
-			parts := splitN(v, "=", 2)
-			if len(parts) == 2 {
-				executor.SetVar(parts[0], parts[1])
-			}
-		}
+	for key, value := range extraVars(opts) {
+		executor.SetVar(key, value)
 	}
 
 	// Load inventory
