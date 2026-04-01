@@ -207,6 +207,46 @@ func TestExecutor_RunTaskOnHosts_Good_RunOnceSharesRegisteredResult(t *testing.T
 	assert.Equal(t, "hello", e.results["host2"]["debug_result"].Msg)
 }
 
+func TestExecutor_RunPlay_Good_SerialBatchesHosts(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+				"host2": {},
+				"host3": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "all",
+		GatherFacts: &gatherFacts,
+		Serial:      1,
+		Tasks: []Task{
+			{Name: "first", Module: "debug", Args: map[string]any{"msg": "one"}},
+			{Name: "second", Module: "debug", Args: map[string]any{"msg": "two"}},
+		},
+	}
+
+	var got []string
+	e.OnTaskStart = func(host string, task *Task) {
+		got = append(got, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	assert.Equal(t, []string{
+		"host1:first",
+		"host1:second",
+		"host2:first",
+		"host2:second",
+		"host3:first",
+		"host3:second",
+	}, got)
+}
+
 func TestExecutor_RunTaskOnHost_Good_LoopControlPause(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{
