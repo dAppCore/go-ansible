@@ -2115,6 +2115,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	dir := getStringArg(args, "dir", "")
 	name := getStringArg(args, "name", "")
 	filesMatching := getStringArg(args, "files_matching", "")
+	extensions := normalizeIncludeVarsExtensions(normalizeStringList(args["extensions"]))
 	hashBehaviour := lower(getStringArg(args, "hash_behaviour", "replace"))
 	depth := getIntArg(args, "depth", 0)
 
@@ -2149,7 +2150,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 
 	if dir != "" {
 		dir = e.resolveLocalPath(dir)
-		files, err := collectIncludeVarsFiles(dir, depth, filesMatching)
+		files, err := collectIncludeVarsFiles(dir, depth, filesMatching, extensions)
 		if err != nil {
 			return nil, err
 		}
@@ -2176,7 +2177,31 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	return &TaskResult{Changed: true, Msg: msg}, nil
 }
 
-func collectIncludeVarsFiles(dir string, depth int, filesMatching string) ([]string, error) {
+func normalizeIncludeVarsExtensions(values []string) []string {
+	if len(values) == 0 {
+		return []string{".json", ".yml", ".yaml"}
+	}
+
+	extensions := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		ext := lower(corexTrimSpace(value))
+		if ext == "" {
+			continue
+		}
+		if !corexHasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		if seen[ext] {
+			continue
+		}
+		seen[ext] = true
+		extensions = append(extensions, ext)
+	}
+	return extensions
+}
+
+func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extensions []string) ([]string, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
@@ -2199,6 +2224,10 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string) ([]str
 	}
 
 	var files []string
+	allowed := make(map[string]bool, len(extensions))
+	for _, ext := range extensions {
+		allowed[ext] = true
+	}
 	stack := []dirEntry{{path: dir, depth: 0}}
 	for len(stack) > 0 {
 		current := stack[len(stack)-1]
@@ -2221,12 +2250,13 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string) ([]str
 			}
 
 			ext := lower(filepath.Ext(entry.Name()))
-			if ext == ".yml" || ext == ".yaml" {
-				if matcher != nil && !matcher.MatchString(entry.Name()) {
-					continue
-				}
-				files = append(files, fullPath)
+			if !allowed[ext] {
+				continue
 			}
+			if matcher != nil && !matcher.MatchString(entry.Name()) {
+				continue
+			}
+			files = append(files, fullPath)
 		}
 	}
 

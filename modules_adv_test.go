@@ -908,6 +908,45 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *testing.T) {
 	assert.Equal(t, true, nested["enabled"])
 }
 
+func TestModulesAdv_ModuleIncludeVars_Good_LoadJSONFileByDefault(t *testing.T) {
+	dir := t.TempDir()
+	varsPath := joinPath(dir, "vars.json")
+	require.NoError(t, writeTestFile(varsPath, []byte(`{"app_name":"demo","app_port":8080}`), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"file": varsPath,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.Equal(t, "demo", e.vars["app_name"])
+	assert.Equal(t, 8080, e.vars["app_port"])
+}
+
+func TestModulesAdv_ModuleIncludeVars_Good_CustomExtensionsFilter(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "01-ignored.yml"), []byte("ignored_value: false\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "02-selected.vars"), []byte("selected_value: included\n"), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"dir":        dir,
+		"extensions": []any{"vars"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "included", e.vars["selected_value"])
+	_, hasIgnored := e.vars["ignored_value"]
+	assert.False(t, hasIgnored)
+	assert.Contains(t, result.Msg, joinPath(dir, "02-selected.vars"))
+	assert.NotContains(t, result.Msg, joinPath(dir, "01-ignored.yml"))
+}
+
 func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("app_name: demo\nnested:\n  a: 1\n"), 0644))
