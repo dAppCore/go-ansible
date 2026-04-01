@@ -344,6 +344,16 @@ func TestExecutorExtra_ModuleMeta_Good_EndHost(t *testing.T) {
 	assert.Equal(t, "end_host", result.Data["action"])
 }
 
+func TestExecutorExtra_ModuleMeta_Good_EndBatch(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result, err := e.moduleMeta(map[string]any{"_raw_params": "end_batch"})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "end_batch", result.Data["action"])
+}
+
 func TestExecutorExtra_HandleMetaAction_Good_ClearFacts(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.facts["host1"] = &Facts{Hostname: "web01"}
@@ -366,6 +376,17 @@ func TestExecutorExtra_HandleMetaAction_Good_EndHost(t *testing.T) {
 
 	require.ErrorIs(t, err, errEndHost)
 	assert.True(t, e.isHostEnded("host1"))
+	assert.False(t, e.isHostEnded("host2"))
+}
+
+func TestExecutorExtra_HandleMetaAction_Good_EndBatch(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := &TaskResult{Data: map[string]any{"action": "end_batch"}}
+	err := e.handleMetaAction(context.Background(), "host1", []string{"host1", "host2"}, nil, result)
+
+	require.ErrorIs(t, err, errEndBatch)
+	assert.False(t, e.isHostEnded("host1"))
 	assert.False(t, e.isHostEnded("host2"))
 }
 
@@ -424,6 +445,55 @@ func TestExecutorExtra_RunTaskOnHosts_Good_EndHostSkipsFutureTasks(t *testing.T)
 	assert.Contains(t, started, "host1:Retire host")
 	assert.Contains(t, started, "host2:Follow-up")
 	assert.NotContains(t, started, "host1:Follow-up")
+}
+
+func TestExecutorExtra_RunPlay_Good_MetaEndBatchAdvancesToNextSerialBatch(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"end_batch": true}},
+				"host2": {Vars: map[string]any{"end_batch": false}},
+				"host3": {Vars: map[string]any{"end_batch": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+	e.clients["host3"] = NewMockSSHClient()
+
+	serial := 1
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "all",
+		Serial:      serial,
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:   "end current batch",
+				Module: "meta",
+				Args:   map[string]any{"_raw_params": "end_batch"},
+				When:   "end_batch",
+			},
+			{
+				Name:   "follow-up",
+				Module: "debug",
+				Args:   map[string]any{"msg": "next batch"},
+			},
+		},
+	}
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	assert.Contains(t, started, "host1:end current batch")
+	assert.NotContains(t, started, "host1:follow-up")
+	assert.Contains(t, started, "host2:follow-up")
+	assert.Contains(t, started, "host3:follow-up")
 }
 
 // ============================================================

@@ -20,6 +20,7 @@ import (
 
 var errEndPlay = errors.New("end play")
 var errEndHost = errors.New("end host")
+var errEndBatch = errors.New("end batch")
 
 // sshExecutorClient is the client contract used by the executor.
 type sshExecutorClient interface {
@@ -213,6 +214,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 				if errors.Is(err, errEndPlay) {
 					return nil
 				}
+				if errors.Is(err, errEndBatch) {
+					goto nextBatch
+				}
 				return err
 			}
 		}
@@ -222,6 +226,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := e.runRole(ctx, batch, &roleRef, play); err != nil {
 				if errors.Is(err, errEndPlay) {
 					return nil
+				}
+				if errors.Is(err, errEndBatch) {
+					goto nextBatch
 				}
 				return err
 			}
@@ -233,6 +240,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 				if errors.Is(err, errEndPlay) {
 					return nil
 				}
+				if errors.Is(err, errEndBatch) {
+					goto nextBatch
+				}
 				return err
 			}
 		}
@@ -243,6 +253,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 				if errors.Is(err, errEndPlay) {
 					return nil
 				}
+				if errors.Is(err, errEndBatch) {
+					goto nextBatch
+				}
 				return err
 			}
 		}
@@ -252,8 +265,13 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if errors.Is(err, errEndPlay) {
 				return nil
 			}
+			if errors.Is(err, errEndBatch) {
+				goto nextBatch
+			}
 			return err
 		}
+
+	nextBatch:
 	}
 
 	return nil
@@ -1951,6 +1969,8 @@ func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []st
 		return e.refreshInventory()
 	case "end_play":
 		return errEndPlay
+	case "end_batch":
+		return errEndBatch
 	case "end_host":
 		e.markHostEnded(host)
 		return errEndHost
