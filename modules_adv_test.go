@@ -848,6 +848,32 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathRegexMatch(t *testing.T) {
 	assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond)
 }
 
+func TestModulesAdv_ModuleWaitFor_Good_HonoursInitialDelay(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/delayed", []byte("ready=false\n"))
+
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		mock.mu.Lock()
+		mock.files["/tmp/delayed"] = []byte("ready=true\n")
+		mock.mu.Unlock()
+	}()
+
+	start := time.Now()
+	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
+		"path":    "/tmp/delayed",
+		"delay":   1,
+		"timeout": 2,
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.GreaterOrEqual(t, elapsed, 1*time.Second)
+}
+
 func TestModulesAdv_ModuleWaitFor_Bad_CustomTimeoutMessage(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/config", []byte("ready=false\n"))

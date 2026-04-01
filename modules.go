@@ -1570,6 +1570,7 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 	state := getStringArg(args, "state", "started")
 	searchRegex := getStringArg(args, "search_regex", "")
 	timeoutMsg := getStringArg(args, "msg", "wait_for timed out")
+	delay := getIntArg(args, "delay", 0)
 	timeout := 300
 	if t, ok := args["timeout"].(int); ok {
 		timeout = t
@@ -1580,6 +1581,16 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 		compiledRegex, err = regexp.Compile(searchRegex)
 		if err != nil {
 			return nil, coreerr.E("Executor.moduleWaitFor", "compile search_regex", err)
+		}
+	}
+
+	if delay > 0 {
+		timer := time.NewTimer(time.Duration(delay) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
 		}
 	}
 
