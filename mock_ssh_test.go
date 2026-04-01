@@ -269,6 +269,13 @@ func (m *MockSSHClient) Close() error {
 	return nil
 }
 
+// BecomeState returns the current privilege escalation settings.
+func (m *MockSSHClient) BecomeState() (bool, string, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.become, m.becomeUser, m.becomePass
+}
+
 // --- Assertion helpers ---
 
 // executedCommands returns a copy of the execution log.
@@ -367,18 +374,11 @@ func (m *MockSSHClient) reset() {
 // --- Test helper: create executor with mock client ---
 
 // newTestExecutorWithMock creates an Executor pre-wired with a MockSSHClient
-// for the given host. The executor has a minimal inventory so that
-// executeModule can be called directly.
+// for the given host. The executor has a minimal inventory so that tasks can
+// be executed through the normal host/client lookup path.
 func newTestExecutorWithMock(host string) (*Executor, *MockSSHClient) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
-
-	// Wire mock into executor's client map
-	// We cannot store a *MockSSHClient directly because the executor
-	// expects *SSHClient. Instead, we provide a helper that calls
-	// modules the same way the executor does but with the mock.
-	// Since modules call methods on *SSHClient directly and the mock
-	// has identical method signatures, we use a shim approach.
 
 	// Set up minimal inventory so host resolution works
 	e.SetInventoryDirect(&Inventory{
@@ -388,6 +388,7 @@ func newTestExecutorWithMock(host string) (*Executor, *MockSSHClient) {
 			},
 		},
 	})
+	e.clients[host] = mock
 
 	return e, mock
 }

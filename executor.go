@@ -3,6 +3,8 @@ package ansible
 import (
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,6 +19,19 @@ import (
 
 var errEndPlay = errors.New("end play")
 
+// sshExecutorClient is the client contract used by the executor.
+type sshExecutorClient interface {
+	Run(ctx context.Context, cmd string) (stdout, stderr string, exitCode int, err error)
+	RunScript(ctx context.Context, script string) (stdout, stderr string, exitCode int, err error)
+	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
+	Download(ctx context.Context, remote string) ([]byte, error)
+	FileExists(ctx context.Context, path string) (bool, error)
+	Stat(ctx context.Context, path string) (map[string]any, error)
+	BecomeState() (become bool, user, password string)
+	SetBecome(become bool, user, password string)
+	Close() error
+}
+
 // Executor runs Ansible playbooks.
 //
 // Example:
@@ -30,7 +45,7 @@ type Executor struct {
 	results   map[string]map[string]*TaskResult // host -> register_name -> result
 	handlers  map[string][]Task
 	notified  map[string]bool
-	clients   map[string]*SSHClient
+	clients   map[string]sshExecutorClient
 	mu        sync.RWMutex
 
 	// Callbacks
@@ -61,7 +76,7 @@ func NewExecutor(basePath string) *Executor {
 		results:  make(map[string]map[string]*TaskResult),
 		handlers: make(map[string][]Task),
 		notified: make(map[string]bool),
-		clients:  make(map[string]*SSHClient),
+		clients:  make(map[string]sshExecutorClient),
 	}
 }
 
@@ -472,9 +487,17 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	}
 
 	// Get SSH client
-	client, err := e.getClient(host, play)
+	executionHost := host
+	if task.Delegate != "" {
+		executionHost = e.templateString(task.Delegate, host, task)
+		if executionHost == "" {
+			executionHost = host
+		}
+	}
+
+	client, err := e.getClient(executionHost, play)
 	if err != nil {
-		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", host), err)
+		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", executionHost), err)
 	}
 
 	// Handle loops
@@ -592,7 +615,7 @@ func shouldRetryTask(task *Task, host string, e *Executor, result *TaskResult) b
 }
 
 // runLoop handles task loops.
-func (e *Executor) runLoop(ctx context.Context, host string, client *SSHClient, task *Task, play *Play) error {
+func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play) error {
 	items := e.resolveLoop(task.Loop, host)
 
 	loopVar := "item"
@@ -833,7 +856,7 @@ func (e *Executor) getHosts(pattern string) []string {
 }
 
 // getClient returns or creates an SSH client for a host.
-func (e *Executor) getClient(host string, play *Play) (*SSHClient, error) {
+func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -1555,7 +1578,7 @@ func (e *Executor) Close() {
 	for _, client := range e.clients {
 		_ = client.Close()
 	}
-	e.clients = make(map[string]*SSHClient)
+	e.clients = make(map[string]sshExecutorClient)
 }
 
 // TemplateFile processes a template file.

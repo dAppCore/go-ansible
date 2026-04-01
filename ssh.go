@@ -212,6 +212,13 @@ func (c *SSHClient) Close() error {
 	return nil
 }
 
+// BecomeState returns the current privilege escalation settings.
+func (c *SSHClient) BecomeState() (bool, string, string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.become, c.becomeUser, c.becomePass
+}
+
 // Run executes a command on the remote host.
 //
 // Example:

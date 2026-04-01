@@ -207,6 +207,30 @@ func TestExecutor_RunTaskOnHosts_Good_RunOnceSharesRegisteredResult(t *testing.T
 	assert.Equal(t, "hello", e.results["host2"]["debug_result"].Msg)
 }
 
+func TestExecutor_RunTaskOnHost_Good_DelegateToUsesDelegatedClient(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	e.SetVar("delegate_host", "delegate1")
+	e.inventory.All.Hosts["delegate1"] = &Host{AnsibleHost: "127.0.0.2"}
+	e.clients["delegate1"] = mock
+	mock.expectCommand(`echo delegated`, "delegated", "", 0)
+
+	task := &Task{
+		Name:     "Delegate command",
+		Module:   "command",
+		Args:     map[string]any{"cmd": "echo delegated"},
+		Delegate: "{{ delegate_host }}",
+		Register: "delegated_result",
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["delegated_result"])
+	assert.Equal(t, "delegated", e.results["host1"]["delegated_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`echo delegated`))
+	assert.Equal(t, 1, mock.commandCount())
+}
+
 func TestExecutor_RunPlay_Good_SerialBatchesHosts(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
