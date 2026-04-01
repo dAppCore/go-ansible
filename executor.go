@@ -1073,13 +1073,6 @@ func (e *Executor) getHosts(pattern string) []string {
 
 // getClient returns or creates an SSH client for a host.
 func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if client, ok := e.clients[host]; ok {
-		return client, nil
-	}
-
 	// Get host vars
 	vars := make(map[string]any)
 	if e.inventory != nil {
@@ -1116,6 +1109,30 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 		cfg.KeyFile = k
 	}
 
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if client, ok := e.clients[host]; ok {
+		if !isLocalConnection(host, play, vars) {
+			return client, nil
+		}
+	}
+
+	if isLocalConnection(host, play, vars) {
+		client := newLocalClient()
+		if play.Become {
+			becomePass := ""
+			if bp, ok := vars["ansible_become_password"].(string); ok {
+				becomePass = bp
+			} else if p, ok := vars["ansible_password"].(string); ok {
+				becomePass = p
+			}
+			client.SetBecome(true, play.BecomeUser, becomePass)
+		}
+		e.clients[host] = client
+		return client, nil
+	}
+
 	// Apply play become settings
 	if play.Become {
 		cfg.Become = true
@@ -1139,14 +1156,6 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 
 // gatherFacts collects facts from a host.
 func (e *Executor) gatherFacts(ctx context.Context, host string, play *Play) error {
-	if play.Connection == "local" || host == "localhost" {
-		// Local facts
-		e.facts[host] = &Facts{
-			Hostname: "localhost",
-		}
-		return nil
-	}
-
 	client, err := e.getClient(host, play)
 	if err != nil {
 		return err
@@ -1162,6 +1171,19 @@ func (e *Executor) gatherFacts(ctx context.Context, host string, play *Play) err
 	e.mu.Unlock()
 
 	return nil
+}
+
+func isLocalConnection(host string, play *Play, vars map[string]any) bool {
+	if host == "localhost" {
+		return true
+	}
+	if play != nil && corexTrimSpace(play.Connection) == "local" {
+		return true
+	}
+	if conn, ok := vars["ansible_connection"].(string); ok && corexTrimSpace(conn) == "local" {
+		return true
+	}
+	return false
 }
 
 // evaluateWhen evaluates a when condition.
