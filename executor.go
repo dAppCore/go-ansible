@@ -2279,7 +2279,7 @@ func (e *Executor) applyFilter(value, filter string) string {
 
 	// Handle default filter
 	if corexHasPrefix(filter, "default(") {
-		if value == "" || value == "{{ "+filter+" }}" {
+		if value == "" || isUnresolvedTemplateValue(value) {
 			// Extract default value
 			re := regexp.MustCompile(`default\(([^)]*)\)`)
 			if match := re.FindStringSubmatch(filter); len(match) > 1 {
@@ -2316,6 +2316,10 @@ func (e *Executor) applyFilter(value, filter string) string {
 	}
 
 	return value
+}
+
+func isUnresolvedTemplateValue(value string) bool {
+	return corexHasPrefix(value, "{{ ") && corexHasSuffix(value, " }}")
 }
 
 // handleLookup handles lookup() expressions.

@@ -518,6 +518,14 @@ func TestModulesInfra_TemplateString_Good_FilterInTemplate(t *testing.T) {
 	assert.Equal(t, "hello", result)
 }
 
+func TestModulesInfra_TemplateString_Good_DefaultFilterMissingVar(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := e.templateString("{{ missing_var | default('fallback') }}", "", nil)
+
+	assert.Equal(t, "fallback", result)
+}
+
 func TestModulesInfra_TemplateString_Good_DefaultFilterEmptyVar(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["empty_var"] = ""
