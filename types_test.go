@@ -369,6 +369,37 @@ with_nested:
 	assert.Equal(t, []any{"blue", "large"}, fourth)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithTogether(t *testing.T) {
+	input := `
+name: Together loop values
+debug:
+  msg: "{{ item.0 }} {{ item.1 }}"
+with_together:
+  - - red
+    - blue
+  - - small
+    - large
+    - medium
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.WithTogether)
+
+	items, ok := task.Loop.([]any)
+	require.True(t, ok)
+	require.Len(t, items, 2)
+
+	first, ok := items[0].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"red", "small"}, first)
+
+	second, ok := items[1].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"blue", "large"}, second)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
 	input := `
 name: Install package

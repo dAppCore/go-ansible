@@ -357,7 +357,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"action": true, "local_action": true,
 		"include_tasks": true, "import_tasks": true,
 		"include_role": true, "import_role": true,
-		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_nested": true, "with_file": true, "with_fileglob": true, "with_sequence": true,
+		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_nested": true, "with_together": true, "with_file": true, "with_fileglob": true, "with_sequence": true,
 	}
 
 	for key, val := range m {
@@ -460,6 +460,11 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 	// Preserve with_sequence so the executor can expand numeric ranges at runtime.
 	if sequence, ok := m["with_sequence"]; ok && t.WithSequence == nil {
 		t.WithSequence = sequence
+	}
+
+	// Preserve with_together so the executor can zip legacy loop inputs at runtime.
+	if t.WithTogether != nil && t.Loop == nil {
+		t.Loop = expandTogetherLoop(t.WithTogether)
 	}
 
 	// Support legacy action/local_action shorthands.
@@ -582,6 +587,35 @@ func expandNestedLoop(loop any) []any {
 	return items
 }
 
+// expandTogetherLoop converts with_together input into a zipped loop. Each
+// output item contains one value from each input group at the same index.
+func expandTogetherLoop(loop any) []any {
+	groups, ok := togetherLoopGroups(loop)
+	if !ok || len(groups) == 0 {
+		return nil
+	}
+
+	minLen := len(groups[0])
+	for _, group := range groups[1:] {
+		if len(group) < minLen {
+			minLen = len(group)
+		}
+	}
+	if minLen == 0 {
+		return nil
+	}
+
+	items := make([]any, 0, minLen)
+	for i := 0; i < minLen; i++ {
+		combo := make([]any, len(groups))
+		for j, group := range groups {
+			combo[j] = group[i]
+		}
+		items = append(items, combo)
+	}
+	return items
+}
+
 func nestedLoopGroups(loop any) ([][]any, bool) {
 	switch v := loop.(type) {
 	case []any:
@@ -635,6 +669,41 @@ func nestedLoopItems(value any) []any {
 		return items
 	default:
 		return []any{v}
+	}
+}
+
+func togetherLoopGroups(loop any) ([][]any, bool) {
+	switch v := loop.(type) {
+	case []any:
+		groups := make([][]any, 0, len(v))
+		for _, group := range v {
+			items := nestedLoopItems(group)
+			if len(items) == 0 {
+				return nil, false
+			}
+			groups = append(groups, items)
+		}
+		return groups, true
+	case []string:
+		items := make([]any, len(v))
+		for i, item := range v {
+			items[i] = item
+		}
+		if len(items) == 0 {
+			return nil, false
+		}
+		return [][]any{items}, true
+	case string:
+		if v == "" {
+			return nil, false
+		}
+		return [][]any{{v}}, true
+	default:
+		items := nestedLoopItems(v)
+		if len(items) == 0 {
+			return nil, false
+		}
+		return [][]any{items}, true
 	}
 }
 

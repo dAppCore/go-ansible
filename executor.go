@@ -661,8 +661,8 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", executionHost), err)
 	}
 
-	// Handle loops, including legacy with_file, with_fileglob, and with_sequence syntax.
-	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil {
+	// Handle loops, including legacy with_file, with_fileglob, with_sequence, and with_together syntax.
+	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil || task.WithTogether != nil {
 		return e.runLoop(ctx, host, client, task, play, start)
 	}
 
@@ -864,6 +864,8 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 		items, err = e.resolveWithFileGlobLoop(task.WithFileGlob, host, task)
 	} else if task.WithSequence != nil {
 		items, err = e.resolveWithSequenceLoop(task.WithSequence, host, task)
+	} else if task.WithTogether != nil {
+		items, err = e.resolveWithTogetherLoop(task.WithTogether, host, task)
 	} else {
 		items = e.resolveLoop(task.Loop, host)
 	}
@@ -1138,6 +1140,15 @@ func (e *Executor) resolveWithSequenceLoop(loop any, host string, task *Task) ([
 	for i, value := range values {
 		items[i] = value
 	}
+	return items, nil
+}
+
+func (e *Executor) resolveWithTogetherLoop(loop any, host string, task *Task) ([]any, error) {
+	items := expandTogetherLoop(loop)
+	if len(items) == 0 {
+		return nil, nil
+	}
+
 	return items, nil
 }
 

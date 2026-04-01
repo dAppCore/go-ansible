@@ -919,6 +919,33 @@ func TestExecutor_RunTaskOnHost_Good_LoopFromWithNested(t *testing.T) {
 	assert.Equal(t, "blue-large", result.Results[3].Msg)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithTogether(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Together loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0 }}={{ item.1 }}",
+		},
+		WithTogether: []any{
+			[]any{"red", "blue"},
+			[]any{"small", "large", "medium"},
+		},
+		Register: "together_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["together_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "red=small", result.Results[0].Msg)
+	assert.Equal(t, "blue=large", result.Results[1].Msg)
+}
+
 func TestExecutor_RunTaskOnHosts_Good_LoopNotifiesAndCallsCallback(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.clients["host1"] = NewMockSSHClient()
