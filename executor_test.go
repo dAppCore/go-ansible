@@ -388,6 +388,49 @@ func TestExecutor_RunRole_Good_AppliesRoleTagsToTasks(t *testing.T) {
 	assert.Equal(t, "role ran", e.results["host1"]["role_result"].Msg)
 }
 
+func TestExecutor_RunRole_Good_AppliesRoleDefaultsAndVars(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(`---
+- name: role var task
+  debug:
+    msg: "{{ role_value }}|{{ role_param }}"
+  register: role_result
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "defaults", "main.yml"), []byte(`---
+role_value: default-value
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "vars", "main.yml"), []byte(`---
+role_value: vars-value
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("outer_value", "outer")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+
+	play := &Play{Connection: "local"}
+
+	err := e.runRole(context.Background(), []string{"host1"}, &RoleRef{
+		Role: "webserver",
+		Vars: map[string]any{
+			"role_param": "include-value",
+		},
+	}, play)
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["role_result"])
+	assert.Equal(t, "vars-value|include-value", e.results["host1"]["role_result"].Msg)
+	assert.Equal(t, "outer", e.vars["outer_value"])
+	_, leaked := e.vars["role_value"]
+	assert.False(t, leaked)
+}
+
 func TestExecutor_RunPlay_Good_AppliesPlayTagsToTasks(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Tags = []string{"deploy"}

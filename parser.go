@@ -170,6 +170,11 @@ func (p *Parser) ParseTasksIter(path string) (iter.Seq[Task], error) {
 //
 //	tasks, err := parser.ParseRole("nginx", "main.yml")
 func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
+	tasks, _, _, err := p.loadRoleData(name, tasksFrom)
+	return tasks, err
+}
+
+func (p *Parser) loadRoleData(name string, tasksFrom string) ([]Task, map[string]any, map[string]any, error) {
 	if tasksFrom == "" {
 		tasksFrom = "main.yml"
 	}
@@ -199,34 +204,33 @@ func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
 	}
 
 	if tasksPath == "" {
-		return nil, coreerr.E("Parser.ParseRole", sprintf("role %s not found in search paths: %v", name, searchPaths), nil)
+		return nil, nil, nil, coreerr.E("Parser.ParseRole", sprintf("role %s not found in search paths: %v", name, searchPaths), nil)
 	}
 
+	defaults := make(map[string]any)
 	// Load role defaults
 	defaultsPath := joinPath(pathDir(pathDir(tasksPath)), "defaults", "main.yml")
 	if data, err := coreio.Local.Read(defaultsPath); err == nil {
-		var defaults map[string]any
-		if yaml.Unmarshal([]byte(data), &defaults) == nil {
-			for k, v := range defaults {
-				if _, exists := p.vars[k]; !exists {
-					p.vars[k] = v
-				}
-			}
+		if yaml.Unmarshal([]byte(data), &defaults) != nil {
+			defaults = make(map[string]any)
 		}
 	}
 
+	roleVars := make(map[string]any)
 	// Load role vars
 	varsPath := joinPath(pathDir(pathDir(tasksPath)), "vars", "main.yml")
 	if data, err := coreio.Local.Read(varsPath); err == nil {
-		var roleVars map[string]any
-		if yaml.Unmarshal([]byte(data), &roleVars) == nil {
-			for k, v := range roleVars {
-				p.vars[k] = v
-			}
+		if yaml.Unmarshal([]byte(data), &roleVars) != nil {
+			roleVars = make(map[string]any)
 		}
 	}
 
-	return p.ParseTasks(tasksPath)
+	tasks, err := p.ParseTasks(tasksPath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return tasks, defaults, roleVars, nil
 }
 
 // processPlay processes a play and extracts modules from tasks.

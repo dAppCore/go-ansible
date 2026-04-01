@@ -378,14 +378,33 @@ func resolveSerialBatchSize(serial any, total int) int {
 
 // runRole executes a role on hosts.
 func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef, play *Play) error {
-	// Merge role vars
-	oldVars := make(map[string]any)
+	oldVars := make(map[string]any, len(e.vars))
 	for k, v := range e.vars {
 		oldVars[k] = v
 	}
-	for k, v := range roleRef.Vars {
-		e.vars[k] = v
+
+	tasks, defaults, roleVars, err := e.parser.loadRoleData(roleRef.Role, roleRef.TasksFrom)
+	if err != nil {
+		e.vars = oldVars
+		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
 	}
+
+	roleScope := make(map[string]any, len(oldVars)+len(defaults)+len(roleVars)+len(roleRef.Vars))
+	for k, v := range oldVars {
+		roleScope[k] = v
+	}
+	for k, v := range defaults {
+		if _, exists := roleScope[k]; !exists {
+			roleScope[k] = v
+		}
+	}
+	for k, v := range roleVars {
+		roleScope[k] = v
+	}
+	for k, v := range roleRef.Vars {
+		roleScope[k] = v
+	}
+	e.vars = roleScope
 
 	eligibleHosts := make([]string, 0, len(hosts))
 	for _, host := range hosts {
@@ -396,13 +415,6 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	if len(eligibleHosts) == 0 {
 		e.vars = oldVars
 		return nil
-	}
-
-	// Parse role tasks
-	tasks, err := e.parser.ParseRole(roleRef.Role, roleRef.TasksFrom)
-	if err != nil {
-		e.vars = oldVars
-		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
 	}
 
 	// Execute tasks
