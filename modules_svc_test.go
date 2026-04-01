@@ -692,6 +692,76 @@ func TestModulesSvc_ModulePackage_Good_RemovePackage(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get remove -y -qq nano`))
 }
 
+func TestModulesSvc_ModulePackage_Good_DetectYumAndDelegate(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`which apt-get yum dnf`, "/usr/bin/yum", "", 0)
+	mock.expectCommand(`yum install -y -q htop`, "", "", 0)
+
+	result, err := modulePackageWithClient(e, mock, map[string]any{
+		"name":  "htop",
+		"state": "present",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`yum install -y -q htop`))
+}
+
+func TestModulesSvc_ModulePackage_Good_DetectDnfAndDelegate(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`which apt-get yum dnf`, "/usr/bin/dnf", "", 0)
+	mock.expectCommand(`dnf upgrade -y -q vim`, "", "", 0)
+
+	result, err := modulePackageWithClient(e, mock, map[string]any{
+		"name":  "vim",
+		"state": "latest",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`dnf upgrade -y -q vim`))
+}
+
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchYum(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`yum install -y -q htop`, "", "", 0)
+
+	task := &Task{
+		Module: "yum",
+		Args: map[string]any{
+			"name":  "htop",
+			"state": "present",
+		},
+	}
+
+	result, err := executeModuleWithMock(e, mock, "host1", task)
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`yum install -y -q htop`))
+}
+
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchDnf(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`dnf remove -y -q nano`, "", "", 0)
+
+	task := &Task{
+		Module: "dnf",
+		Args: map[string]any{
+			"name":  "nano",
+			"state": "absent",
+		},
+	}
+
+	result, err := executeModuleWithMock(e, mock, "host1", task)
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`dnf remove -y -q nano`))
+}
+
 // --- pip module ---
 
 func TestModulesSvc_ModulePip_Good_InstallPresent(t *testing.T) {

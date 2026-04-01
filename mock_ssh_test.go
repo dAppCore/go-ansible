@@ -434,6 +434,10 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 		return moduleAptKeyWithClient(e, mock, args)
 	case "ansible.builtin.apt_repository":
 		return moduleAptRepositoryWithClient(e, mock, args)
+	case "ansible.builtin.yum":
+		return moduleYumWithClient(e, mock, args)
+	case "ansible.builtin.dnf":
+		return moduleDnfWithClient(e, mock, args)
 	case "ansible.builtin.package":
 		return modulePackageWithClient(e, mock, args)
 	case "ansible.builtin.pip":
@@ -1026,11 +1030,63 @@ func modulePackageWithClient(e *Executor, client sshRunner, args map[string]any)
 	stdout, _, _, _ := client.Run(context.Background(), "which apt-get yum dnf 2>/dev/null | head -1")
 	stdout = trimSpace(stdout)
 
-	if contains(stdout, "apt") {
+	switch {
+	case contains(stdout, "dnf"):
+		return moduleDnfWithClient(e, client, args)
+	case contains(stdout, "yum"):
+		return moduleYumWithClient(e, client, args)
+	default:
 		return moduleAptWithClient(e, client, args)
 	}
+}
 
-	return moduleAptWithClient(e, client, args)
+func moduleYumWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
+	return moduleRPMWithClient(client, args, "yum")
+}
+
+func moduleDnfWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
+	return moduleRPMWithClient(client, args, "dnf")
+}
+
+func moduleRPMWithClient(client sshRunner, args map[string]any, manager string) (*TaskResult, error) {
+	name := getStringArg(args, "name", "")
+	state := getStringArg(args, "state", "present")
+	updateCache := getBoolArg(args, "update_cache", false)
+
+	if updateCache {
+		_, _, _, _ = client.Run(context.Background(), sprintf("%s makecache -y", manager))
+	}
+
+	var cmd string
+	switch state {
+	case "present", "installed":
+		if name != "" {
+			cmd = sprintf("%s install -y -q %s", manager, name)
+		}
+	case "absent", "removed":
+		if name != "" {
+			cmd = sprintf("%s remove -y -q %s", manager, name)
+		}
+	case "latest":
+		if name != "" {
+			if manager == "dnf" {
+				cmd = sprintf("%s upgrade -y -q %s", manager, name)
+			} else {
+				cmd = sprintf("%s update -y -q %s", manager, name)
+			}
+		}
+	}
+
+	if cmd == "" {
+		return &TaskResult{Changed: false}, nil
+	}
+
+	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
+	if err != nil || rc != 0 {
+		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	}
+
+	return &TaskResult{Changed: true}, nil
 }
 
 func modulePipWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
