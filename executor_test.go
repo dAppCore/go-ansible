@@ -268,6 +268,45 @@ func TestExecutor_RunRole_Good_AppliesRoleTagsToTasks(t *testing.T) {
 	assert.Equal(t, "role ran", e.results["host1"]["role_result"].Msg)
 }
 
+func TestExecutor_RunRole_Good_HostSpecificWhen(t *testing.T) {
+	dir := t.TempDir()
+	roleTasks := `---
+- name: gated role task
+  debug:
+    msg: role ran
+  register: gated_result
+`
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(roleTasks), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"enabled": true}},
+				"host2": {Vars: map[string]any{"enabled": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runRole(context.Background(), []string{"host1", "host2"}, &RoleRef{
+		Role: "webserver",
+		When: "enabled",
+	}, &Play{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"host1:gated role task"}, started)
+	require.NotNil(t, e.results["host1"]["gated_result"])
+	_, ok := e.results["host2"]["gated_result"]
+	assert.False(t, ok)
+}
+
 func TestExecutor_RunPlay_Good_SerialBatchesHosts(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{

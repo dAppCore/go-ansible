@@ -330,19 +330,6 @@ func resolveSerialBatchSize(serial any, total int) int {
 
 // runRole executes a role on hosts.
 func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef, play *Play) error {
-	// Check when condition
-	if roleRef.When != nil {
-		if !e.evaluateWhen(roleRef.When, "", nil) {
-			return nil
-		}
-	}
-
-	// Parse role tasks
-	tasks, err := e.parser.ParseRole(roleRef.Role, roleRef.TasksFrom)
-	if err != nil {
-		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
-	}
-
 	// Merge role vars
 	oldVars := make(map[string]any)
 	for k, v := range e.vars {
@@ -352,13 +339,31 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 		e.vars[k] = v
 	}
 
+	eligibleHosts := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		if roleRef.When == nil || e.evaluateWhen(roleRef.When, host, nil) {
+			eligibleHosts = append(eligibleHosts, host)
+		}
+	}
+	if len(eligibleHosts) == 0 {
+		e.vars = oldVars
+		return nil
+	}
+
+	// Parse role tasks
+	tasks, err := e.parser.ParseRole(roleRef.Role, roleRef.TasksFrom)
+	if err != nil {
+		e.vars = oldVars
+		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
+	}
+
 	// Execute tasks
 	for _, task := range tasks {
 		effectiveTask := task
 		if len(roleRef.Tags) > 0 {
 			effectiveTask.Tags = append(append([]string(nil), roleRef.Tags...), task.Tags...)
 		}
-		if err := e.runTaskOnHosts(ctx, hosts, &effectiveTask, play); err != nil {
+		if err := e.runTaskOnHosts(ctx, eligibleHosts, &effectiveTask, play); err != nil {
 			// Restore vars
 			e.vars = oldVars
 			return err
