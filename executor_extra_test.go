@@ -657,6 +657,37 @@ func TestExecutorExtra_RunIncludeTasks_Good_RelativePath(t *testing.T) {
 	assert.Contains(t, started, "localhost:Included second task")
 }
 
+func TestExecutorExtra_RunIncludeTasks_Good_InheritsTaskVars(t *testing.T) {
+	dir := t.TempDir()
+	includedPath := joinPath(dir, "included-vars.yml")
+	yaml := `- name: Included var task
+  debug:
+    msg: "{{ include_message }}"
+  register: included_result
+`
+	require.NoError(t, writeTestFile(includedPath, []byte(yaml), 0644))
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Include vars",
+		Hosts:       "localhost",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:         "Load included tasks",
+				IncludeTasks: "included-vars.yml",
+				Vars:         map[string]any{"include_message": "hello from include"},
+			},
+		},
+	}
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["localhost"]["included_result"])
+	assert.Equal(t, "hello from include", e.results["localhost"]["included_result"].Msg)
+}
+
 func TestExecutorExtra_RunIncludeTasks_Good_HostSpecificTemplate(t *testing.T) {
 	dir := t.TempDir()
 
@@ -709,6 +740,47 @@ func TestExecutorExtra_RunIncludeTasks_Good_HostSpecificTemplate(t *testing.T) {
 
 	assert.Contains(t, started, "web1:Web included task")
 	assert.Contains(t, started, "db1:DB included task")
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---
+- name: Role var task
+  debug:
+    msg: "{{ role_message }}"
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name: "Load role",
+		IncludeRole: &struct {
+			Name      string         `yaml:"name"`
+			TasksFrom string         `yaml:"tasks_from,omitempty"`
+			Vars      map[string]any `yaml:"vars,omitempty"`
+		}{
+			Name: "demo",
+		},
+		Vars: map[string]any{"role_message": "hello from role"},
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["role_result"])
+	assert.Equal(t, "hello from role", e.results["localhost"]["role_result"].Msg)
 }
 
 func TestExecutorExtra_GetHostsIter_Good(t *testing.T) {

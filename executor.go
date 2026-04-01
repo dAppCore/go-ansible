@@ -1093,7 +1093,9 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 		}
 
 		for _, t := range tasks {
-			if err := e.runTaskOnHosts(ctx, hostsByPath[resolvedPath], &t, play); err != nil {
+			effectiveTask := t
+			effectiveTask.Vars = mergeTaskVars(task.Vars, t.Vars)
+			if err := e.runTaskOnHosts(ctx, hostsByPath[resolvedPath], &effectiveTask, play); err != nil {
 				return err
 			}
 		}
@@ -1120,10 +1122,26 @@ func (e *Executor) runIncludeRole(ctx context.Context, hosts []string, task *Tas
 	roleRef := &RoleRef{
 		Role:      roleName,
 		TasksFrom: tasksFrom,
-		Vars:      roleVars,
+		Vars:      mergeTaskVars(roleVars, task.Vars),
 	}
 
 	return e.runRole(ctx, hosts, roleRef, play)
+}
+
+// mergeTaskVars combines include-task vars with child task vars.
+func mergeTaskVars(parent, child map[string]any) map[string]any {
+	if len(parent) == 0 && len(child) == 0 {
+		return nil
+	}
+
+	merged := make(map[string]any, len(parent)+len(child))
+	for k, v := range parent {
+		merged[k] = v
+	}
+	for k, v := range child {
+		merged[k] = v
+	}
+	return merged
 }
 
 // getHosts returns hosts matching the pattern.
