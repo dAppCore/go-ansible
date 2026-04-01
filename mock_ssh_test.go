@@ -608,8 +608,17 @@ func moduleScriptWithClient(_ *Executor, client sshRunner, args map[string]any) 
 type sshFileRunner interface {
 	sshRunner
 	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
+	Download(ctx context.Context, remote string) ([]byte, error)
 	Stat(ctx context.Context, path string) (map[string]any, error)
 	FileExists(ctx context.Context, path string) (bool, error)
+}
+
+func mockRemoteFileText(client sshFileRunner, path string) (string, bool) {
+	data, err := client.Download(context.Background(), path)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
 }
 
 // --- File module shims ---
@@ -641,6 +650,13 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 		}
 	}
 
+	before, hasBefore := mockRemoteFileText(client, dest)
+	if hasBefore && before == string(content) {
+		if getStringArg(args, "owner", "") == "" && getStringArg(args, "group", "") == "" {
+			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
+		}
+	}
+
 	err = client.Upload(context.Background(), newReader(string(content)), dest, mode)
 	if err != nil {
 		return nil, err
@@ -654,7 +670,17 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 		_, _, _, _ = client.Run(context.Background(), sprintf("chgrp %s %q", group, dest))
 	}
 
-	return &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}, nil
+	result := &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}
+	if e.Diff && hasBefore {
+		result.Data = map[string]any{
+			"diff": map[string]any{
+				"path":   dest,
+				"before": before,
+				"after":  string(content),
+			},
+		}
+	}
+	return result, nil
 }
 
 func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string]any, host string, task *Task) (*TaskResult, error) {
@@ -677,12 +703,27 @@ func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string
 		}
 	}
 
+	before, hasBefore := mockRemoteFileText(client, dest)
+	if hasBefore && before == content {
+		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
+	}
+
 	err = client.Upload(context.Background(), newReader(content), dest, mode)
 	if err != nil {
 		return nil, err
 	}
 
-	return &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}, nil
+	result := &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}
+	if e.Diff && hasBefore {
+		result.Data = map[string]any{
+			"diff": map[string]any{
+				"path":   dest,
+				"before": before,
+				"after":  content,
+			},
+		}
+	}
+	return result, nil
 }
 
 func moduleFileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {

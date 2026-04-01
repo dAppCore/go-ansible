@@ -47,6 +47,7 @@ func runAnsible(opts core.Options) core.Result {
 	// Set options
 	executor.Limit = opts.String("limit")
 	executor.CheckMode = opts.Bool("check")
+	executor.Diff = opts.Bool("diff")
 	executor.Verbose = opts.Int("verbose")
 
 	if tags := opts.String("tags"); tags != "" {
@@ -136,6 +137,18 @@ func runAnsible(opts core.Options) core.Result {
 		if executor.Verbose > 1 {
 			if result.Stdout != "" {
 				print("stdout: %s", trimSpace(result.Stdout))
+			}
+		}
+
+		if executor.Diff {
+			if diff, ok := result.Data["diff"].(map[string]any); ok {
+				print("diff:")
+				if before, ok := diff["before"].(string); ok && before != "" {
+					print("- %s", before)
+				}
+				if after, ok := diff["after"].(string); ok && after != "" {
+					print("+ %s", after)
+				}
 			}
 		}
 	}

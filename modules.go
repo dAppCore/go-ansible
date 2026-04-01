@@ -158,6 +158,22 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 	}
 }
 
+func remoteFileText(ctx context.Context, client sshExecutorClient, path string) (string, bool) {
+	data, err := client.Download(ctx, path)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
+func fileDiffData(path, before, after string) map[string]any {
+	return map[string]any{
+		"path":   path,
+		"before": before,
+		"after":  after,
+	}
+}
+
 // templateArgs templates all string values in args.
 func (e *Executor) templateArgs(args map[string]any, host string, task *Task) map[string]any {
 	// Set inventory_hostname for templating
@@ -321,6 +337,13 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 		}
 	}
 
+	before, hasBefore := remoteFileText(ctx, client, dest)
+	if hasBefore && before == content {
+		if getStringArg(args, "owner", "") == "" && getStringArg(args, "group", "") == "" {
+			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
+		}
+	}
+
 	err = client.Upload(ctx, newReader(content), dest, mode)
 	if err != nil {
 		return nil, err
@@ -334,7 +357,13 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 		_, _, _, _ = client.Run(ctx, sprintf("chgrp %s %q", group, dest))
 	}
 
-	return &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}, nil
+	result := &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}
+	if e.Diff {
+		if hasBefore {
+			result.Data = map[string]any{"diff": fileDiffData(dest, before, content)}
+		}
+	}
+	return result, nil
 }
 
 func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient, args map[string]any, host string, task *Task) (*TaskResult, error) {
@@ -357,12 +386,23 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 		}
 	}
 
+	before, hasBefore := remoteFileText(ctx, client, dest)
+	if hasBefore && before == content {
+		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
+	}
+
 	err = client.Upload(ctx, newReader(content), dest, mode)
 	if err != nil {
 		return nil, err
 	}
 
-	return &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}, nil
+	result := &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}
+	if e.Diff {
+		if hasBefore {
+			result.Data = map[string]any{"diff": fileDiffData(dest, before, content)}
+		}
+	}
+	return result, nil
 }
 
 func (e *Executor) moduleFile(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {

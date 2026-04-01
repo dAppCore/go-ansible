@@ -142,6 +142,22 @@ func TestModulesFile_ModuleCopy_Good_ContentTakesPrecedenceOverSrc(t *testing.T)
 	assert.Equal(t, []byte("from_content"), up.Content)
 }
 
+func TestModulesFile_ModuleCopy_Good_SkipsUnchangedContent(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	e.Diff = true
+	mock.addFile("/etc/app/config", []byte("server_name=web01"))
+
+	result, err := moduleCopyWithClient(e, mock, map[string]any{
+		"content": "server_name=web01",
+		"dest":    "/etc/app/config",
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.uploadCount())
+	assert.Contains(t, result.Msg, "already up to date")
+}
+
 // --- file module ---
 
 func TestModulesFile_ModuleFile_Good_StateDirectory(t *testing.T) {
@@ -774,6 +790,32 @@ func TestModulesFile_ModuleTemplate_Good_PlainTextNoVars(t *testing.T) {
 	up := mock.lastUpload()
 	require.NotNil(t, up)
 	assert.Equal(t, content, string(up.Content))
+}
+
+func TestModulesFile_ModuleTemplate_Good_DiffData(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "app.conf.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("server_name={{ server_name }};"), 0644))
+
+	e, mock := newTestExecutorWithMock("host1")
+	e.Diff = true
+	e.SetVar("server_name", "web01.example.com")
+	mock.addFile("/etc/nginx/conf.d/app.conf", []byte("server_name=old.example.com;"))
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":  srcPath,
+		"dest": "/etc/nginx/conf.d/app.conf",
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	diff, ok := result.Data["diff"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "/etc/nginx/conf.d/app.conf", diff["path"])
+	assert.Equal(t, "server_name=old.example.com;", diff["before"])
+	assert.Contains(t, diff["after"], "web01.example.com")
 }
 
 // --- Cross-module dispatch tests for file modules ---

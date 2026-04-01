@@ -22,6 +22,7 @@ func Register(c *core.Core) {
 			core.Option{Key: "extra-vars", Value: ""},
 			core.Option{Key: "verbose", Value: 0},
 			core.Option{Key: "check", Value: false},
+			core.Option{Key: "diff", Value: false},
 		),
 	})
 
