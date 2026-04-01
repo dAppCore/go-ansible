@@ -1024,6 +1024,27 @@ func TestExecutor_EvaluateWhen_Good_MultipleConditions(t *testing.T) {
 	assert.False(t, e.evaluateWhen([]any{"true", "false"}, "host1", nil))
 }
 
+func TestExecutor_EvaluateWhen_Good_LogicalAndOrExpressions(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["enabled"] = true
+	e.vars["maintenance"] = false
+
+	assert.True(t, e.evaluateWhen("enabled and not maintenance", "host1", nil))
+	assert.False(t, e.evaluateWhen("enabled and maintenance", "host1", nil))
+	assert.True(t, e.evaluateWhen("enabled or maintenance", "host1", nil))
+	assert.False(t, e.evaluateWhen("maintenance or false", "host1", nil))
+}
+
+func TestExecutor_EvaluateWhen_Good_LogicalExpressionParentheses(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["enabled"] = true
+	e.vars["maintenance"] = false
+	e.vars["deployed"] = true
+
+	assert.True(t, e.evaluateWhen("(enabled and not maintenance) or deployed", "host1", nil))
+	assert.False(t, e.evaluateWhen("enabled and (maintenance or false)", "host1", nil))
+}
+
 func TestExecutor_ApplyTaskResultConditions_Good_ChangedWhen(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{

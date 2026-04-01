@@ -1343,6 +1343,20 @@ func (e *Executor) evalCondition(cond string, host string) bool {
 
 func (e *Executor) evalConditionWithLocals(cond string, host string, task *Task, locals map[string]any) bool {
 	cond = corexTrimSpace(cond)
+	if cond == "" {
+		return true
+	}
+
+	if inner, ok := stripOuterParens(cond); ok {
+		return e.evalConditionWithLocals(inner, host, task, locals)
+	}
+
+	if left, right, ok := splitLogicalCondition(cond, "or"); ok {
+		return e.evalConditionWithLocals(left, host, task, locals) || e.evalConditionWithLocals(right, host, task, locals)
+	}
+	if left, right, ok := splitLogicalCondition(cond, "and"); ok {
+		return e.evalConditionWithLocals(left, host, task, locals) && e.evalConditionWithLocals(right, host, task, locals)
+	}
 
 	// Handle negation
 	if corexHasPrefix(cond, "not ") {
@@ -1474,6 +1488,131 @@ func (e *Executor) evalConditionWithLocals(cond string, host string, task *Task,
 
 	// Default to true for unknown conditions (be permissive)
 	return true
+}
+
+func stripOuterParens(cond string) (string, bool) {
+	cond = corexTrimSpace(cond)
+	if len(cond) < 2 || cond[0] != '(' || cond[len(cond)-1] != ')' {
+		return "", false
+	}
+
+	depth := 0
+	inSingle := false
+	inDouble := false
+	escaped := false
+	for i := 0; i < len(cond); i++ {
+		ch := cond[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && (inSingle || inDouble) {
+			escaped = true
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if inSingle || inDouble {
+			continue
+		}
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 && i != len(cond)-1 {
+				return "", false
+			}
+			if depth < 0 {
+				return "", false
+			}
+		}
+	}
+
+	if depth != 0 {
+		return "", false
+	}
+
+	return corexTrimSpace(cond[1 : len(cond)-1]), true
+}
+
+func splitLogicalCondition(cond, op string) (string, string, bool) {
+	depth := 0
+	inSingle := false
+	inDouble := false
+	escaped := false
+	for i := 0; i <= len(cond)-len(op); i++ {
+		ch := cond[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && (inSingle || inDouble) {
+			escaped = true
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if inSingle || inDouble {
+			continue
+		}
+		switch ch {
+		case '(':
+			depth++
+			continue
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+
+		if depth != 0 || !strings.HasPrefix(cond[i:], op) {
+			continue
+		}
+
+		if i > 0 {
+			prev := cond[i-1]
+			if !isConditionBoundary(prev) {
+				continue
+			}
+		}
+		if end := i + len(op); end < len(cond) {
+			if !isConditionBoundary(cond[end]) {
+				continue
+			}
+		}
+
+		left := corexTrimSpace(cond[:i])
+		right := corexTrimSpace(cond[i+len(op):])
+		if left == "" || right == "" {
+			continue
+		}
+		return left, right, true
+	}
+
+	return "", "", false
+}
+
+func isConditionBoundary(ch byte) bool {
+	switch ch {
+	case ' ', '\t', '\n', '\r', '(', ')':
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Executor) lookupConditionValue(name string, host string, task *Task, locals map[string]any) (any, bool) {

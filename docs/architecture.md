@@ -222,6 +222,7 @@ The `evaluateWhen` method processes `when:` clauses. It supports:
 
 - Boolean literals: `true`, `false`, `True`, `False`
 - Negation: `not <condition>`
+- Inline boolean expressions with `and`, `or`, and parentheses
 - Registered variable checks: `result is defined`, `result is success`, `result is failed`, `result is changed`, `result is skipped`
 - Variable truthiness: checks `vars` map for the condition as a key, evaluating booleans, non-empty strings, and non-zero integers
 - Default filter handling: `var | default(value)` always evaluates to true (permissive)
