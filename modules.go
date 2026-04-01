@@ -1730,6 +1730,38 @@ func getBoolArg(args map[string]any, key string, def bool) bool {
 	return def
 }
 
+func getIntArg(args map[string]any, key string, def int) int {
+	if v, ok := args[key]; ok {
+		switch n := v.(type) {
+		case int:
+			return n
+		case int8:
+			return int(n)
+		case int16:
+			return int(n)
+		case int32:
+			return int(n)
+		case int64:
+			return int(n)
+		case uint:
+			return int(n)
+		case uint8:
+			return int(n)
+		case uint16:
+			return int(n)
+		case uint32:
+			return int(n)
+		case uint64:
+			return int(n)
+		case string:
+			if parsed, err := strconv.Atoi(n); err == nil {
+				return parsed
+			}
+		}
+	}
+	return def
+}
+
 func normalizeStatusCodes(value any, def int) []int {
 	switch v := value.(type) {
 	case nil:
@@ -2418,10 +2450,10 @@ func osFamilyFromReleaseID(id string) string {
 }
 
 func (e *Executor) moduleReboot(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	preRebootDelay := 0
-	if d, ok := args["pre_reboot_delay"].(int); ok {
-		preRebootDelay = d
-	}
+	preRebootDelay := getIntArg(args, "pre_reboot_delay", 0)
+	postRebootDelay := getIntArg(args, "post_reboot_delay", 0)
+	rebootTimeout := getIntArg(args, "reboot_timeout", 600)
+	testCommand := getStringArg(args, "test_command", "whoami")
 
 	msg := getStringArg(args, "msg", "Reboot initiated by Ansible")
 
@@ -2430,6 +2462,48 @@ func (e *Executor) moduleReboot(ctx context.Context, client sshExecutorClient, a
 		_, _, _, _ = client.Run(ctx, cmd)
 	} else {
 		_, _, _, _ = client.Run(ctx, sprintf("shutdown -r now '%s' &", msg))
+	}
+
+	if postRebootDelay > 0 {
+		stdout, stderr, rc, err := client.Run(ctx, sprintf("sleep %d", postRebootDelay))
+		if err != nil || rc != 0 {
+			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		}
+	}
+
+	if testCommand == "" {
+		return &TaskResult{Changed: true, Msg: "Reboot initiated"}, nil
+	}
+
+	deadline := time.NewTimer(time.Duration(rebootTimeout) * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
+	defer deadline.Stop()
+	defer ticker.Stop()
+
+	var lastStdout, lastStderr string
+	var lastRC int
+	for {
+		stdout, stderr, rc, err := client.Run(ctx, testCommand)
+		lastStdout = stdout
+		lastStderr = stderr
+		lastRC = rc
+		if err == nil && rc == 0 {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return &TaskResult{
+				Failed: true,
+				Msg:    "reboot timed out waiting for host to become ready",
+				Stdout: lastStdout,
+				Stderr: lastStderr,
+				RC:     lastRC,
+			}, nil
+		case <-ticker.C:
+		}
 	}
 
 	return &TaskResult{Changed: true, Msg: "Reboot initiated"}, nil

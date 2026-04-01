@@ -1408,3 +1408,45 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerComposeV2(t *testin
 	assert.True(t, result.Changed)
 	assert.False(t, result.Failed)
 }
+
+// --- reboot module ---
+
+func TestModulesAdv_ModuleReboot_Good_WaitsForTestCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`sleep 2 && shutdown -r now 'Maintenance window' &`, "", "", 0)
+	mock.expectCommand(`sleep 3`, "", "", 0)
+	mock.expectCommand(`whoami`, "root\n", "", 0)
+
+	result, err := e.moduleReboot(context.Background(), mock, map[string]any{
+		"msg":               "Maintenance window",
+		"pre_reboot_delay":  2,
+		"post_reboot_delay": 3,
+		"reboot_timeout":    5,
+		"test_command":      "whoami",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "Reboot initiated", result.Msg)
+	assert.Equal(t, 3, mock.commandCount())
+	assert.True(t, mock.hasExecuted(`sleep 2 && shutdown -r now 'Maintenance window' &`))
+	assert.True(t, mock.hasExecuted(`sleep 3`))
+	assert.True(t, mock.hasExecuted(`whoami`))
+}
+
+func TestModulesAdv_ModuleReboot_Bad_TimesOutWaitingForTestCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`shutdown -r now 'Reboot initiated by Ansible' &`, "", "", 0)
+	mock.expectCommand(`whoami`, "", "host unreachable", 1)
+
+	result, err := e.moduleReboot(context.Background(), mock, map[string]any{
+		"reboot_timeout": 0,
+		"test_command":   "whoami",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Failed)
+	assert.Contains(t, result.Msg, "timed out")
+	assert.Equal(t, "host unreachable", result.Stderr)
+	assert.Equal(t, 1, result.RC)
+}
