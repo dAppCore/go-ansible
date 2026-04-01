@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // --- NewExecutor ---
@@ -271,6 +272,25 @@ func TestExecutor_RunTaskOnHost_Good_DelegateToUsesDelegatedClient(t *testing.T)
 	assert.Equal(t, "delegated", e.results["host1"]["delegated_result"].Stdout)
 	assert.True(t, mock.hasExecuted(`echo delegated`))
 	assert.Equal(t, 1, mock.commandCount())
+}
+
+func TestExecutor_RunTaskOnHost_Good_ActionAliasExecutesCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`echo action-alias`, "action-alias", "", 0)
+
+	var task Task
+	require.NoError(t, yaml.Unmarshal([]byte(`
+name: Legacy action
+action: command echo action-alias
+`), &task))
+	task.Register = "action_result"
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, &task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["action_result"])
+	assert.Equal(t, "action-alias", e.results["host1"]["action_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`echo action-alias`))
 }
 
 func TestExecutor_Run_Good_VarsFilesMergeIntoPlayVars(t *testing.T) {

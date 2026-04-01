@@ -4,6 +4,8 @@ import (
 	"iter"
 	"maps"
 	"slices"
+	"strings"
+	"unicode"
 
 	coreio "dappco.re/go/core/io"
 	coreerr "dappco.re/go/core/log"
@@ -352,6 +354,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"delegate_to": true, "run_once": true, "tags": true,
 		"block": true, "rescue": true, "always": true, "notify": true, "listen": true,
 		"retries": true, "delay": true, "until": true,
+		"action": true, "local_action": true,
 		"include_tasks": true, "import_tasks": true,
 		"include_role": true, "import_role": true,
 		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_nested": true, "with_file": true, "with_fileglob": true, "with_sequence": true,
@@ -459,7 +462,90 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		t.WithSequence = sequence
 	}
 
+	// Support legacy action/local_action shorthands.
+	if t.Module == "" {
+		if localAction, ok := m["local_action"]; ok {
+			if module, args := parseActionSpec(localAction); module != "" {
+				t.Module = module
+				t.Args = args
+				t.Delegate = "localhost"
+			}
+		}
+	}
+	if t.Module == "" {
+		if action, ok := m["action"]; ok {
+			if module, args := parseActionSpec(action); module != "" {
+				t.Module = module
+				t.Args = args
+			}
+		}
+	}
+
 	return nil
+}
+
+// parseActionSpec converts action/local_action values into a module name and
+// argument map.
+func parseActionSpec(value any) (string, map[string]any) {
+	switch v := value.(type) {
+	case string:
+		return parseActionSpecString(v)
+	case map[string]any:
+		module := getStringArg(v, "module", "")
+		if module == "" {
+			module = getStringArg(v, "_raw_params", "")
+		}
+
+		args := make(map[string]any)
+		for key, val := range v {
+			if key == "module" || key == "_raw_params" {
+				continue
+			}
+			args[key] = val
+		}
+
+		if raw, ok := v["_raw_params"]; ok {
+			args["_raw_params"] = raw
+		}
+
+		if module == "" {
+			return "", nil
+		}
+		if len(args) == 0 {
+			args = nil
+		}
+		return module, args
+	default:
+		return parseActionSpecString(sprintf("%v", value))
+	}
+}
+
+func parseActionSpecString(raw string) (string, map[string]any) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+
+	parts := fields(raw)
+	if len(parts) == 0 {
+		return "", nil
+	}
+
+	module := parts[0]
+	if module == "" {
+		return "", nil
+	}
+
+	if len(parts) == 1 {
+		return module, nil
+	}
+
+	sepIndex := strings.IndexFunc(raw, unicode.IsSpace)
+	if sepIndex < 0 || sepIndex >= len(raw)-1 {
+		return module, nil
+	}
+
+	return module, map[string]any{"_raw_params": strings.TrimSpace(raw[sepIndex:])}
 }
 
 // expandNestedLoop converts with_nested input into a loop of cartesian
