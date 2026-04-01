@@ -1533,9 +1533,9 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 
 	// Merge with play vars
 	for k, v := range e.vars {
-		if _, exists := vars[k]; !exists {
-			vars[k] = v
-		}
+		// Executor-scoped vars include play vars and extra vars, so they must
+		// override inventory values when they target the same key.
+		vars[k] = v
 	}
 
 	// Build SSH config

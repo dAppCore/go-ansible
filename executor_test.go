@@ -103,6 +103,30 @@ func TestExecutor_GetHosts_Good_WithLimit(t *testing.T) {
 	assert.Contains(t, hosts, "host2")
 }
 
+func TestExecutor_GetClient_Good_PlayVarsOverrideInventoryVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {
+					AnsibleHost: "10.0.0.10",
+					AnsibleUser: "inventory-user",
+				},
+			},
+		},
+	})
+	e.SetVar("ansible_host", "10.0.0.20")
+	e.SetVar("ansible_user", "play-user")
+
+	client, err := e.getClient("host1", &Play{})
+	require.NoError(t, err)
+
+	sshClient, ok := client.(*SSHClient)
+	require.True(t, ok)
+	assert.Equal(t, "10.0.0.20", sshClient.host)
+	assert.Equal(t, "play-user", sshClient.user)
+}
+
 // --- matchesTags ---
 
 func TestExecutor_MatchesTags_Good_NoTagsFilter(t *testing.T) {
