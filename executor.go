@@ -857,6 +857,14 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 			e.vars[indexVar] = i
 		}
 		if task.LoopControl != nil && task.LoopControl.Extended {
+			var prevItem any
+			if i > 0 {
+				prevItem = items[i-1]
+			}
+			var nextItem any
+			if i+1 < len(items) {
+				nextItem = items[i+1]
+			}
 			loopMeta := map[string]any{
 				"index":     i + 1,
 				"index0":    i,
@@ -865,6 +873,13 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 				"length":    len(items),
 				"revindex":  len(items) - i,
 				"revindex0": len(items) - i - 1,
+				"allitems":  append([]any(nil), items...),
+			}
+			if prevItem != nil {
+				loopMeta["previtem"] = prevItem
+			}
+			if nextItem != nil {
+				loopMeta["nextitem"] = nextItem
 			}
 			if task.LoopControl.Label != "" {
 				loopMeta["label"] = e.templateString(task.LoopControl.Label, host, task)

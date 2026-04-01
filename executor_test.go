@@ -655,6 +655,33 @@ func TestExecutor_RunTaskOnHost_Good_LoopControlExtendedExposesMetadata(t *testi
 	assert.Equal(t, "two 1/2 first=false last=true", result.Results[1].Msg)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopControlExtendedExposesNeighbourItems(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Neighbour loop metadata",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "prev={{ ansible_loop.previtem | default('NONE') }} next={{ ansible_loop.nextitem | default('NONE') }} all={{ ansible_loop.allitems }}",
+		},
+		Loop: []any{"one", "two"},
+		LoopControl: &LoopControl{
+			Extended: true,
+		},
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "prev=NONE next=two all=[one two]", result.Results[0].Msg)
+	assert.Equal(t, "prev=one next=NONE all=[one two]", result.Results[1].Msg)
+}
+
 func TestExecutor_RunTaskOnHost_Good_LoopFromWithDictItems(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.clients["host1"] = NewMockSSHClient()
