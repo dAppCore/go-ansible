@@ -66,6 +66,14 @@ func extraVars(opts core.Options) map[string]string {
 	return vars
 }
 
+// testKeyFile resolves the SSH key flag used by the ansible test subcommand.
+func testKeyFile(opts core.Options) string {
+	if key := opts.String("key"); key != "" {
+		return key
+	}
+	return opts.String("i")
+}
+
 func runAnsible(opts core.Options) core.Result {
 	positional := args(opts)
 	if len(positional) < 1 {
@@ -225,7 +233,7 @@ func runAnsibleTest(opts core.Options) core.Result {
 		Port:     opts.Int("port"),
 		User:     opts.String("user"),
 		Password: opts.String("password"),
-		KeyFile:  opts.String("key"),
+		KeyFile:  testKeyFile(opts),
 		Timeout:  30 * time.Second,
 	}
 

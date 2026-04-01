@@ -33,6 +33,7 @@ func Register(c *core.Core) {
 			core.Option{Key: "user", Value: "root"},
 			core.Option{Key: "password", Value: ""},
 			core.Option{Key: "key", Value: ""},
+			core.Option{Key: "i", Value: ""},
 			core.Option{Key: "port", Value: 22},
 		),
 	})
