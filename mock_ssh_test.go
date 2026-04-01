@@ -477,7 +477,7 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 		return moduleArchiveWithClient(e, mock, args)
 
 	case "ansible.builtin.setup":
-		return e.moduleSetup(context.Background(), host, mock)
+		return e.moduleSetup(context.Background(), host, mock, args)
 
 	// HTTP
 	case "ansible.builtin.uri":

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -135,7 +136,7 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 	case "ansible.builtin.meta":
 		return e.moduleMeta(args)
 	case "ansible.builtin.setup":
-		return e.moduleSetup(ctx, host, client)
+		return e.moduleSetup(ctx, host, client, args)
 	case "ansible.builtin.reboot":
 		return e.moduleReboot(ctx, client, args)
 
@@ -1847,20 +1848,24 @@ func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {
 	return result, nil
 }
 
-func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFactsRunner) (*TaskResult, error) {
+func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFactsRunner, args map[string]any) (*TaskResult, error) {
 	facts, err := e.collectFacts(ctx, client)
 	if err != nil {
 		return nil, err
 	}
 
+	factMap := factsToMap(facts)
+	filteredFactMap := filterFactsMap(factMap, normalizeStringList(args["filter"]))
+	filteredFacts := factsFromMap(filteredFactMap)
+
 	e.mu.Lock()
-	e.facts[host] = facts
+	e.facts[host] = filteredFacts
 	e.mu.Unlock()
 
 	return &TaskResult{
 		Changed: false,
 		Msg:     "facts gathered",
-		Data:    factsToData(facts),
+		Data:    map[string]any{"ansible_facts": filteredFactMap},
 	}, nil
 }
 
@@ -1932,25 +1937,91 @@ func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner) (*Fa
 	return facts, nil
 }
 
-func factsToData(facts *Facts) map[string]any {
+func factsToMap(facts *Facts) map[string]any {
 	if facts == nil {
 		return nil
 	}
 
 	return map[string]any{
-		"ansible_facts": map[string]any{
-			"ansible_hostname":             facts.Hostname,
-			"ansible_fqdn":                 facts.FQDN,
-			"ansible_os_family":            facts.OS,
-			"ansible_distribution":         facts.Distribution,
-			"ansible_distribution_version": facts.Version,
-			"ansible_architecture":         facts.Architecture,
-			"ansible_kernel":               facts.Kernel,
-			"ansible_memtotal_mb":          facts.Memory,
-			"ansible_processor_vcpus":      facts.CPUs,
-			"ansible_default_ipv4_address": facts.IPv4,
-		},
+		"ansible_hostname":             facts.Hostname,
+		"ansible_fqdn":                 facts.FQDN,
+		"ansible_os_family":            facts.OS,
+		"ansible_distribution":         facts.Distribution,
+		"ansible_distribution_version": facts.Version,
+		"ansible_architecture":         facts.Architecture,
+		"ansible_kernel":               facts.Kernel,
+		"ansible_memtotal_mb":          facts.Memory,
+		"ansible_processor_vcpus":      facts.CPUs,
+		"ansible_default_ipv4_address": facts.IPv4,
 	}
+}
+
+func filterFactsMap(facts map[string]any, patterns []string) map[string]any {
+	if len(facts) == 0 || len(patterns) == 0 {
+		return facts
+	}
+
+	filtered := make(map[string]any)
+	for key, value := range facts {
+		for _, pattern := range patterns {
+			matched, err := path.Match(pattern, key)
+			if err != nil {
+				matched = pattern == key
+			}
+			if matched {
+				filtered[key] = value
+				break
+			}
+		}
+	}
+
+	return filtered
+}
+
+func factsFromMap(values map[string]any) *Facts {
+	if len(values) == 0 {
+		return &Facts{}
+	}
+
+	facts := &Facts{}
+	if v, ok := values["ansible_hostname"].(string); ok {
+		facts.Hostname = v
+	}
+	if v, ok := values["ansible_fqdn"].(string); ok {
+		facts.FQDN = v
+	}
+	if v, ok := values["ansible_os_family"].(string); ok {
+		facts.OS = v
+	}
+	if v, ok := values["ansible_distribution"].(string); ok {
+		facts.Distribution = v
+	}
+	if v, ok := values["ansible_distribution_version"].(string); ok {
+		facts.Version = v
+	}
+	if v, ok := values["ansible_architecture"].(string); ok {
+		facts.Architecture = v
+	}
+	if v, ok := values["ansible_kernel"].(string); ok {
+		facts.Kernel = v
+	}
+	if v, ok := values["ansible_memtotal_mb"].(int64); ok {
+		facts.Memory = v
+	}
+	if v, ok := values["ansible_memtotal_mb"].(int); ok {
+		facts.Memory = int64(v)
+	}
+	if v, ok := values["ansible_processor_vcpus"].(int); ok {
+		facts.CPUs = v
+	}
+	if v, ok := values["ansible_processor_vcpus"].(int64); ok {
+		facts.CPUs = int(v)
+	}
+	if v, ok := values["ansible_default_ipv4_address"].(string); ok {
+		facts.IPv4 = v
+	}
+
+	return facts
 }
 
 func osFamilyFromReleaseID(id string) string {
