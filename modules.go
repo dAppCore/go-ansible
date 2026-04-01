@@ -1300,11 +1300,42 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 	if p, ok := args["port"].(int); ok {
 		port = p
 	}
+	path := getStringArg(args, "path", "")
 	host := getStringArg(args, "host", "127.0.0.1")
 	state := getStringArg(args, "state", "started")
 	timeout := 300
 	if t, ok := args["timeout"].(int); ok {
 		timeout = t
+	}
+
+	if path != "" {
+		deadline := time.NewTimer(time.Duration(timeout) * time.Second)
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer deadline.Stop()
+		defer ticker.Stop()
+
+		for {
+			exists, err := client.FileExists(ctx, path)
+			if err != nil {
+				return &TaskResult{Failed: true, Msg: err.Error()}, nil
+			}
+
+			satisfied := exists
+			if state == "absent" {
+				satisfied = !exists
+			}
+			if satisfied {
+				return &TaskResult{Changed: false}, nil
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-deadline.C:
+				return &TaskResult{Failed: true, Msg: "wait_for timed out", RC: 1}, nil
+			case <-ticker.C:
+			}
+		}
 	}
 
 	if port > 0 && state == "started" {

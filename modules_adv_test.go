@@ -721,6 +721,48 @@ func TestModulesAdv_ModulePause_Good_WaitsForSeconds(t *testing.T) {
 	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
 }
 
+// --- wait_for module ---
+
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathPresent(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/ready", []byte("ok"))
+
+	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
+		"path": "/tmp/ready",
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+}
+
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathAbsent(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/vanish", []byte("ok"))
+
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		mock.mu.Lock()
+		delete(mock.files, "/tmp/vanish")
+		mock.mu.Unlock()
+	}()
+
+	start := time.Now()
+	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
+		"path":    "/tmp/vanish",
+		"state":   "absent",
+		"timeout": 2,
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond)
+}
+
 // --- include_vars module ---
 
 func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *testing.T) {
