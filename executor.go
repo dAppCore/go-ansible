@@ -338,6 +338,18 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, task *Task, p
 		}
 	}
 
+	// Honour check mode for tasks that would mutate state.
+	if e.CheckMode && !isCheckModeSafeTask(task) {
+		result := &TaskResult{Skipped: true, Msg: "Skipped in check mode"}
+		if task.Register != "" {
+			e.results[host][task.Register] = result
+		}
+		if e.OnTaskEnd != nil {
+			e.OnTaskEnd(host, task, result)
+		}
+		return nil
+	}
+
 	// Get SSH client
 	client, err := e.getClient(host, play)
 	if err != nil {
@@ -452,6 +464,43 @@ func (e *Executor) runLoop(ctx context.Context, host string, client *SSHClient, 
 	}
 
 	return nil
+}
+
+// isCheckModeSafeTask reports whether a task can run without changing state
+// during check mode.
+func isCheckModeSafeTask(task *Task) bool {
+	if task == nil {
+		return true
+	}
+
+	if len(task.Block) > 0 || len(task.Rescue) > 0 || len(task.Always) > 0 {
+		return true
+	}
+	if task.IncludeTasks != "" || task.ImportTasks != "" {
+		return true
+	}
+	if task.IncludeRole != nil || task.ImportRole != nil {
+		return true
+	}
+
+	switch NormalizeModule(task.Module) {
+	case "ansible.builtin.debug",
+		"ansible.builtin.fail",
+		"ansible.builtin.assert",
+		"ansible.builtin.pause",
+		"ansible.builtin.wait_for",
+		"ansible.builtin.stat",
+		"ansible.builtin.slurp",
+		"ansible.builtin.include_vars",
+		"ansible.builtin.meta",
+		"ansible.builtin.set_fact",
+		"ansible.builtin.add_host",
+		"ansible.builtin.group_by",
+		"ansible.builtin.setup":
+		return true
+	default:
+		return false
+	}
 }
 
 // runBlock handles block/rescue/always.

@@ -206,6 +206,35 @@ func TestExecutor_RunTaskOnHosts_Good_RunOnceSharesRegisteredResult(t *testing.T
 	assert.Equal(t, "hello", e.results["host2"]["debug_result"].Msg)
 }
 
+// --- check mode ---
+
+func TestExecutor_RunTaskOnHost_Good_CheckModeSkipsMutatingTask(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.CheckMode = true
+
+	var ended *TaskResult
+	task := &Task{
+		Name:     "Run a shell command",
+		Module:   "shell",
+		Args:     map[string]any{"_raw_params": "echo hello"},
+		Register: "shell_result",
+	}
+
+	e.OnTaskEnd = func(_ string, _ *Task, result *TaskResult) {
+		ended = result
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, ended)
+	assert.True(t, ended.Skipped)
+	assert.False(t, ended.Changed)
+	assert.Equal(t, "Skipped in check mode", ended.Msg)
+	require.NotNil(t, e.results["host1"]["shell_result"])
+	assert.True(t, e.results["host1"]["shell_result"].Skipped)
+}
+
 // --- normalizeConditions ---
 
 func TestExecutor_NormalizeConditions_Good_String(t *testing.T) {
