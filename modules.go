@@ -105,6 +105,8 @@ func (e *Executor) executeModule(ctx context.Context, host string, client *SSHCl
 		return e.moduleSetFact(args)
 	case "ansible.builtin.add_host":
 		return e.moduleAddHost(args)
+	case "ansible.builtin.group_by":
+		return e.moduleGroupBy(host, args)
 	case "ansible.builtin.pause":
 		return e.modulePause(ctx, args)
 	case "ansible.builtin.wait_for":
@@ -1063,6 +1065,50 @@ func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
 	}
 
 	return &TaskResult{Changed: true, Msg: msg, Data: data}, nil
+}
+
+func (e *Executor) moduleGroupBy(host string, args map[string]any) (*TaskResult, error) {
+	key := getStringArg(args, "key", "")
+	if key == "" {
+		key = getStringArg(args, "_raw_params", "")
+	}
+	if key == "" {
+		return nil, coreerr.E("Executor.moduleGroupBy", "key required", nil)
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.inventory == nil {
+		e.inventory = &Inventory{}
+	}
+	if e.inventory.All == nil {
+		e.inventory.All = &InventoryGroup{}
+	}
+
+	group := ensureInventoryGroup(e.inventory.All, key)
+	if group.Hosts == nil {
+		group.Hosts = make(map[string]*Host)
+	}
+
+	hostEntry := findInventoryHost(e.inventory.All, host)
+	if hostEntry == nil {
+		hostEntry = &Host{}
+		if e.inventory.All.Hosts == nil {
+			e.inventory.All.Hosts = make(map[string]*Host)
+		}
+		e.inventory.All.Hosts[host] = hostEntry
+	}
+
+	_, alreadyMember := group.Hosts[host]
+	group.Hosts[host] = hostEntry
+
+	msg := sprintf("host %s grouped by %s", host, key)
+	return &TaskResult{
+		Changed: !alreadyMember,
+		Msg:     msg,
+		Data:    map[string]any{"host": host, "group": key},
+	}, nil
 }
 
 func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskResult, error) {

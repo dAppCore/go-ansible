@@ -214,6 +214,54 @@ func TestExecutorExtra_ModuleAddHost_Good_ThroughDispatcher(t *testing.T) {
 	assert.Equal(t, "redis", e.inventory.All.Hosts["cache1"].Vars["role"])
 }
 
+// --- moduleGroupBy ---
+
+func TestExecutorExtra_ModuleGroupBy_Good(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"web1": &Host{AnsibleHost: "10.0.0.10"},
+			},
+		},
+	})
+
+	result, err := e.moduleGroupBy("web1", map[string]any{"key": "debian"})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "web1", result.Data["host"])
+	assert.Equal(t, "debian", result.Data["group"])
+	assert.Contains(t, result.Msg, "web1")
+	assert.Contains(t, result.Msg, "debian")
+	assert.Equal(t, []string{"web1"}, GetHosts(e.inventory, "debian"))
+}
+
+func TestExecutorExtra_ModuleGroupBy_Good_ThroughDispatcher(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	task := &Task{
+		Module: "group_by",
+		Args: map[string]any{
+			"key": "linux",
+		},
+	}
+
+	result, err := executeModuleWithMock(e, mock, "host1", task)
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, []string{"host1"}, GetHosts(e.inventory, "linux"))
+}
+
+func TestExecutorExtra_ModuleGroupBy_Bad_MissingKey(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleGroupBy("host1", map[string]any{})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "key required")
+}
+
 // --- moduleIncludeVars ---
 
 func TestExecutorExtra_ModuleIncludeVars_Good_WithFile(t *testing.T) {

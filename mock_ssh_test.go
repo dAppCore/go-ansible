@@ -444,6 +444,8 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 		return moduleUserWithClient(e, mock, args)
 	case "ansible.builtin.group":
 		return moduleGroupWithClient(e, mock, args)
+	case "ansible.builtin.group_by", "group_by":
+		return e.moduleGroupBy(host, args)
 
 	// Cron
 	case "ansible.builtin.cron":
