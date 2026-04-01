@@ -602,13 +602,18 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		e.results[host][task.Register] = result
 	}
 
+	displayResult := result
+	if task.NoLog {
+		displayResult = redactTaskResult(result)
+	}
+
 	// Handle notify
 	if result.Changed && task.Notify != nil {
 		e.handleNotify(task.Notify)
 	}
 
 	if e.OnTaskEnd != nil {
-		e.OnTaskEnd(host, task, result)
+		e.OnTaskEnd(host, task, displayResult)
 	}
 
 	if NormalizeModule(task.Module) == "ansible.builtin.meta" {
@@ -619,7 +624,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 
 	if result.Failed && !task.IgnoreErrors {
 		e.markBatchHostFailed(host)
-		return coreerr.E("Executor.runTaskOnHost", "task failed: "+result.Msg, nil)
+		return taskFailureError(task, result)
 	}
 	if result.Failed {
 		e.markBatchHostFailed(host)
@@ -661,6 +666,39 @@ func (e *Executor) checkMaxFailPercentage(play *Play, hosts []string) error {
 	}
 
 	return nil
+}
+
+func redactTaskResult(result *TaskResult) *TaskResult {
+	if result == nil {
+		return nil
+	}
+
+	redacted := *result
+	redacted.Msg = "censored due to no_log"
+	redacted.Stdout = ""
+	redacted.Stderr = ""
+	redacted.Data = nil
+	if len(result.Results) > 0 {
+		redacted.Results = make([]TaskResult, len(result.Results))
+		for i := range result.Results {
+			redacted.Results[i] = *redactTaskResult(&result.Results[i])
+		}
+	}
+
+	return &redacted
+}
+
+func taskFailureError(task *Task, result *TaskResult) error {
+	if task != nil && task.NoLog {
+		return coreerr.E("Executor.runTaskOnHost", "task failed", nil)
+	}
+
+	msg := "task failed"
+	if result != nil && result.Msg != "" {
+		msg += ": " + result.Msg
+	}
+
+	return coreerr.E("Executor.runTaskOnHost", msg, nil)
 }
 
 // runTaskWithRetries executes a task once or multiple times when retries,

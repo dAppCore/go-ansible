@@ -635,6 +635,75 @@ func TestExecutor_RunTaskOnHost_Good_CheckModeSkipsMutatingTask(t *testing.T) {
 	assert.True(t, e.results["host1"]["shell_result"].Skipped)
 }
 
+// --- no_log ---
+
+func TestExecutor_RunTaskOnHost_Good_NoLogRedactsCallbackResult(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	var ended *TaskResult
+	task := &Task{
+		Name:     "Sensitive debug",
+		Module:   "debug",
+		Args:     map[string]any{"msg": "top secret"},
+		Register: "debug_result",
+		NoLog:    true,
+	}
+
+	e.OnTaskEnd = func(_ string, _ *Task, result *TaskResult) {
+		ended = result
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, ended)
+	assert.Equal(t, "censored due to no_log", ended.Msg)
+	assert.Empty(t, ended.Stdout)
+	assert.Empty(t, ended.Stderr)
+	assert.Nil(t, ended.Data)
+	require.NotNil(t, e.results["host1"]["debug_result"])
+	assert.Equal(t, "top secret", e.results["host1"]["debug_result"].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Bad_NoLogHidesFailureMessage(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	var ended *TaskResult
+	task := &Task{
+		Name:   "Sensitive failure",
+		Module: "fail",
+		Args:   map[string]any{"msg": "super secret"},
+		NoLog:  true,
+	}
+
+	e.OnTaskEnd = func(_ string, _ *Task, result *TaskResult) {
+		ended = result
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task failed")
+	assert.NotContains(t, err.Error(), "super secret")
+	require.NotNil(t, ended)
+	assert.Equal(t, "censored due to no_log", ended.Msg)
+}
+
 // --- normalizeConditions ---
 
 func TestExecutor_NormalizeConditions_Good_String(t *testing.T) {
