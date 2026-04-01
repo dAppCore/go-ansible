@@ -57,6 +57,7 @@ func (c *environmentSSHClient) RunScript(ctx context.Context, script string) (st
 type Executor struct {
 	parser           *Parser
 	inventory        *Inventory
+	inventoryPath    string
 	vars             map[string]any
 	facts            map[string]*Facts
 	results          map[string]map[string]*TaskResult // host -> register_name -> result
@@ -110,7 +111,10 @@ func (e *Executor) SetInventory(path string) error {
 	if err != nil {
 		return err
 	}
+	e.mu.Lock()
+	e.inventoryPath = path
 	e.inventory = inv
+	e.mu.Unlock()
 	return nil
 }
 
@@ -120,7 +124,10 @@ func (e *Executor) SetInventory(path string) error {
 //
 //	exec.SetInventoryDirect(&Inventory{All: &InventoryGroup{}})
 func (e *Executor) SetInventoryDirect(inv *Inventory) {
+	e.mu.Lock()
+	e.inventoryPath = ""
 	e.inventory = inv
+	e.mu.Unlock()
 }
 
 // SetVar sets a variable.
@@ -1880,6 +1887,8 @@ func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []st
 	case "clear_host_errors":
 		e.clearHostErrors()
 		return nil
+	case "refresh_inventory":
+		return e.refreshInventory()
 	case "end_play":
 		return errEndPlay
 	case "end_host":
@@ -1910,6 +1919,28 @@ func (e *Executor) clearHostErrors() {
 	defer e.mu.Unlock()
 
 	e.batchFailedHosts = make(map[string]bool)
+}
+
+// refreshInventory reloads inventory from the last configured source.
+func (e *Executor) refreshInventory() error {
+	e.mu.RLock()
+	path := e.inventoryPath
+	e.mu.RUnlock()
+
+	if path == "" {
+		return nil
+	}
+
+	inv, err := e.parser.ParseInventory(path)
+	if err != nil {
+		return coreerr.E("Executor.refreshInventory", "reload inventory", err)
+	}
+
+	e.mu.Lock()
+	e.inventory = inv
+	e.clients = make(map[string]sshExecutorClient)
+	e.mu.Unlock()
+	return nil
 }
 
 // markHostEnded records that a host should be skipped for the rest of the play.

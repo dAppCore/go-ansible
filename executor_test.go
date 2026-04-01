@@ -2,6 +2,8 @@ package ansible
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -701,6 +703,33 @@ func TestExecutor_HandleMetaAction_Good_ClearHostErrors(t *testing.T) {
 
 	require.NoError(t, e.handleMetaAction(context.Background(), "host1", []string{"host1", "host2"}, &Play{}, result))
 	assert.Empty(t, e.batchFailedHosts)
+}
+
+func TestExecutor_HandleMetaAction_Good_RefreshInventory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "inventory.yml")
+
+	initial := []byte("all:\n  hosts:\n    web1:\n      ansible_host: 10.0.0.1\n")
+	updated := []byte("all:\n  hosts:\n    web1:\n      ansible_host: 10.0.0.2\n")
+
+	require.NoError(t, os.WriteFile(path, initial, 0644))
+
+	e := NewExecutor("/tmp")
+	require.NoError(t, e.SetInventory(path))
+	e.clients["web1"] = &SSHClient{}
+
+	require.NoError(t, os.WriteFile(path, updated, 0644))
+
+	result := &TaskResult{
+		Data: map[string]any{"action": "refresh_inventory"},
+	}
+
+	require.NoError(t, e.handleMetaAction(context.Background(), "web1", []string{"web1"}, &Play{}, result))
+	require.NotNil(t, e.inventory)
+	require.NotNil(t, e.inventory.All)
+	require.Contains(t, e.inventory.All.Hosts, "web1")
+	assert.Equal(t, "10.0.0.2", e.inventory.All.Hosts["web1"].AnsibleHost)
+	assert.Empty(t, e.clients)
 }
 
 func TestExecutor_RunPlay_Good_MetaEndPlayStopsRemainingTasks(t *testing.T) {
