@@ -146,6 +146,8 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		return e.moduleAuthorizedKey(ctx, client, args)
 	case "community.docker.docker_compose":
 		return e.moduleDockerCompose(ctx, client, args)
+	case "community.docker.docker_compose_v2":
+		return e.moduleDockerCompose(ctx, client, args)
 
 	default:
 		// For unknown modules, try to execute as shell if it looks like a command

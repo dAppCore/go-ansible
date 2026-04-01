@@ -1235,3 +1235,22 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerCompose(t *testing.
 	require.NoError(t, err)
 	assert.True(t, result.Changed)
 }
+
+func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerComposeV2(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`docker compose up -d`, "Creating\n", "", 0)
+
+	task := &Task{
+		Module: "community.docker.docker_compose_v2",
+		Args: map[string]any{
+			"project_src": "/opt/stack",
+			"state":       "present",
+		},
+	}
+
+	result, err := executeModuleWithMock(e, mock, "host1", task)
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+}

@@ -488,7 +488,7 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 		return moduleUFWWithClient(e, mock, args)
 
 	// Docker
-	case "community.docker.docker_compose_v2", "ansible.builtin.docker_compose":
+	case "community.docker.docker_compose_v2", "community.docker.docker_compose", "ansible.builtin.docker_compose":
 		return moduleDockerComposeWithClient(e, mock, args)
 
 	default:
