@@ -635,6 +635,12 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 			savedVars[indexVar] = v
 		}
 	}
+	var savedLoopMeta any
+	if task.LoopControl != nil && task.LoopControl.Extended {
+		if v, ok := e.vars["ansible_loop"]; ok {
+			savedLoopMeta = v
+		}
+	}
 
 	var results []TaskResult
 	for i, item := range items {
@@ -642,6 +648,21 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 		e.vars[loopVar] = item
 		if indexVar != "" {
 			e.vars[indexVar] = i
+		}
+		if task.LoopControl != nil && task.LoopControl.Extended {
+			loopMeta := map[string]any{
+				"index":     i + 1,
+				"index0":    i,
+				"first":     i == 0,
+				"last":      i == len(items)-1,
+				"length":    len(items),
+				"revindex":  len(items) - i,
+				"revindex0": len(items) - i - 1,
+			}
+			if task.LoopControl.Label != "" {
+				loopMeta["label"] = e.templateString(task.LoopControl.Label, host, task)
+			}
+			e.vars["ansible_loop"] = loopMeta
 		}
 
 		result, err := e.runTaskWithRetries(ctx, host, task, play, func() (*TaskResult, error) {
@@ -678,6 +699,13 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 			e.vars[indexVar] = v
 		} else {
 			delete(e.vars, indexVar)
+		}
+	}
+	if task.LoopControl != nil && task.LoopControl.Extended {
+		if savedLoopMeta != nil {
+			e.vars["ansible_loop"] = savedLoopMeta
+		} else {
+			delete(e.vars, "ansible_loop")
 		}
 	}
 
@@ -1338,6 +1366,16 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 		}
 	}
 
+	// Resolve nested maps from vars, task vars, or host vars.
+	if contains(expr, ".") {
+		parts := splitN(expr, ".", 2)
+		if val, ok := e.lookupExprValue(parts[0], host, task); ok {
+			if nested, ok := lookupNestedValue(val, parts[1]); ok {
+				return sprintf("%v", nested)
+			}
+		}
+	}
+
 	// Check vars
 	if val, ok := e.vars[expr]; ok {
 		return sprintf("%v", val)
@@ -1385,6 +1423,47 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 	}
 
 	return "{{ " + expr + " }}" // Return as-is if unresolved
+}
+
+// lookupExprValue resolves the first segment of an expression against the
+// executor, task, and inventory scopes.
+func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, bool) {
+	if val, ok := e.vars[name]; ok {
+		return val, true
+	}
+	if task != nil {
+		if val, ok := task.Vars[name]; ok {
+			return val, true
+		}
+	}
+	if e.inventory != nil {
+		hostVars := GetHostVars(e.inventory, host)
+		if val, ok := hostVars[name]; ok {
+			return val, true
+		}
+	}
+	return nil, false
+}
+
+// lookupNestedValue walks a dotted path through nested maps.
+func lookupNestedValue(value any, path string) (any, bool) {
+	if path == "" {
+		return value, true
+	}
+
+	current := value
+	for _, segment := range split(path, ".") {
+		next, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = next[segment]
+		if !ok {
+			return nil, false
+		}
+	}
+
+	return current, true
 }
 
 // applyFilter applies a Jinja2 filter.
