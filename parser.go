@@ -437,6 +437,10 @@ func GetHosts(inv *Inventory, pattern string) []string {
 		return []string{"localhost"}
 	}
 
+	if contains(pattern, ":") {
+		return resolveHostPattern(inv, pattern)
+	}
+
 	// Check if it's a group name
 	hosts := getGroupHosts(inv.All, pattern)
 	if len(hosts) > 0 {
@@ -449,8 +453,145 @@ func GetHosts(inv *Inventory, pattern string) []string {
 	}
 
 	// Handle patterns with : (intersection/union)
-	// For now, just return empty
 	return nil
+}
+
+func resolveHostPattern(inv *Inventory, pattern string) []string {
+	if inv == nil {
+		return nil
+	}
+
+	parts := split(pattern, ":")
+	if len(parts) == 0 {
+		return nil
+	}
+
+	current := make([]string, 0)
+	initialised := false
+
+	for _, rawPart := range parts {
+		part := corexTrimSpace(rawPart)
+		if part == "" {
+			continue
+		}
+
+		op := byte(0)
+		if part[0] == '&' || part[0] == '!' || part[0] == ',' {
+			op = part[0]
+			part = corexTrimSpace(part[1:])
+		}
+
+		if part == "" {
+			continue
+		}
+
+		segment := resolveAtomicHostPattern(inv, part)
+		if !initialised {
+			current = append([]string(nil), segment...)
+			initialised = true
+			continue
+		}
+
+		switch op {
+		case '&':
+			current = intersectHosts(current, segment)
+		case '!':
+			current = subtractHosts(current, segment)
+		default:
+			current = unionHosts(current, segment)
+		}
+	}
+
+	return current
+}
+
+func resolveAtomicHostPattern(inv *Inventory, pattern string) []string {
+	if inv == nil {
+		return nil
+	}
+
+	if pattern == "all" {
+		return getAllHosts(inv.All)
+	}
+	if pattern == "localhost" {
+		return []string{"localhost"}
+	}
+
+	hosts := getGroupHosts(inv.All, pattern)
+	if len(hosts) > 0 {
+		return hosts
+	}
+
+	if hasHost(inv.All, pattern) {
+		return []string{pattern}
+	}
+
+	return nil
+}
+
+func unionHosts(base, extra []string) []string {
+	if len(base) == 0 {
+		return append([]string(nil), extra...)
+	}
+
+	seen := make(map[string]bool, len(base)+len(extra))
+	result := make([]string, 0, len(base)+len(extra))
+	for _, host := range base {
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+		result = append(result, host)
+	}
+	for _, host := range extra {
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+		result = append(result, host)
+	}
+	return result
+}
+
+func intersectHosts(base, extra []string) []string {
+	if len(base) == 0 || len(extra) == 0 {
+		return nil
+	}
+
+	extraSet := make(map[string]bool, len(extra))
+	for _, host := range extra {
+		extraSet[host] = true
+	}
+
+	result := make([]string, 0, len(base))
+	for _, host := range base {
+		if extraSet[host] {
+			result = append(result, host)
+		}
+	}
+	return result
+}
+
+func subtractHosts(base, extra []string) []string {
+	if len(base) == 0 {
+		return nil
+	}
+	if len(extra) == 0 {
+		return append([]string(nil), base...)
+	}
+
+	extraSet := make(map[string]bool, len(extra))
+	for _, host := range extra {
+		extraSet[host] = true
+	}
+
+	result := make([]string, 0, len(base))
+	for _, host := range base {
+		if !extraSet[host] {
+			result = append(result, host)
+		}
+	}
+	return result
 }
 
 // GetHostsIter returns an iterator for hosts matching a pattern from inventory.

@@ -679,6 +679,38 @@ func TestParser_GetHosts_Good_SpecificHost(t *testing.T) {
 	assert.Equal(t, []string{"myhost"}, hosts)
 }
 
+func TestParser_GetHosts_Good_ColonUnionIntersectionExclusion(t *testing.T) {
+	inv := &Inventory{
+		All: &InventoryGroup{
+			Children: map[string]*InventoryGroup{
+				"web": {
+					Hosts: map[string]*Host{
+						"web1": {},
+						"web2": {},
+					},
+				},
+				"db": {
+					Hosts: map[string]*Host{
+						"db1":  {},
+						"web2": {},
+					},
+				},
+				"canary": {
+					Hosts: map[string]*Host{
+						"web2": {},
+						"db1":  {},
+					},
+				},
+			},
+		},
+	}
+
+	assert.Equal(t, []string{"web1", "web2", "db1"}, GetHosts(inv, "web:db"))
+	assert.Equal(t, []string{"web2"}, GetHosts(inv, "web:&db"))
+	assert.Equal(t, []string{"web1"}, GetHosts(inv, "web:!canary"))
+	assert.Equal(t, []string{"web1"}, GetHosts(inv, "web:db:!canary"))
+}
+
 func TestParser_GetHosts_Good_AllIncludesChildren(t *testing.T) {
 	inv := &Inventory{
 		All: &InventoryGroup{
