@@ -36,6 +36,9 @@ type MockSSHClient struct {
 	becomeUser string
 	becomePass string
 
+	// Lifecycle tracking
+	closed bool
+
 	// Execution log: every command that was executed
 	executed []executedCommand
 
@@ -266,6 +269,9 @@ func (m *MockSSHClient) SetBecome(become bool, user, password string) {
 //
 //	_ = mock.Close()
 func (m *MockSSHClient) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
 	return nil
 }
 

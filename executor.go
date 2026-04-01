@@ -529,7 +529,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	}
 
 	if NormalizeModule(task.Module) == "ansible.builtin.meta" {
-		if err := e.handleMetaAction(ctx, hosts, play, result); err != nil {
+		if err := e.handleMetaAction(ctx, host, hosts, play, result); err != nil {
 			return err
 		}
 	}
@@ -1629,7 +1629,7 @@ func (e *Executor) runNotifiedHandlers(ctx context.Context, hosts []string, play
 
 // handleMetaAction applies module meta side effects after the task result has
 // been recorded and callbacks have fired.
-func (e *Executor) handleMetaAction(ctx context.Context, hosts []string, play *Play, result *TaskResult) error {
+func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []string, play *Play, result *TaskResult) error {
 	if result == nil || result.Data == nil {
 		return nil
 	}
@@ -1643,6 +1643,9 @@ func (e *Executor) handleMetaAction(ctx context.Context, hosts []string, play *P
 		return nil
 	case "end_play":
 		return errEndPlay
+	case "reset_connection":
+		e.resetConnection(host)
+		return nil
 	default:
 		return nil
 	}
@@ -1655,6 +1658,24 @@ func (e *Executor) clearFacts(hosts []string) {
 
 	for _, host := range hosts {
 		delete(e.facts, host)
+	}
+}
+
+// resetConnection closes and removes the cached SSH client for a host.
+func (e *Executor) resetConnection(host string) {
+	if host == "" {
+		return
+	}
+
+	e.mu.Lock()
+	client, ok := e.clients[host]
+	if ok {
+		delete(e.clients, host)
+	}
+	e.mu.Unlock()
+
+	if ok {
+		_ = client.Close()
 	}
 }
 
