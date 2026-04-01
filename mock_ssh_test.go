@@ -1297,6 +1297,7 @@ func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[strin
 	user := getStringArg(args, "user", "")
 	key := getStringArg(args, "key", "")
 	state := getStringArg(args, "state", "present")
+	exclusive := getBoolArg(args, "exclusive", false)
 
 	if user == "" || key == "" {
 		return nil, mockError("moduleAuthorizedKeyWithClient", "authorized_key: user and key required")
@@ -1328,6 +1329,18 @@ func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[strin
 	// Ensure .ssh directory exists (best-effort)
 	_, _, _, _ = client.Run(context.Background(), sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
 		pathDir(authKeysPath), pathDir(authKeysPath), user, user, pathDir(authKeysPath)))
+
+	if exclusive {
+		cmd := sprintf("printf '%%s\\n' %q > %q", key, authKeysPath)
+		stdout, stderr, rc, err := client.Run(context.Background(), cmd)
+		if err != nil || rc != 0 {
+			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		}
+
+		_, _, _, _ = client.Run(context.Background(), sprintf("chmod 600 %q && chown %s:%s %q",
+			authKeysPath, user, user, authKeysPath))
+		return &TaskResult{Changed: true}, nil
+	}
 
 	// Add key if not present
 	cmd := sprintf("grep -qF %q %q 2>/dev/null || echo %q >> %q",

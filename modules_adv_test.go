@@ -410,6 +410,29 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_KeyAlreadyExists(t *testing.T) {
 	assert.False(t, result.Failed)
 }
 
+func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
+
+	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
+	mock.expectCommand(`mkdir -p`, "", "", 0)
+	mock.expectCommand(`printf '%s\\n'`, "", "", 0)
+	mock.expectCommand(`chmod 600`, "", "", 0)
+
+	result, err := e.moduleAuthorizedKey(context.Background(), mock, map[string]any{
+		"user":      "deploy",
+		"key":       testKey,
+		"exclusive": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`printf '%s\\n'`))
+	assert.False(t, mock.hasExecuted(`grep -qF`))
+}
+
 func TestModulesAdv_ModuleAuthorizedKey_Good_RootUserFallback(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... admin@host"

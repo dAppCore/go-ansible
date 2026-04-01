@@ -2564,6 +2564,7 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 	user := getStringArg(args, "user", "")
 	key := getStringArg(args, "key", "")
 	state := getStringArg(args, "state", "present")
+	exclusive := getBoolArg(args, "exclusive", false)
 
 	if user == "" || key == "" {
 		return nil, coreerr.E("Executor.moduleAuthorizedKey", "user and key required", nil)
@@ -2595,6 +2596,18 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 	// Ensure .ssh directory exists (best-effort)
 	_, _, _, _ = client.Run(ctx, sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
 		pathDir(authKeysPath), pathDir(authKeysPath), user, user, pathDir(authKeysPath)))
+
+	if exclusive {
+		cmd := sprintf("printf '%%s\\n' %q > %q", key, authKeysPath)
+		stdout, stderr, rc, err := client.Run(ctx, cmd)
+		if err != nil || rc != 0 {
+			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		}
+
+		_, _, _, _ = client.Run(ctx, sprintf("chmod 600 %q && chown %s:%s %q",
+			authKeysPath, user, user, authKeysPath))
+		return &TaskResult{Changed: true}, nil
+	}
 
 	// Add the key if it is not already present.
 	cmd := sprintf("grep -qF %q %q 2>/dev/null || echo %q >> %q",
