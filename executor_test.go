@@ -261,6 +261,52 @@ func TestExecutor_EvaluateWhen_Good_MultipleConditions(t *testing.T) {
 	assert.False(t, e.evaluateWhen([]any{"true", "false"}, "host1", nil))
 }
 
+func TestExecutor_ApplyTaskResultConditions_Good_ChangedWhen(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		ChangedWhen: "stdout == 'expected'",
+	}
+	result := &TaskResult{
+		Changed: true,
+		Stdout:  "actual",
+	}
+
+	e.applyTaskResultConditions("host1", task, result)
+
+	assert.False(t, result.Changed)
+}
+
+func TestExecutor_ApplyTaskResultConditions_Good_FailedWhen(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		FailedWhen: []any{"rc != 0", "stdout == 'expected'"},
+	}
+	result := &TaskResult{
+		Failed: true,
+		Stdout: "expected",
+		RC:     0,
+	}
+
+	e.applyTaskResultConditions("host1", task, result)
+
+	assert.False(t, result.Failed)
+}
+
+func TestExecutor_ApplyTaskResultConditions_Good_DottedResultAccess(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		ChangedWhen: "result.rc == 0",
+	}
+	result := &TaskResult{
+		Changed: false,
+		RC:      0,
+	}
+
+	e.applyTaskResultConditions("host1", task, result)
+
+	assert.True(t, result.Changed)
+}
+
 // --- templateString ---
 
 func TestExecutor_TemplateString_Good_SimpleVar(t *testing.T) {
