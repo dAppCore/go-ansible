@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -867,7 +868,7 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 	} else if task.WithTogether != nil {
 		items, err = e.resolveWithTogetherLoop(task.WithTogether, host, task)
 	} else {
-		items = e.resolveLoop(task.Loop, host)
+		items = e.resolveLoopWithTask(task.Loop, host, task)
 	}
 	if err != nil {
 		return err
@@ -2461,6 +2462,10 @@ func (e *Executor) handleLookup(expr string) string {
 
 // resolveLoop resolves loop items.
 func (e *Executor) resolveLoop(loop any, host string) []any {
+	return e.resolveLoopWithTask(loop, host, nil)
+}
+
+func (e *Executor) resolveLoopWithTask(loop any, host string, task *Task) []any {
 	switch v := loop.(type) {
 	case []any:
 		return v
@@ -2471,15 +2476,81 @@ func (e *Executor) resolveLoop(loop any, host string) []any {
 		}
 		return items
 	case string:
+		if items, ok := e.resolveLoopExpression(v, host, task); ok {
+			return items
+		}
+
 		// Template the string and see if it's a var reference
-		resolved := e.templateString(v, host, nil)
-		if val, ok := e.vars[resolved]; ok {
-			if items, ok := val.([]any); ok {
+		resolved := e.templateString(v, host, task)
+		if items, ok := anySliceFromValue(e.vars[resolved]); ok {
+			return items
+		}
+		if task != nil {
+			if items, ok := anySliceFromValue(task.Vars[resolved]); ok {
 				return items
 			}
 		}
 	}
 	return nil
+}
+
+func (e *Executor) resolveLoopExpression(loop string, host string, task *Task) ([]any, bool) {
+	expr, ok := extractSingleTemplateExpression(loop)
+	if !ok {
+		return nil, false
+	}
+
+	if value, ok := e.lookupConditionValue(expr, host, task, nil); ok {
+		if items, ok := anySliceFromValue(value); ok {
+			return items, true
+		}
+	}
+
+	return nil, false
+}
+
+func extractSingleTemplateExpression(value string) (string, bool) {
+	re := regexp.MustCompile(`^\s*\{\{\s*(.+?)\s*\}\}\s*$`)
+	match := re.FindStringSubmatch(value)
+	if len(match) < 2 {
+		return "", false
+	}
+
+	inner := strings.TrimSpace(match[1])
+	if inner == "" {
+		return "", false
+	}
+
+	return inner, true
+}
+
+func anySliceFromValue(value any) ([]any, bool) {
+	switch v := value.(type) {
+	case nil:
+		return nil, false
+	case []any:
+		return append([]any(nil), v...), true
+	case []string:
+		items := make([]any, len(v))
+		for i, item := range v {
+			items[i] = item
+		}
+		return items, true
+	}
+
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() {
+		return nil, false
+	}
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return nil, false
+	}
+
+	items := make([]any, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		items[i] = rv.Index(i).Interface()
+	}
+	return items, true
 }
 
 // matchesTags checks if task tags match execution tags.

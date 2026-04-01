@@ -581,15 +581,12 @@ func TestModulesInfra_ResolveLoop_Good_VarReference(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["my_list"] = []any{"item1", "item2", "item3"}
 
-	// When loop is a string that resolves to a variable containing a list
+	// A templated loop source should resolve to the underlying list value.
 	items := e.resolveLoop("{{ my_list }}", "host1")
-	// The template resolves "{{ my_list }}" but the result is a string representation,
-	// not the original list. The resolveLoop handles this by trying to look up
-	// the resolved value in vars again.
-	// Since templateString returns the string "[item1 item2 item3]", and that
-	// isn't a var name, items will be nil. This tests the edge case.
-	// The actual var name lookup happens when the loop value is just "my_list".
-	assert.Nil(t, items)
+	require.Len(t, items, 3)
+	assert.Equal(t, "item1", items[0])
+	assert.Equal(t, "item2", items[1])
+	assert.Equal(t, "item3", items[2])
 }
 
 func TestModulesInfra_ResolveLoop_Good_MixedTypes(t *testing.T) {

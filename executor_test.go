@@ -1574,6 +1574,31 @@ func TestExecutor_ResolveLoop_Good_Nil(t *testing.T) {
 	assert.Nil(t, items)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopFromTemplatedListVariable(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["items"] = []any{"alpha", "beta"}
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Templated list loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop:     "{{ items }}",
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "alpha", result.Results[0].Msg)
+	assert.Equal(t, "beta", result.Results[1].Msg)
+}
+
 // --- templateArgs ---
 
 func TestExecutor_TemplateArgs_Good(t *testing.T) {
