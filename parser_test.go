@@ -1,6 +1,7 @@
 package ansible
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,6 +73,54 @@ func TestParser_ParsePlaybook_Good_MultiplePlays(t *testing.T) {
 	assert.Equal(t, "Play two", plays[1].Name)
 	assert.Equal(t, "localhost", plays[1].Hosts)
 	assert.Equal(t, "local", plays[1].Connection)
+}
+
+func TestParser_ParsePlaybook_Good_ImportPlaybook(t *testing.T) {
+	dir := t.TempDir()
+	mainPath := joinPath(dir, "site.yml")
+	importDir := joinPath(dir, "plays")
+	importPath := joinPath(importDir, "web.yml")
+
+	yamlMain := `---
+- name: Before import
+  hosts: all
+  tasks:
+    - name: Say before
+      debug:
+        msg: "before"
+
+- import_playbook: plays/web.yml
+
+- name: After import
+  hosts: all
+  tasks:
+    - name: Say after
+      debug:
+        msg: "after"
+`
+	yamlImported := `---
+- name: Imported play
+  hosts: webservers
+  tasks:
+    - name: Say imported
+      debug:
+        msg: "imported"
+`
+	require.NoError(t, os.MkdirAll(importDir, 0755))
+	require.NoError(t, writeTestFile(mainPath, []byte(yamlMain), 0644))
+	require.NoError(t, writeTestFile(importPath, []byte(yamlImported), 0644))
+
+	p := NewParser(dir)
+	plays, err := p.ParsePlaybook(mainPath)
+
+	require.NoError(t, err)
+	require.Len(t, plays, 3)
+	assert.Equal(t, "Before import", plays[0].Name)
+	assert.Equal(t, "Imported play", plays[1].Name)
+	assert.Equal(t, "After import", plays[2].Name)
+	assert.Equal(t, "webservers", plays[1].Hosts)
+	assert.Len(t, plays[1].Tasks, 1)
+	assert.Equal(t, "Say imported", plays[1].Tasks[0].Name)
 }
 
 func TestParser_ParsePlaybook_Good_WithVars(t *testing.T) {

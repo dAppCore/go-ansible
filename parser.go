@@ -38,6 +38,17 @@ func NewParser(basePath string) *Parser {
 //
 //	plays, err := parser.ParsePlaybook("/workspace/playbooks/site.yml")
 func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
+	return p.parsePlaybook(path, make(map[string]bool))
+}
+
+func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error) {
+	cleanedPath := cleanPath(path)
+	if seen[cleanedPath] {
+		return nil, coreerr.E("Parser.parsePlaybook", "circular import_playbook detected: "+cleanedPath, nil)
+	}
+	seen[cleanedPath] = true
+	defer delete(seen, cleanedPath)
+
 	data, err := coreio.Local.Read(path)
 	if err != nil {
 		return nil, coreerr.E("Parser.ParsePlaybook", "read playbook", err)
@@ -48,14 +59,27 @@ func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
 		return nil, coreerr.E("Parser.ParsePlaybook", "parse playbook", err)
 	}
 
+	var expanded []Play
+
 	// Process each play
 	for i := range plays {
+		if plays[i].ImportPlaybook != "" {
+			importPath := joinPath(pathDir(path), plays[i].ImportPlaybook)
+			imported, err := p.parsePlaybook(importPath, seen)
+			if err != nil {
+				return nil, coreerr.E("Parser.ParsePlaybook", sprintf("expand import_playbook %d", i), err)
+			}
+			expanded = append(expanded, imported...)
+			continue
+		}
+
 		if err := p.processPlay(&plays[i]); err != nil {
 			return nil, coreerr.E("Parser.ParsePlaybook", sprintf("process play %d", i), err)
 		}
+		expanded = append(expanded, plays[i])
 	}
 
-	return plays, nil
+	return expanded, nil
 }
 
 // ParsePlaybookIter returns an iterator for plays in an Ansible playbook file.

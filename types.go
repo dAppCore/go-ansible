@@ -21,6 +21,7 @@ type Playbook struct {
 type Play struct {
 	Name           string            `yaml:"name"`
 	Hosts          string            `yaml:"hosts"`
+	ImportPlaybook string            `yaml:"import_playbook,omitempty"`
 	Connection     string            `yaml:"connection,omitempty"`
 	Become         bool              `yaml:"become,omitempty"`
 	BecomeUser     string            `yaml:"become_user,omitempty"`
