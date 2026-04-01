@@ -1067,17 +1067,35 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 		path = task.ImportTasks
 	}
 
-	// Resolve path relative to playbook
-	path = e.templateString(path, "", nil)
-
-	tasks, err := e.parser.ParseTasks(path)
-	if err != nil {
-		return coreerr.E("Executor.runIncludeTasks", "include_tasks "+path, err)
+	if path == "" || len(hosts) == 0 {
+		return nil
 	}
 
-	for _, t := range tasks {
-		if err := e.runTaskOnHosts(ctx, hosts, &t, play); err != nil {
-			return err
+	// Resolve the include path per host so host-specific vars can select a
+	// different task file for each target.
+	hostsByPath := make(map[string][]string)
+	pathOrder := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		resolvedPath := e.templateString(path, host, task)
+		if resolvedPath == "" {
+			continue
+		}
+		if _, ok := hostsByPath[resolvedPath]; !ok {
+			pathOrder = append(pathOrder, resolvedPath)
+		}
+		hostsByPath[resolvedPath] = append(hostsByPath[resolvedPath], host)
+	}
+
+	for _, resolvedPath := range pathOrder {
+		tasks, err := e.parser.ParseTasks(resolvedPath)
+		if err != nil {
+			return coreerr.E("Executor.runIncludeTasks", "include_tasks "+resolvedPath, err)
+		}
+
+		for _, t := range tasks {
+			if err := e.runTaskOnHosts(ctx, hostsByPath[resolvedPath], &t, play); err != nil {
+				return err
+			}
 		}
 	}
 

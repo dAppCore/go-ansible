@@ -657,6 +657,60 @@ func TestExecutorExtra_RunIncludeTasks_Good_RelativePath(t *testing.T) {
 	assert.Contains(t, started, "localhost:Included second task")
 }
 
+func TestExecutorExtra_RunIncludeTasks_Good_HostSpecificTemplate(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "web.yml"), []byte(`- name: Web included task
+  debug:
+    msg: web
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "db.yml"), []byte(`- name: DB included task
+  debug:
+    msg: db
+`), 0644))
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Include host-specific tasks",
+		Hosts:       "all",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"web1": {
+					AnsibleConnection: "local",
+					Vars: map[string]any{
+						"include_file": "web.yml",
+					},
+				},
+				"db1": {
+					AnsibleConnection: "local",
+					Vars: map[string]any{
+						"include_file": "db.yml",
+					},
+				},
+			},
+		},
+	})
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"web1", "db1"}, &Task{
+		Name:         "Load host-specific tasks",
+		IncludeTasks: "{{ include_file }}",
+	}, play))
+
+	assert.Contains(t, started, "web1:Web included task")
+	assert.Contains(t, started, "db1:DB included task")
+}
+
 func TestExecutorExtra_GetHostsIter_Good(t *testing.T) {
 	inv := &Inventory{
 		All: &InventoryGroup{
