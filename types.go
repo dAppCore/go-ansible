@@ -270,6 +270,7 @@ var KnownModules = []string{
 	"ansible.builtin.setup",
 	"community.general.ufw",
 	"ansible.posix.authorized_key",
+	"ansible.builtin.docker_compose",
 	"community.docker.docker_compose",
 	"community.docker.docker_compose_v2",
 
@@ -326,8 +327,9 @@ var KnownModules = []string{
 // ModuleAliases maps accepted short-form module names to their canonical
 // fully-qualified collection names.
 var ModuleAliases = map[string]string{
-	"authorized_key":    "ansible.posix.authorized_key",
-	"ufw":               "community.general.ufw",
-	"docker_compose":    "community.docker.docker_compose",
-	"docker_compose_v2": "community.docker.docker_compose_v2",
+	"authorized_key":                 "ansible.posix.authorized_key",
+	"ufw":                            "community.general.ufw",
+	"docker_compose":                 "community.docker.docker_compose",
+	"docker_compose_v2":              "community.docker.docker_compose_v2",
+	"ansible.builtin.docker_compose": "community.docker.docker_compose",
 }

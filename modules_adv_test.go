@@ -1451,6 +1451,28 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerComposeV2(t *testin
 	assert.False(t, result.Failed)
 }
 
+func TestModulesAdv_ExecuteModule_Good_DispatchBuiltinDockerCompose(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	mock.expectCommand(`docker compose up -d`, "Creating\n", "", 0)
+
+	task := &Task{
+		Module: "ansible.builtin.docker_compose",
+		Args: map[string]any{
+			"project_src": "/opt/stack",
+			"state":       "present",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`docker compose up -d`))
+}
+
 // --- reboot module ---
 
 func TestModulesAdv_ModuleReboot_Good_WaitsForTestCommand(t *testing.T) {
