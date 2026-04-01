@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -613,8 +615,8 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", executionHost), err)
 	}
 
-	// Handle loops, including legacy with_file syntax.
-	if task.Loop != nil || task.WithFile != nil {
+	// Handle loops, including legacy with_file and with_fileglob syntax.
+	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil {
 		return e.runLoop(ctx, host, client, task, play)
 	}
 
@@ -812,6 +814,8 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 	)
 	if task.WithFile != nil {
 		items, err = e.resolveWithFileLoop(task.WithFile, host, task)
+	} else if task.WithFileGlob != nil {
+		items, err = e.resolveWithFileGlobLoop(task.WithFileGlob, host, task)
 	} else {
 		items = e.resolveLoop(task.Loop, host)
 	}
@@ -968,6 +972,74 @@ func (e *Executor) resolveWithFileLoop(loop any, host string, task *Task) ([]any
 	}
 
 	return items, nil
+}
+
+// resolveWithFileGlobLoop resolves legacy with_fileglob loop items into matching file paths.
+func (e *Executor) resolveWithFileGlobLoop(loop any, host string, task *Task) ([]any, error) {
+	var patterns []string
+
+	switch v := loop.(type) {
+	case []any:
+		patterns = make([]string, 0, len(v))
+		for _, item := range v {
+			s := sprintf("%v", item)
+			if s = e.templateString(s, host, task); s != "" {
+				patterns = append(patterns, s)
+			}
+		}
+	case []string:
+		patterns = make([]string, 0, len(v))
+		for _, item := range v {
+			if s := e.templateString(item, host, task); s != "" {
+				patterns = append(patterns, s)
+			}
+		}
+	case string:
+		if s := e.templateString(v, host, task); s != "" {
+			patterns = []string{s}
+		}
+	default:
+		return nil, nil
+	}
+
+	items := make([]any, 0)
+	for _, pattern := range patterns {
+		matches, err := e.resolveFileGlob(pattern)
+		if err != nil {
+			return nil, err
+		}
+		for _, match := range matches {
+			items = append(items, match)
+		}
+	}
+
+	return items, nil
+}
+
+func (e *Executor) resolveFileGlob(pattern string) ([]any, error) {
+	candidates := []string{pattern}
+	if e.parser != nil && e.parser.basePath != "" && !path.IsAbs(pattern) {
+		candidates = append([]string{joinPath(e.parser.basePath, pattern)}, candidates...)
+	}
+
+	var matches []string
+	for _, candidate := range candidates {
+		globMatches, err := filepath.Glob(candidate)
+		if err != nil {
+			return nil, coreerr.E("Executor.resolveFileGlob", "glob pattern "+pattern, err)
+		}
+		if len(globMatches) > 0 {
+			matches = append(matches, globMatches...)
+			break
+		}
+	}
+
+	slices.Sort(matches)
+	result := make([]any, len(matches))
+	for i, match := range matches {
+		result[i] = match
+	}
+	return result, nil
 }
 
 func (e *Executor) readLoopFile(filePath string) (string, error) {

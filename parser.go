@@ -348,7 +348,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"retries": true, "delay": true, "until": true,
 		"include_tasks": true, "import_tasks": true,
 		"include_role": true, "import_role": true,
-		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_file": true,
+		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_file": true, "with_fileglob": true,
 	}
 
 	for key, val := range m {
@@ -434,6 +434,11 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 	// Preserve with_file so the executor can resolve file contents at runtime.
 	if files, ok := m["with_file"]; ok && t.WithFile == nil {
 		t.WithFile = files
+	}
+
+	// Preserve with_fileglob so the executor can expand glob patterns at runtime.
+	if files, ok := m["with_fileglob"]; ok && t.WithFileGlob == nil {
+		t.WithFileGlob = files
 	}
 
 	return nil

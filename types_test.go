@@ -251,6 +251,25 @@ with_file:
 	assert.Equal(t, []any{"templates/a.txt", "templates/b.txt"}, files)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithFileGlob(t *testing.T) {
+	input := `
+name: Read globbed files
+debug:
+  msg: "{{ item }}"
+with_fileglob:
+  - templates/*.txt
+  - files/*.yml
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.WithFileGlob)
+	files, ok := task.WithFileGlob.([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"templates/*.txt", "files/*.yml"}, files)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
 	input := `
 name: Install package

@@ -283,6 +283,49 @@ func TestExecutor_RunTaskOnHosts_Good_WithFileUsesFileContents(t *testing.T) {
 	assert.Equal(t, "hello from file", e.results["host1"]["debug_result"].Results[0].Msg)
 }
 
+func TestExecutor_RunTaskOnHosts_Good_WithFileGlobExpandsMatches(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "fragments", "alpha.txt"), []byte("alpha"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "fragments", "beta.txt"), []byte("beta"), 0644))
+
+	e := NewExecutor(dir)
+	mock := NewMockSSHClient()
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = mock
+
+	task := &Task{
+		Name:   "Glob files",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Register: "glob_result",
+		WithFileGlob: []any{
+			"fragments/*.txt",
+		},
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"])
+	require.NotNil(t, e.results["host1"]["glob_result"])
+	require.Len(t, e.results["host1"]["glob_result"].Results, 2)
+	assert.Equal(t, []string{
+		joinPath(dir, "fragments", "alpha.txt"),
+		joinPath(dir, "fragments", "beta.txt"),
+	}, []string{
+		e.results["host1"]["glob_result"].Results[0].Msg,
+		e.results["host1"]["glob_result"].Results[1].Msg,
+	})
+}
+
 func TestExecutor_ExecuteModule_Good_ShortFormCommunityAlias(t *testing.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
