@@ -431,6 +431,7 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 	if dest == "" {
 		return nil, coreerr.E("Executor.moduleCopy", "dest required", nil)
 	}
+	force := getBoolArg(args, "force", true)
 
 	var content string
 	var err error
@@ -455,6 +456,9 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 	}
 
 	before, hasBefore := remoteFileText(ctx, client, dest)
+	if hasBefore && !force {
+		return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
+	}
 	if hasBefore && before == content {
 		if getStringArg(args, "owner", "") == "" && getStringArg(args, "group", "") == "" {
 			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
@@ -489,6 +493,7 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 	if src == "" || dest == "" {
 		return nil, coreerr.E("Executor.moduleTemplate", "src and dest required", nil)
 	}
+	force := getBoolArg(args, "force", true)
 
 	// Process template
 	src = e.resolveLocalPath(src)
@@ -505,6 +510,9 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 	}
 
 	before, hasBefore := remoteFileText(ctx, client, dest)
+	if hasBefore && !force {
+		return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
+	}
 	if hasBefore && before == content {
 		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
 	}

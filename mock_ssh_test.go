@@ -625,6 +625,7 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 	if dest == "" {
 		return nil, mockError("moduleCopyWithClient", "copy: dest required")
 	}
+	force := getBoolArg(args, "force", true)
 
 	var content []byte
 	var err error
@@ -648,6 +649,9 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 	}
 
 	before, hasBefore := mockRemoteFileText(client, dest)
+	if hasBefore && !force {
+		return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
+	}
 	if hasBefore && before == string(content) {
 		if getStringArg(args, "owner", "") == "" && getStringArg(args, "group", "") == "" {
 			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
@@ -686,6 +690,7 @@ func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string
 	if src == "" || dest == "" {
 		return nil, mockError("moduleTemplateWithClient", "template: src and dest required")
 	}
+	force := getBoolArg(args, "force", true)
 
 	// Process template
 	content, err := e.TemplateFile(src, host, task)
@@ -701,6 +706,9 @@ func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string
 	}
 
 	before, hasBefore := mockRemoteFileText(client, dest)
+	if hasBefore && !force {
+		return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
+	}
 	if hasBefore && before == content {
 		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
 	}

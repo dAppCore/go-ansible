@@ -159,6 +159,22 @@ func TestModulesFile_ModuleCopy_Good_SkipsUnchangedContent(t *testing.T) {
 	assert.Contains(t, result.Msg, "already up to date")
 }
 
+func TestModulesFile_ModuleCopy_Good_ForceFalseSkipsExistingDest(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/app/config", []byte("server_name=old"))
+
+	result, err := moduleCopyWithClient(e, mock, map[string]any{
+		"content": "server_name=new",
+		"dest":    "/etc/app/config",
+		"force":   false,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.uploadCount())
+	assert.Contains(t, result.Msg, "skipped existing destination")
+}
+
 // --- file module ---
 
 func TestModulesFile_ModuleFile_Good_StateDirectory(t *testing.T) {
@@ -752,6 +768,26 @@ func TestModulesFile_ModuleTemplate_Good_CustomMode(t *testing.T) {
 	up := mock.lastUpload()
 	require.NotNil(t, up)
 	assert.Equal(t, fs.FileMode(0755), up.Mode)
+}
+
+func TestModulesFile_ModuleTemplate_Good_ForceFalseSkipsExistingDest(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "config.tmpl")
+	require.NoError(t, writeTestFile(srcPath, []byte("server_name={{ inventory_hostname }}"), 0644))
+
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/app/config", []byte("server_name=old"))
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":   srcPath,
+		"dest":  "/etc/app/config",
+		"force": false,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.uploadCount())
+	assert.Contains(t, result.Msg, "skipped existing destination")
 }
 
 func TestModulesFile_ModuleTemplate_Bad_MissingSrc(t *testing.T) {
