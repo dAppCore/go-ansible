@@ -1766,7 +1766,7 @@ func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {
 		action = getStringArg(args, "free_form", "")
 	}
 
-	result := &TaskResult{Changed: false}
+	result := &TaskResult{Changed: action == "clear_facts"}
 	if action != "" {
 		result.Data = map[string]any{"action": action}
 	}

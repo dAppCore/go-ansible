@@ -1559,10 +1559,23 @@ func (e *Executor) handleMetaAction(ctx context.Context, hosts []string, play *P
 	switch action {
 	case "flush_handlers":
 		return e.runNotifiedHandlers(ctx, hosts, play)
+	case "clear_facts":
+		e.clearFacts(hosts)
+		return nil
 	case "end_play":
 		return errEndPlay
 	default:
 		return nil
+	}
+}
+
+// clearFacts removes cached facts for the given hosts.
+func (e *Executor) clearFacts(hosts []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for _, host := range hosts {
+		delete(e.facts, host)
 	}
 }
 

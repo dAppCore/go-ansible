@@ -312,6 +312,32 @@ func TestExecutorExtra_ModuleMeta_Good(t *testing.T) {
 	assert.Equal(t, "flush_handlers", result.Data["action"])
 }
 
+func TestExecutorExtra_ModuleMeta_Good_ClearFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.facts["host1"] = &Facts{Hostname: "web01"}
+
+	result, err := e.moduleMeta(map[string]any{"_raw_params": "clear_facts"})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "clear_facts", result.Data["action"])
+}
+
+func TestExecutorExtra_HandleMetaAction_Good_ClearFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.facts["host1"] = &Facts{Hostname: "web01"}
+	e.facts["host2"] = &Facts{Hostname: "web02"}
+
+	result := &TaskResult{Data: map[string]any{"action": "clear_facts"}}
+	require.NoError(t, e.handleMetaAction(context.Background(), []string{"host1"}, nil, result))
+
+	_, ok := e.facts["host1"]
+	assert.False(t, ok)
+	require.NotNil(t, e.facts["host2"])
+	assert.Equal(t, "web02", e.facts["host2"].Hostname)
+}
+
 // ============================================================
 // Tests for handleLookup (0% coverage)
 // ============================================================
