@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 
 	coreio "dappco.re/go/core/io"
 	coreerr "dappco.re/go/core/log"
+	"gopkg.in/yaml.v3"
 )
 
 // executeModule dispatches to the appropriate module handler.
@@ -1261,14 +1265,99 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	if file == "" {
 		file = getStringArg(args, "_raw_params", "")
 	}
+	dir := getStringArg(args, "dir", "")
+	name := getStringArg(args, "name", "")
+	hashBehaviour := lower(getStringArg(args, "hash_behaviour", "replace"))
 
-	if file != "" {
-		// Would need to read and parse the vars file
-		// For now, just acknowledge
-		return &TaskResult{Changed: false, Msg: "include_vars: " + file}, nil
+	if file == "" && dir == "" {
+		return &TaskResult{Changed: false}, nil
 	}
 
-	return &TaskResult{Changed: false}, nil
+	loaded := make(map[string]any)
+	var sources []string
+	loadFile := func(path string) error {
+		data, err := coreio.Local.Read(path)
+		if err != nil {
+			return coreerr.E("Executor.moduleIncludeVars", "read vars file", err)
+		}
+
+		var vars map[string]any
+		if err := yaml.Unmarshal([]byte(data), &vars); err != nil {
+			return coreerr.E("Executor.moduleIncludeVars", "parse vars file", err)
+		}
+
+		mergeVars(loaded, vars, hashBehaviour == "merge")
+		return nil
+	}
+
+	if file != "" {
+		sources = append(sources, file)
+		if err := loadFile(file); err != nil {
+			return nil, err
+		}
+	}
+
+	if dir != "" {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
+		}
+
+		var files []string
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+
+			ext := lower(filepath.Ext(entry.Name()))
+			if ext == ".yml" || ext == ".yaml" {
+				files = append(files, joinPath(dir, entry.Name()))
+			}
+		}
+		sort.Strings(files)
+
+		for _, path := range files {
+			sources = append(sources, path)
+			if err := loadFile(path); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if name != "" {
+		e.vars[name] = loaded
+	} else {
+		mergeVars(e.vars, loaded, hashBehaviour == "merge")
+	}
+
+	msg := "include_vars"
+	if len(sources) > 0 {
+		msg += ": " + join(", ", sources)
+	}
+
+	return &TaskResult{Changed: true, Msg: msg}, nil
+}
+
+func mergeVars(dst, src map[string]any, mergeMaps bool) {
+	if dst == nil || src == nil {
+		return
+	}
+
+	for key, val := range src {
+		if !mergeMaps {
+			dst[key] = val
+			continue
+		}
+
+		if existing, ok := dst[key].(map[string]any); ok {
+			if next, ok := val.(map[string]any); ok {
+				mergeVars(existing, next, true)
+				continue
+			}
+		}
+
+		dst[key] = val
+	}
 }
 
 func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {

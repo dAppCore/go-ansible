@@ -702,6 +702,57 @@ func TestModulesAdv_ModuleUnarchive_Bad_LocalFileNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "read src")
 }
 
+// --- include_vars module ---
+
+func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *testing.T) {
+	dir := t.TempDir()
+	varsPath := joinPath(dir, "vars.yml")
+	require.NoError(t, writeTestFile(varsPath, []byte("app_name: demo\napp_port: 8080\nnested:\n  enabled: true\n"), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"file": varsPath,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.Contains(t, result.Msg, varsPath)
+	assert.Equal(t, "demo", e.vars["app_name"])
+	assert.Equal(t, 8080, e.vars["app_port"])
+
+	nested, ok := e.vars["nested"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, nested["enabled"])
+}
+
+func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("app_name: demo\nnested:\n  a: 1\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "02-override.yaml"), []byte("app_port: 8080\nnested:\n  b: 2\n"), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"dir":            dir,
+		"hash_behaviour": "merge",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.Contains(t, result.Msg, joinPath(dir, "01-base.yml"))
+	assert.Contains(t, result.Msg, joinPath(dir, "02-override.yaml"))
+	assert.Equal(t, "demo", e.vars["app_name"])
+	assert.Equal(t, 8080, e.vars["app_port"])
+
+	nested, ok := e.vars["nested"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 1, nested["a"])
+	assert.Equal(t, 2, nested["b"])
+}
+
 // --- uri module ---
 
 func TestModulesAdv_ModuleURI_Good_GetRequestDefault(t *testing.T) {

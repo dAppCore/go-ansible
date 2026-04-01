@@ -150,19 +150,31 @@ func TestExecutorExtra_ModuleSetFact_Good_SkipsCacheable(t *testing.T) {
 // --- moduleIncludeVars ---
 
 func TestExecutorExtra_ModuleIncludeVars_Good_WithFile(t *testing.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "main.yml")
+	require.NoError(t, writeTestFile(path, []byte("app_name: demo\n"), 0644))
+
 	e := NewExecutor("/tmp")
-	result, err := e.moduleIncludeVars(map[string]any{"file": "vars/main.yml"})
+	result, err := e.moduleIncludeVars(map[string]any{"file": path})
 
 	require.NoError(t, err)
-	assert.Contains(t, result.Msg, "vars/main.yml")
+	assert.True(t, result.Changed)
+	assert.Contains(t, result.Msg, path)
+	assert.Equal(t, "demo", e.vars["app_name"])
 }
 
 func TestExecutorExtra_ModuleIncludeVars_Good_WithRawParams(t *testing.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "defaults.yml")
+	require.NoError(t, writeTestFile(path, []byte("app_port: 8080\n"), 0644))
+
 	e := NewExecutor("/tmp")
-	result, err := e.moduleIncludeVars(map[string]any{"_raw_params": "defaults.yml"})
+	result, err := e.moduleIncludeVars(map[string]any{"_raw_params": path})
 
 	require.NoError(t, err)
-	assert.Contains(t, result.Msg, "defaults.yml")
+	assert.True(t, result.Changed)
+	assert.Contains(t, result.Msg, path)
+	assert.Equal(t, 8080, e.vars["app_port"])
 }
 
 func TestExecutorExtra_ModuleIncludeVars_Good_Empty(t *testing.T) {
