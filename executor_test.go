@@ -1,9 +1,11 @@
 package ansible
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // --- NewExecutor ---
@@ -164,6 +166,44 @@ func TestExecutor_HandleNotify_Good_AnyList(t *testing.T) {
 
 	assert.True(t, e.notified["restart nginx"])
 	assert.True(t, e.notified["reload config"])
+}
+
+// --- run_once ---
+
+func TestExecutor_RunTaskOnHosts_Good_RunOnceSharesRegisteredResult(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+				"host2": {},
+			},
+		},
+	})
+
+	var started []string
+	task := &Task{
+		Name:     "Run once debug",
+		Module:   "debug",
+		Args:     map[string]any{"msg": "hello"},
+		Register: "debug_result",
+		RunOnce:  true,
+	}
+
+	e.OnTaskStart = func(host string, _ *Task) {
+		started = append(started, host)
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1", "host2"}, task, &Play{})
+	require.NoError(t, err)
+
+	assert.Len(t, started, 1)
+	assert.Len(t, e.results["host1"], 1)
+	assert.Len(t, e.results["host2"], 1)
+	require.NotNil(t, e.results["host1"]["debug_result"])
+	require.NotNil(t, e.results["host2"]["debug_result"])
+	assert.Equal(t, "hello", e.results["host1"]["debug_result"].Msg)
+	assert.Equal(t, "hello", e.results["host2"]["debug_result"].Msg)
 }
 
 // --- normalizeConditions ---

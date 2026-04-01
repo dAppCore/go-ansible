@@ -234,6 +234,20 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 		return nil
 	}
 
+	// run_once executes the task against a single host, then shares any
+	// registered result with the rest of the host set.
+	if task.RunOnce && len(hosts) > 0 {
+		single := *task
+		single.RunOnce = false
+
+		if err := e.runTaskOnHosts(ctx, hosts[:1], &single, play); err != nil {
+			return err
+		}
+
+		e.copyRegisteredResultToHosts(hosts, hosts[0], task.Register)
+		return nil
+	}
+
 	// Handle block tasks
 	if len(task.Block) > 0 {
 		return e.runBlock(ctx, hosts, task, play)
@@ -256,6 +270,45 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 	}
 
 	return nil
+}
+
+// copyRegisteredResultToHosts shares a registered task result from one host to
+// the rest of the current host set.
+func (e *Executor) copyRegisteredResultToHosts(hosts []string, sourceHost, register string) {
+	if register == "" {
+		return
+	}
+
+	sourceResults := e.results[sourceHost]
+	if sourceResults == nil {
+		return
+	}
+
+	result, ok := sourceResults[register]
+	if !ok || result == nil {
+		return
+	}
+
+	for _, host := range hosts {
+		if host == sourceHost {
+			continue
+		}
+		if e.results[host] == nil {
+			e.results[host] = make(map[string]*TaskResult)
+		}
+
+		clone := *result
+		if result.Results != nil {
+			clone.Results = append([]TaskResult(nil), result.Results...)
+		}
+		if result.Data != nil {
+			clone.Data = make(map[string]any, len(result.Data))
+			for k, v := range result.Data {
+				clone.Data[k] = v
+			}
+		}
+		e.results[host][register] = &clone
+	}
 }
 
 // runTaskOnHost runs a task on a single host.
