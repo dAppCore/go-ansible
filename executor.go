@@ -354,7 +354,11 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 
 	// Execute tasks
 	for _, task := range tasks {
-		if err := e.runTaskOnHosts(ctx, hosts, &task, play); err != nil {
+		effectiveTask := task
+		if len(roleRef.Tags) > 0 {
+			effectiveTask.Tags = append(append([]string(nil), roleRef.Tags...), task.Tags...)
+		}
+		if err := e.runTaskOnHosts(ctx, hosts, &effectiveTask, play); err != nil {
 			// Restore vars
 			e.vars = oldVars
 			return err
