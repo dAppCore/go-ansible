@@ -1005,6 +1005,7 @@ func (e *Executor) moduleGroup(ctx context.Context, client sshExecutorClient, ar
 func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
 	url := getStringArg(args, "url", "")
 	method := getStringArg(args, "method", "GET")
+	returnContent := getBoolArg(args, "return_content", false)
 
 	if url == "" {
 		return nil, coreerr.E("Executor.moduleURI", "url required", nil)
@@ -1036,15 +1037,25 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	}
 
 	// Parse status code from last line
-	lines := split(corexTrimSpace(stdout), "\n")
+	lines := split(stdout, "\n")
 	statusCode := 0
+	content := ""
 	if len(lines) > 0 {
-		statusCode, _ = strconv.Atoi(lines[len(lines)-1])
+		statusText := corexTrimSpace(lines[len(lines)-1])
+		statusCode, _ = strconv.Atoi(statusText)
+		if len(lines) > 1 {
+			content = join("\n", lines[:len(lines)-1])
+		}
 	}
 
 	// Check expected status codes.
 	expectedStatuses := normalizeStatusCodes(args["status_code"], 200)
 	failed := rc != 0 || !containsInt(expectedStatuses, statusCode)
+
+	data := map[string]any{"status": statusCode}
+	if returnContent {
+		data["content"] = content
+	}
 
 	return &TaskResult{
 		Changed: false,
@@ -1052,7 +1063,7 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 		Stdout:  stdout,
 		Stderr:  stderr,
 		RC:      statusCode,
-		Data:    map[string]any{"status": statusCode},
+		Data:    data,
 	}, nil
 }
 
