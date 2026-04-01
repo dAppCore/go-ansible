@@ -28,12 +28,16 @@ type sshFactsRunner interface {
 func (e *Executor) executeModule(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play) (*TaskResult, error) {
 	module := NormalizeModule(task.Module)
 
-	// Apply task-level become
-	if task.Become != nil && *task.Become {
-		// Save old state to restore
+	// Apply task-level become overrides, including an explicit disable.
+	if task.Become != nil {
+		// Save old state to restore after the task finishes.
 		oldBecome, oldUser, oldPass := client.BecomeState()
 
-		client.SetBecome(true, task.BecomeUser, "")
+		if *task.Become {
+			client.SetBecome(true, task.BecomeUser, "")
+		} else {
+			client.SetBecome(false, "", "")
+		}
 
 		defer client.SetBecome(oldBecome, oldUser, oldPass)
 	}
