@@ -115,6 +115,8 @@ func (e *Executor) executeModule(ctx context.Context, host string, client *SSHCl
 		return e.moduleGit(ctx, client, args)
 	case "ansible.builtin.unarchive":
 		return e.moduleUnarchive(ctx, client, args)
+	case "ansible.builtin.archive":
+		return e.moduleArchive(ctx, client, args)
 
 	// Additional modules
 	case "ansible.builtin.hostname":
@@ -1356,6 +1358,95 @@ func (e *Executor) moduleUnarchive(ctx context.Context, client *SSHClient, args 
 	}
 
 	return &TaskResult{Changed: true}, nil
+}
+
+func (e *Executor) moduleArchive(ctx context.Context, client *SSHClient, args map[string]any) (*TaskResult, error) {
+	dest := getStringArg(args, "dest", "")
+	format := lower(getStringArg(args, "format", ""))
+	paths := archivePaths(args)
+
+	if dest == "" || len(paths) == 0 {
+		return nil, coreerr.E("Executor.moduleArchive", "path and dest required", nil)
+	}
+
+	// Create the parent directory first so archive creation does not fail.
+	_, _, _, _ = client.Run(ctx, sprintf("mkdir -p %q", pathDir(dest)))
+
+	var cmd string
+	var deleteOnSuccess bool
+
+	switch {
+	case format == "zip" || hasSuffix(dest, ".zip"):
+		cmd = sprintf("zip -r %q %s", dest, join(" ", quoteArgs(paths)))
+	case format == "gz" || format == "tgz" || hasSuffix(dest, ".tar.gz") || hasSuffix(dest, ".tgz"):
+		cmd = sprintf("tar -czf %q %s", dest, join(" ", quoteArgs(paths)))
+	case format == "bz2" || hasSuffix(dest, ".tar.bz2"):
+		cmd = sprintf("tar -cjf %q %s", dest, join(" ", quoteArgs(paths)))
+	case format == "xz" || hasSuffix(dest, ".tar.xz"):
+		cmd = sprintf("tar -cJf %q %s", dest, join(" ", quoteArgs(paths)))
+	default:
+		cmd = sprintf("tar -cf %q %s", dest, join(" ", quoteArgs(paths)))
+	}
+
+	stdout, stderr, rc, err := client.Run(ctx, cmd)
+	if err != nil || rc != 0 {
+		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	}
+
+	deleteOnSuccess = getBoolArg(args, "remove", false)
+	if deleteOnSuccess {
+		_, _, _, _ = client.Run(ctx, sprintf("rm -rf %s", join(" ", quoteArgs(paths))))
+	}
+
+	return &TaskResult{Changed: true}, nil
+}
+
+func archivePaths(args map[string]any) []string {
+	raw, ok := args["path"]
+	if !ok {
+		raw, ok = args["paths"]
+	}
+	if !ok {
+		return nil
+	}
+
+	switch v := raw.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if item != "" {
+				out = append(out, item)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		s := sprintf("%v", v)
+		if s == "" || s == "<nil>" {
+			return nil
+		}
+		return []string{s}
+	}
+}
+
+func quoteArgs(values []string) []string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, sprintf("%q", value))
+	}
+	return quoted
 }
 
 // --- Helpers ---

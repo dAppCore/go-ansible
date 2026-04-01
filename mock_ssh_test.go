@@ -462,6 +462,8 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 	// Archive
 	case "ansible.builtin.unarchive":
 		return moduleUnarchiveWithClient(e, mock, args)
+	case "ansible.builtin.archive":
+		return moduleArchiveWithClient(e, mock, args)
 
 	case "ansible.builtin.setup":
 		return e.moduleSetup(context.Background(), host, mock)
@@ -1316,6 +1318,43 @@ func moduleUnarchiveWithClient(_ *Executor, client sshFileRunner, args map[strin
 	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	}
+
+	return &TaskResult{Changed: true}, nil
+}
+
+func moduleArchiveWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
+	dest := getStringArg(args, "dest", "")
+	format := lower(getStringArg(args, "format", ""))
+	paths := archivePaths(args)
+
+	if dest == "" || len(paths) == 0 {
+		return nil, mockError("moduleArchiveWithClient", "archive: path and dest required")
+	}
+
+	_, _, _, _ = client.Run(context.Background(), sprintf("mkdir -p %q", pathDir(dest)))
+
+	var cmd string
+	switch {
+	case format == "zip" || hasSuffix(dest, ".zip"):
+		cmd = sprintf("zip -r %q %s", dest, join(" ", quoteArgs(paths)))
+	case format == "gz" || format == "tgz" || hasSuffix(dest, ".tar.gz") || hasSuffix(dest, ".tgz"):
+		cmd = sprintf("tar -czf %q %s", dest, join(" ", quoteArgs(paths)))
+	case format == "bz2" || hasSuffix(dest, ".tar.bz2"):
+		cmd = sprintf("tar -cjf %q %s", dest, join(" ", quoteArgs(paths)))
+	case format == "xz" || hasSuffix(dest, ".tar.xz"):
+		cmd = sprintf("tar -cJf %q %s", dest, join(" ", quoteArgs(paths)))
+	default:
+		cmd = sprintf("tar -cf %q %s", dest, join(" ", quoteArgs(paths)))
+	}
+
+	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
+	if err != nil || rc != 0 {
+		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	}
+
+	if getBoolArg(args, "remove", false) {
+		_, _, _, _ = client.Run(context.Background(), sprintf("rm -rf %s", join(" ", quoteArgs(paths))))
 	}
 
 	return &TaskResult{Changed: true}, nil

@@ -1002,6 +1002,23 @@ func TestModulesInfra_ModuleSetup_Good_GathersAndStoresFacts(t *testing.T) {
 	assert.Equal(t, "10.0.0.11", e.templateString("{{ ansible_default_ipv4_address }}", "host1", nil))
 }
 
+func TestModulesInfra_ModuleArchive_Good_CreateZipArchive(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleArchiveWithClient(e, mock, map[string]any{
+		"path":   []any{"/etc/nginx/nginx.conf", "/etc/hosts"},
+		"dest":   "/tmp/configs.zip",
+		"format": "zip",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`mkdir -p "/tmp"`))
+	assert.True(t, mock.hasExecuted(`zip -r "/tmp/configs.zip" "/etc/nginx/nginx.conf" "/etc/hosts"`))
+}
+
 // ===========================================================================
 // 4. Idempotency
 // ===========================================================================
