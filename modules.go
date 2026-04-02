@@ -1690,24 +1690,25 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 		}
 	}
 
-	if port > 0 && state == "started" {
-		cmd := sprintf("timeout %d bash -c 'until nc -z %s %d; do sleep 1; done'",
-			timeout, host, port)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	if port > 0 {
+		switch state {
+		case "started", "present":
+			cmd := sprintf("timeout %d bash -c 'until nc -z %s %d; do sleep 1; done'",
+				timeout, host, port)
+			stdout, stderr, rc, err := client.Run(ctx, cmd)
+			if err != nil || rc != 0 {
+				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+			}
+			return &TaskResult{Changed: false}, nil
+		case "stopped", "absent":
+			cmd := sprintf("timeout %d bash -c 'until ! nc -z %s %d; do sleep 1; done'",
+				timeout, host, port)
+			stdout, stderr, rc, err := client.Run(ctx, cmd)
+			if err != nil || rc != 0 {
+				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+			}
+			return &TaskResult{Changed: false}, nil
 		}
-		return &TaskResult{Changed: false}, nil
-	}
-
-	if port > 0 && state == "absent" {
-		cmd := sprintf("timeout %d bash -c 'until ! nc -z %s %d; do sleep 1; done'",
-			timeout, host, port)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-		}
-		return &TaskResult{Changed: false}, nil
 	}
 
 	return &TaskResult{Changed: false}, nil
