@@ -754,6 +754,7 @@ func TestTypes_KnownModules_Good_ContainsExpected(t *testing.T) {
 		"ansible.builtin.apt",
 		"ansible.builtin.service",
 		"ansible.builtin.systemd",
+		"ansible.builtin.rpm",
 		"ansible.builtin.debug",
 		"ansible.builtin.set_fact",
 		"community.general.ufw",
@@ -768,7 +769,7 @@ func TestTypes_KnownModules_Good_ContainsExpected(t *testing.T) {
 
 	shortModules := []string{
 		"shell", "command", "copy", "file", "apt", "service",
-		"systemd", "debug", "set_fact", "template", "user", "group",
+		"systemd", "rpm", "debug", "set_fact", "template", "user", "group",
 	}
 	for _, mod := range shortModules {
 		assert.Contains(t, KnownModules, mod, "expected short-form module %s", mod)

@@ -93,6 +93,8 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		return e.moduleYum(ctx, client, args)
 	case "ansible.builtin.dnf":
 		return e.moduleDnf(ctx, client, args)
+	case "ansible.builtin.rpm":
+		return e.moduleRPM(ctx, client, args, "rpm")
 	case "ansible.builtin.package":
 		return e.modulePackage(ctx, client, args)
 	case "ansible.builtin.pip":
@@ -942,7 +944,7 @@ func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
 
-	if updateCache {
+	if updateCache && manager != "rpm" {
 		_, _, _, _ = client.Run(ctx, sprintf("%s makecache -y", manager))
 	}
 
@@ -950,15 +952,25 @@ func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args
 	switch state {
 	case "present", "installed":
 		if name != "" {
-			cmd = sprintf("%s install -y -q %s", manager, name)
+			if manager == "rpm" {
+				cmd = sprintf("rpm -ivh %s", name)
+			} else {
+				cmd = sprintf("%s install -y -q %s", manager, name)
+			}
 		}
 	case "absent", "removed":
 		if name != "" {
-			cmd = sprintf("%s remove -y -q %s", manager, name)
+			if manager == "rpm" {
+				cmd = sprintf("rpm -e %s", name)
+			} else {
+				cmd = sprintf("%s remove -y -q %s", manager, name)
+			}
 		}
 	case "latest":
 		if name != "" {
-			if manager == "dnf" {
+			if manager == "rpm" {
+				cmd = sprintf("rpm -Uvh %s", name)
+			} else if manager == "dnf" {
 				cmd = sprintf("%s upgrade -y -q %s", manager, name)
 			} else {
 				cmd = sprintf("%s update -y -q %s", manager, name)

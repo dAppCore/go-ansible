@@ -762,6 +762,40 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchDnf(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`dnf remove -y -q nano`))
 }
 
+func TestModulesSvc_ModuleRpm_Good_InstallPackage(t *testing.T) {
+	mock := NewMockSSHClient()
+	mock.expectCommand(`rpm -ivh /tmp/nginx.rpm`, "", "", 0)
+
+	result, err := moduleRPMWithClient(mock, map[string]any{
+		"name":  "/tmp/nginx.rpm",
+		"state": "present",
+	}, "rpm")
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`rpm -ivh /tmp/nginx.rpm`))
+}
+
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchRpm(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`rpm -e nginx`, "", "", 0)
+
+	task := &Task{
+		Module: "rpm",
+		Args: map[string]any{
+			"name":  "nginx",
+			"state": "absent",
+		},
+	}
+
+	result, err := executeModuleWithMock(e, mock, "host1", task)
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`rpm -e nginx`))
+}
+
 // --- pip module ---
 
 func TestModulesSvc_ModulePip_Good_InstallPresent(t *testing.T) {

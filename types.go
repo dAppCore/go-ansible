@@ -277,6 +277,7 @@ var KnownModules = []string{
 	"ansible.builtin.apt_repository",
 	"ansible.builtin.yum",
 	"ansible.builtin.dnf",
+	"ansible.builtin.rpm",
 	"ansible.builtin.package",
 	"ansible.builtin.pip",
 	"ansible.builtin.service",
@@ -324,6 +325,7 @@ var KnownModules = []string{
 	"apt_repository",
 	"yum",
 	"dnf",
+	"rpm",
 	"package",
 	"pip",
 	"service",
@@ -362,4 +364,5 @@ var ModuleAliases = map[string]string{
 	"docker_compose":                 "community.docker.docker_compose",
 	"docker_compose_v2":              "community.docker.docker_compose_v2",
 	"ansible.builtin.docker_compose": "community.docker.docker_compose",
+	"rpm":                            "ansible.builtin.rpm",
 }

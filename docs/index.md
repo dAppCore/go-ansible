@@ -126,13 +126,13 @@ go-ansible/
 
 ## Supported Modules
 
-42 module handlers are implemented, covering the most commonly used Ansible modules:
+43 module handlers are implemented, covering the most commonly used Ansible modules:
 
 | Category | Modules |
 |----------|---------|
 | **Command execution** | `shell`, `command`, `raw`, `script` |
 | **File operations** | `copy`, `template`, `file`, `lineinfile`, `blockinfile`, `stat`, `slurp`, `fetch`, `get_url` |
-| **Package management** | `apt`, `apt_key`, `apt_repository`, `package`, `pip` |
+| **Package management** | `apt`, `apt_key`, `apt_repository`, `package`, `pip`, `rpm` |
 | **Service management** | `service`, `systemd` |
 | **User and group** | `user`, `group` |
 | **HTTP** | `uri` |

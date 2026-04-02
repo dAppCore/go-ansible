@@ -447,6 +447,8 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 		return moduleYumWithClient(e, mock, args)
 	case "ansible.builtin.dnf":
 		return moduleDnfWithClient(e, mock, args)
+	case "ansible.builtin.rpm":
+		return moduleRPMWithClient(mock, args, "rpm")
 	case "ansible.builtin.package":
 		return modulePackageWithClient(e, mock, args)
 	case "ansible.builtin.pip":
@@ -1142,7 +1144,7 @@ func moduleRPMWithClient(client sshRunner, args map[string]any, manager string) 
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
 
-	if updateCache {
+	if updateCache && manager != "rpm" {
 		_, _, _, _ = client.Run(context.Background(), sprintf("%s makecache -y", manager))
 	}
 
@@ -1150,15 +1152,25 @@ func moduleRPMWithClient(client sshRunner, args map[string]any, manager string) 
 	switch state {
 	case "present", "installed":
 		if name != "" {
-			cmd = sprintf("%s install -y -q %s", manager, name)
+			if manager == "rpm" {
+				cmd = sprintf("rpm -ivh %s", name)
+			} else {
+				cmd = sprintf("%s install -y -q %s", manager, name)
+			}
 		}
 	case "absent", "removed":
 		if name != "" {
-			cmd = sprintf("%s remove -y -q %s", manager, name)
+			if manager == "rpm" {
+				cmd = sprintf("rpm -e %s", name)
+			} else {
+				cmd = sprintf("%s remove -y -q %s", manager, name)
+			}
 		}
 	case "latest":
 		if name != "" {
-			if manager == "dnf" {
+			if manager == "rpm" {
+				cmd = sprintf("rpm -Uvh %s", name)
+			} else if manager == "dnf" {
 				cmd = sprintf("%s upgrade -y -q %s", manager, name)
 			} else {
 				cmd = sprintf("%s update -y -q %s", manager, name)

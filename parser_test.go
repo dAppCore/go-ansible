@@ -812,6 +812,7 @@ func TestParser_IsModule_Good_KnownModules(t *testing.T) {
 	assert.True(t, isModule("apt"))
 	assert.True(t, isModule("service"))
 	assert.True(t, isModule("systemd"))
+	assert.True(t, isModule("rpm"))
 	assert.True(t, isModule("debug"))
 	assert.True(t, isModule("set_fact"))
 }
@@ -820,6 +821,7 @@ func TestParser_IsModule_Good_FQCN(t *testing.T) {
 	assert.True(t, isModule("ansible.builtin.shell"))
 	assert.True(t, isModule("ansible.builtin.copy"))
 	assert.True(t, isModule("ansible.builtin.apt"))
+	assert.True(t, isModule("ansible.builtin.rpm"))
 }
 
 func TestParser_IsModule_Good_DottedUnknown(t *testing.T) {
@@ -839,6 +841,7 @@ func TestParser_NormalizeModule_Good(t *testing.T) {
 	assert.Equal(t, "ansible.builtin.shell", NormalizeModule("shell"))
 	assert.Equal(t, "ansible.builtin.copy", NormalizeModule("copy"))
 	assert.Equal(t, "ansible.builtin.apt", NormalizeModule("apt"))
+	assert.Equal(t, "ansible.builtin.rpm", NormalizeModule("rpm"))
 }
 
 func TestParser_NormalizeModule_Good_CommunityAliases(t *testing.T) {
