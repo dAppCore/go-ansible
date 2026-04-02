@@ -562,13 +562,36 @@ func parseActionSpecString(raw string) (string, map[string]any) {
 		return "", nil
 	}
 
-	module := parts[0]
+	module := ""
+	start := 0
+	if kv := strings.SplitN(parts[0], "=", 2); len(kv) == 2 && kv[0] == "module" && kv[1] != "" {
+		module = kv[1]
+		start = 1
+	} else {
+		module = parts[0]
+		start = 1
+	}
 	if module == "" {
 		return "", nil
 	}
 
-	if len(parts) == 1 {
+	if start >= len(parts) {
 		return module, nil
+	}
+
+	args := make(map[string]any)
+	allKeyValues := true
+	for _, part := range parts[start:] {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok || key == "" {
+			allKeyValues = false
+			break
+		}
+		args[key] = value
+	}
+
+	if allKeyValues && len(args) > 0 {
+		return module, args
 	}
 
 	sepIndex := strings.IndexFunc(raw, unicode.IsSpace)

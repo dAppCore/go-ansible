@@ -320,6 +320,22 @@ action: command echo hello world
 	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_ActionAliasKeyValue(t *testing.T) {
+	input := `
+name: Legacy action with args
+action: module=copy src=/tmp/source dest=/tmp/dest mode=0644
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.Equal(t, "copy", task.Module)
+	require.NotNil(t, task.Args)
+	assert.Equal(t, "/tmp/source", task.Args["src"])
+	assert.Equal(t, "/tmp/dest", task.Args["dest"])
+	assert.Equal(t, "0644", task.Args["mode"])
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_LocalAction(t *testing.T) {
 	input := `
 name: Legacy local action
@@ -335,11 +351,26 @@ local_action: shell echo local
 	assert.Equal(t, "echo local", task.Args["_raw_params"])
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_LocalActionKeyValue(t *testing.T) {
+	input := `
+name: Legacy local action with args
+local_action: module=command chdir=/tmp
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.Equal(t, "command", task.Module)
+	assert.Equal(t, "localhost", task.Delegate)
+	require.NotNil(t, task.Args)
+	assert.Equal(t, "/tmp", task.Args["chdir"])
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNested(t *testing.T) {
 	input := `
 name: Nested loop values
 debug:
-  msg: "{{ item.0 }} {{ item.1 }}"
+ msg: "{{ item.0 }} {{ item.1 }}"
 with_nested:
   - - red
     - blue
