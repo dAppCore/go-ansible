@@ -2680,6 +2680,11 @@ func (e *Executor) applyFilter(value, filter string) string {
 		return value
 	}
 
+	// Handle b64encode
+	if filter == "b64encode" {
+		return base64.StdEncoding.EncodeToString([]byte(value))
+	}
+
 	return value
 }
 

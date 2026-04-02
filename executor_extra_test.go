@@ -1049,6 +1049,11 @@ func TestExecutorExtra_ApplyFilter_Good_B64Decode(t *testing.T) {
 	assert.Equal(t, "hello", e.applyFilter("aGVsbG8=", "b64decode"))
 }
 
+func TestExecutorExtra_ApplyFilter_Good_B64Encode(t *testing.T) {
+	e := NewExecutor("/tmp")
+	assert.Equal(t, "aGVsbG8=", e.applyFilter("hello", "b64encode"))
+}
+
 func TestExecutorExtra_ApplyFilter_Good_UnknownFilter(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.Equal(t, "value", e.applyFilter("value", "unknown_filter"))
@@ -1075,4 +1080,12 @@ func TestExecutorExtra_ResolveExpr_Good_WithFilter(t *testing.T) {
 
 	result := e.resolveExpr("raw_value | trim", "host1", nil)
 	assert.Equal(t, "trimmed", result)
+}
+
+func TestExecutorExtra_ResolveExpr_Good_WithB64Encode(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["raw_value"] = "hello"
+
+	result := e.resolveExpr("raw_value | b64encode", "host1", nil)
+	assert.Equal(t, "aGVsbG8=", result)
 }
