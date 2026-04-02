@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -1298,8 +1299,13 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 		}
 		if bodyText != "" {
 			curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
-			if bodyFormat == "json" && !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
-				curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
+			if !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
+				switch bodyFormat {
+				case "json":
+					curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
+				case "form-urlencoded", "form_urlencoded", "form":
+					curlOpts = append(curlOpts, "-H", "\"Content-Type: application/x-www-form-urlencoded\"")
+				}
 			}
 		}
 	}
@@ -1361,8 +1367,83 @@ func renderURIBody(body any, bodyFormat string) (string, error) {
 			}
 			return string(data), nil
 		}
+	case "form-urlencoded", "form_urlencoded", "form":
+		return renderURIBodyFormEncoded(body), nil
 	default:
 		return sprintf("%v", body), nil
+	}
+}
+
+func renderURIBodyFormEncoded(body any) string {
+	values := url.Values{}
+
+	switch v := body.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			appendFormValue(values, key, v[key])
+		}
+	case map[any]any:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			if s, ok := key.(string); ok {
+				keys = append(keys, s)
+			}
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			appendFormValue(values, key, v[key])
+		}
+	case map[string]string:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			values.Add(key, v[key])
+		}
+	case []any:
+		for _, item := range v {
+			if pair, ok := item.(map[string]any); ok {
+				key := getStringArg(pair, "key", "")
+				if key == "" {
+					key = getStringArg(pair, "name", "")
+				}
+				if key != "" {
+					appendFormValue(values, key, pair["value"])
+				}
+			}
+		}
+	case string:
+		return v
+	default:
+		return sprintf("%v", body)
+	}
+
+	return values.Encode()
+}
+
+func appendFormValue(values url.Values, key string, value any) {
+	switch v := value.(type) {
+	case nil:
+		values.Add(key, "")
+	case string:
+		values.Add(key, v)
+	case []string:
+		for _, item := range v {
+			values.Add(key, item)
+		}
+	case []any:
+		for _, item := range v {
+			values.Add(key, sprintf("%v", item))
+		}
+	default:
+		values.Add(key, sprintf("%v", v))
 	}
 }
 

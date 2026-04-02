@@ -1679,8 +1679,13 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 		}
 		if bodyText != "" {
 			curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
-			if bodyFormat == "json" && !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
-				curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
+			if !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
+				switch bodyFormat {
+				case "json":
+					curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
+				case "form-urlencoded", "form_urlencoded", "form":
+					curlOpts = append(curlOpts, "-H", "\"Content-Type: application/x-www-form-urlencoded\"")
+				}
 			}
 		}
 	}
