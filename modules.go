@@ -42,7 +42,11 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		oldBecome, oldUser, oldPass := client.BecomeState()
 
 		if *task.Become {
-			client.SetBecome(true, task.BecomeUser, "")
+			becomePass := oldPass
+			if becomePass == "" {
+				becomePass = e.resolveBecomePassword(host)
+			}
+			client.SetBecome(true, task.BecomeUser, becomePass)
 		} else {
 			client.SetBecome(false, "", "")
 		}
@@ -187,6 +191,26 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		}
 		return nil, coreerr.E("Executor.executeModule", "unsupported module: "+module, nil)
 	}
+}
+
+func (e *Executor) resolveBecomePassword(host string) string {
+	if e == nil {
+		return ""
+	}
+
+	if v, ok := e.vars["ansible_become_password"].(string); ok && v != "" {
+		return v
+	}
+
+	if e.inventory != nil {
+		if hostVars := GetHostVars(e.inventory, host); len(hostVars) > 0 {
+			if v, ok := hostVars["ansible_become_password"].(string); ok && v != "" {
+				return v
+			}
+		}
+	}
+
+	return ""
 }
 
 func remoteFileText(ctx context.Context, client sshExecutorClient, path string) (string, bool) {
