@@ -824,6 +824,7 @@ func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
 			TasksFrom    string         `yaml:"tasks_from,omitempty"`
 			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 			VarsFrom     string         `yaml:"vars_from,omitempty"`
+			HandlersFrom string         `yaml:"handlers_from,omitempty"`
 			Vars         map[string]any `yaml:"vars,omitempty"`
 			Apply        *TaskApply     `yaml:"apply,omitempty"`
 			Public       bool           `yaml:"public,omitempty"`
@@ -878,6 +879,7 @@ func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleDefaults(t *testing.T) {
 			TasksFrom    string         `yaml:"tasks_from,omitempty"`
 			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 			VarsFrom     string         `yaml:"vars_from,omitempty"`
+			HandlersFrom string         `yaml:"handlers_from,omitempty"`
 			Vars         map[string]any `yaml:"vars,omitempty"`
 			Apply        *TaskApply     `yaml:"apply,omitempty"`
 			Public       bool           `yaml:"public,omitempty"`
@@ -936,6 +938,7 @@ func TestExecutorExtra_RunIncludeRole_Good_PublicVarsPersist(t *testing.T) {
 					TasksFrom    string         `yaml:"tasks_from,omitempty"`
 					DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 					VarsFrom     string         `yaml:"vars_from,omitempty"`
+					HandlersFrom string         `yaml:"handlers_from,omitempty"`
 					Vars         map[string]any `yaml:"vars,omitempty"`
 					Apply        *TaskApply     `yaml:"apply,omitempty"`
 					Public       bool           `yaml:"public,omitempty"`

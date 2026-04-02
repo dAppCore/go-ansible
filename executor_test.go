@@ -661,6 +661,7 @@ func TestExecutor_RunIncludeRole_Good_TemplatesRoleName(t *testing.T) {
 			TasksFrom    string         `yaml:"tasks_from,omitempty"`
 			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 			VarsFrom     string         `yaml:"vars_from,omitempty"`
+			HandlersFrom string         `yaml:"handlers_from,omitempty"`
 			Vars         map[string]any `yaml:"vars,omitempty"`
 			Apply        *TaskApply     `yaml:"apply,omitempty"`
 			Public       bool           `yaml:"public,omitempty"`
@@ -799,6 +800,55 @@ func TestExecutor_RunPlay_Good_LoadsRoleHandlers(t *testing.T) {
 	assert.Contains(t, started, "localhost:role handler")
 	require.NotNil(t, e.results["localhost"]["role_handler_result"])
 	assert.Equal(t, "handler ran", e.results["localhost"]["role_handler_result"].Msg)
+}
+
+func TestExecutor_RunRole_Good_UsesCustomRoleHandlersFile(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---
+- name: role task
+  set_fact:
+    role_triggered: true
+  notify: custom role handler
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "handlers", "custom.yml"), []byte(`---
+- name: custom role handler
+  debug:
+    msg: custom handler ran
+  register: custom_role_handler_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Roles: []RoleRef{
+			{Role: "demo", HandlersFrom: "custom.yml"},
+		},
+	}
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.NoError(t, err)
+
+	assert.Contains(t, started, "localhost:role task")
+	assert.Contains(t, started, "localhost:custom role handler")
+	require.NotNil(t, e.results["localhost"]["custom_role_handler_result"])
+	assert.Equal(t, "custom handler ran", e.results["localhost"]["custom_role_handler_result"].Msg)
 }
 
 func TestExecutor_RunPlay_Good_SerialBatchesHosts(t *testing.T) {

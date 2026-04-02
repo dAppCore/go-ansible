@@ -53,6 +53,7 @@ type RoleRef struct {
 	TasksFrom    string         `yaml:"tasks_from,omitempty"`
 	DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 	VarsFrom     string         `yaml:"vars_from,omitempty"`
+	HandlersFrom string         `yaml:"handlers_from,omitempty"`
 	Vars         map[string]any `yaml:"vars,omitempty"`
 	Apply        *TaskApply     `yaml:"apply,omitempty"`
 	Public       bool           `yaml:"public,omitempty"`
@@ -133,6 +134,7 @@ type Task struct {
 		TasksFrom    string         `yaml:"tasks_from,omitempty"`
 		DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 		VarsFrom     string         `yaml:"vars_from,omitempty"`
+		HandlersFrom string         `yaml:"handlers_from,omitempty"`
 		Vars         map[string]any `yaml:"vars,omitempty"`
 		Apply        *TaskApply     `yaml:"apply,omitempty"`
 		Public       bool           `yaml:"public,omitempty"`
@@ -142,6 +144,7 @@ type Task struct {
 		TasksFrom    string         `yaml:"tasks_from,omitempty"`
 		DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 		VarsFrom     string         `yaml:"vars_from,omitempty"`
+		HandlersFrom string         `yaml:"handlers_from,omitempty"`
 		Vars         map[string]any `yaml:"vars,omitempty"`
 		Apply        *TaskApply     `yaml:"apply,omitempty"`
 		Public       bool           `yaml:"public,omitempty"`

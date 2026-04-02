@@ -582,6 +582,7 @@ include_role:
   tasks_from: setup.yml
   defaults_from: defaults.yml
   vars_from: vars.yml
+  handlers_from: handlers.yml
   public: true
   apply:
     tags:
@@ -600,6 +601,7 @@ include_role:
 	assert.Equal(t, "setup.yml", task.IncludeRole.TasksFrom)
 	assert.Equal(t, "defaults.yml", task.IncludeRole.DefaultsFrom)
 	assert.Equal(t, "vars.yml", task.IncludeRole.VarsFrom)
+	assert.Equal(t, "handlers.yml", task.IncludeRole.HandlersFrom)
 	assert.True(t, task.IncludeRole.Public)
 	require.NotNil(t, task.IncludeRole.Apply)
 	assert.Equal(t, []string{"deploy"}, task.IncludeRole.Apply.Tags)

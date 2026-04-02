@@ -440,7 +440,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 		e.vars = oldVars
 		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
 	}
-	if err := e.attachRoleHandlers(roleRef.Role, play); err != nil {
+	if err := e.attachRoleHandlers(roleRef.Role, roleRef.HandlersFrom, play); err != nil {
 		e.vars = oldVars
 		return coreerr.E("executor.runRole", sprintf("load handlers for role %s", roleRef.Role), err)
 	}
@@ -494,7 +494,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	return nil
 }
 
-func (e *Executor) attachRoleHandlers(roleName string, play *Play) error {
+func (e *Executor) attachRoleHandlers(roleName, handlersFrom string, play *Play) error {
 	if play == nil || roleName == "" {
 		return nil
 	}
@@ -502,12 +502,16 @@ func (e *Executor) attachRoleHandlers(roleName string, play *Play) error {
 		e.loadedRoleHandlers = make(map[string]bool)
 	}
 
-	key := roleName + "|handlers/main.yml"
+	if handlersFrom == "" {
+		handlersFrom = "main.yml"
+	}
+
+	key := roleName + "|handlers/" + handlersFrom
 	if e.loadedRoleHandlers[key] {
 		return nil
 	}
 
-	handlers, err := e.parser.loadRoleHandlers(roleName, "main.yml")
+	handlers, err := e.parser.loadRoleHandlers(roleName, handlersFrom)
 	if err != nil {
 		return err
 	}
@@ -1705,6 +1709,7 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 	}
 
 	var roleName, tasksFrom, defaultsFrom, varsFrom string
+	var handlersFrom string
 	var roleVars map[string]any
 	var apply *TaskApply
 
@@ -1713,6 +1718,7 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		tasksFrom = task.IncludeRole.TasksFrom
 		defaultsFrom = task.IncludeRole.DefaultsFrom
 		varsFrom = task.IncludeRole.VarsFrom
+		handlersFrom = task.IncludeRole.HandlersFrom
 		roleVars = task.IncludeRole.Vars
 		apply = task.IncludeRole.Apply
 	} else if task.ImportRole != nil {
@@ -1720,6 +1726,7 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		tasksFrom = task.ImportRole.TasksFrom
 		defaultsFrom = task.ImportRole.DefaultsFrom
 		varsFrom = task.ImportRole.VarsFrom
+		handlersFrom = task.ImportRole.HandlersFrom
 		roleVars = task.ImportRole.Vars
 		apply = task.ImportRole.Apply
 	} else {
@@ -1736,6 +1743,7 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		TasksFrom:    e.templateString(tasksFrom, host, task),
 		DefaultsFrom: e.templateString(defaultsFrom, host, task),
 		VarsFrom:     e.templateString(varsFrom, host, task),
+		HandlersFrom: e.templateString(handlersFrom, host, task),
 		Vars:         renderedVars,
 		Apply:        apply,
 		Public:       task.IncludeRole != nil && task.IncludeRole.Public || task.ImportRole != nil && task.ImportRole.Public,
