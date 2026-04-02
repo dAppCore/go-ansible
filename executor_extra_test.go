@@ -504,13 +504,13 @@ func TestExecutorExtra_HandleLookup_Good_EnvVar(t *testing.T) {
 	e := NewExecutor("/tmp")
 	t.Setenv("TEST_ANSIBLE_LOOKUP", "found_it")
 
-	result := e.handleLookup("lookup('env', 'TEST_ANSIBLE_LOOKUP')")
+	result := e.handleLookup("lookup('env', 'TEST_ANSIBLE_LOOKUP')", "", nil)
 	assert.Equal(t, "found_it", result)
 }
 
 func TestExecutorExtra_HandleLookup_Good_EnvVarMissing(t *testing.T) {
 	e := NewExecutor("/tmp")
-	result := e.handleLookup("lookup('env', 'NONEXISTENT_VAR_12345')")
+	result := e.handleLookup("lookup('env', 'NONEXISTENT_VAR_12345')", "", nil)
 	assert.Equal(t, "", result)
 }
 
@@ -519,14 +519,23 @@ func TestExecutorExtra_HandleLookup_Good_FileLookupResolvesBasePath(t *testing.T
 	require.NoError(t, writeTestFile(joinPath(dir, "vars.txt"), []byte("from base path"), 0644))
 
 	e := NewExecutor(dir)
-	result := e.handleLookup("lookup('file', 'vars.txt')")
+	result := e.handleLookup("lookup('file', 'vars.txt')", "", nil)
 
 	assert.Equal(t, "from base path", result)
 }
 
+func TestExecutorExtra_HandleLookup_Good_VarsLookup(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetVar("lookup_value", "resolved from vars")
+
+	result := e.handleLookup("lookup('vars', 'lookup_value')", "", nil)
+
+	assert.Equal(t, "resolved from vars", result)
+}
+
 func TestExecutorExtra_HandleLookup_Bad_InvalidSyntax(t *testing.T) {
 	e := NewExecutor("/tmp")
-	result := e.handleLookup("lookup(invalid)")
+	result := e.handleLookup("lookup(invalid)", "", nil)
 	assert.Equal(t, "", result)
 }
 

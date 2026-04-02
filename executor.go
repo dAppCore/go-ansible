@@ -2440,7 +2440,7 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 
 	// Handle lookups
 	if corexHasPrefix(expr, "lookup(") {
-		return e.handleLookup(expr)
+		return e.handleLookup(expr, host, task)
 	}
 
 	// Handle registered vars
@@ -2753,7 +2753,7 @@ func isUnresolvedTemplateValue(value string) bool {
 }
 
 // handleLookup handles lookup() expressions.
-func (e *Executor) handleLookup(expr string) string {
+func (e *Executor) handleLookup(expr string, host string, task *Task) string {
 	// Parse lookup('type', 'arg')
 	re := regexp.MustCompile(`lookup\s*\(\s*['"](\w+)['"]\s*,\s*['"]([^'"]+)['"]\s*`)
 	match := re.FindStringSubmatch(expr)
@@ -2770,6 +2770,10 @@ func (e *Executor) handleLookup(expr string) string {
 	case "file":
 		if data, err := coreio.Local.Read(e.resolveLocalPath(arg)); err == nil {
 			return data
+		}
+	case "vars":
+		if value, ok := e.lookupConditionValue(arg, host, task, nil); ok {
+			return sprintf("%v", value)
 		}
 	}
 
