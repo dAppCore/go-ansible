@@ -274,6 +274,27 @@ func TestExecutor_RunTaskOnHost_Good_DelegateToUsesDelegatedClient(t *testing.T)
 	assert.Equal(t, 1, mock.commandCount())
 }
 
+func TestExecutor_RunTaskOnHost_Good_DelegateToTemplatesInventoryHostname(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	e.clients["host1-delegate"] = mock
+	mock.expectCommand(`echo templated`, "templated", "", 0)
+
+	task := &Task{
+		Name:     "Templated delegate",
+		Module:   "shell",
+		Args:     map[string]any{"_raw_params": "echo templated"},
+		Delegate: "{{ inventory_hostname }}-delegate",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	assert.True(t, mock.hasExecuted(`echo templated`))
+	_, leaked := e.vars["inventory_hostname"]
+	assert.False(t, leaked)
+}
+
 func TestExecutor_RunTaskOnHost_Good_ActionAliasExecutesCommand(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo action-alias`, "action-alias", "", 0)

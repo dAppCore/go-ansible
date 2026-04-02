@@ -612,6 +612,19 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	}
 
 	start := time.Now()
+	e.mu.Lock()
+	oldInventoryHostname, hadInventoryHostname := e.vars["inventory_hostname"]
+	e.vars["inventory_hostname"] = host
+	e.mu.Unlock()
+	defer func() {
+		e.mu.Lock()
+		if hadInventoryHostname {
+			e.vars["inventory_hostname"] = oldInventoryHostname
+		} else {
+			delete(e.vars, "inventory_hostname")
+		}
+		e.mu.Unlock()
+	}()
 
 	if e.OnTaskStart != nil {
 		e.OnTaskStart(host, task)
