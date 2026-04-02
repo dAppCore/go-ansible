@@ -363,7 +363,9 @@ var KnownModules = []string{
 // fully-qualified collection names.
 var ModuleAliases = map[string]string{
 	"authorized_key":                 "ansible.posix.authorized_key",
+	"ansible.builtin.authorized_key": "ansible.posix.authorized_key",
 	"ufw":                            "community.general.ufw",
+	"ansible.builtin.ufw":            "community.general.ufw",
 	"docker_compose":                 "community.docker.docker_compose",
 	"docker_compose_v2":              "community.docker.docker_compose_v2",
 	"ansible.builtin.docker_compose": "community.docker.docker_compose",

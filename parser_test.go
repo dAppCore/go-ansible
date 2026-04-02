@@ -846,7 +846,9 @@ func TestParser_NormalizeModule_Good(t *testing.T) {
 
 func TestParser_NormalizeModule_Good_CommunityAliases(t *testing.T) {
 	assert.Equal(t, "ansible.posix.authorized_key", NormalizeModule("authorized_key"))
+	assert.Equal(t, "ansible.posix.authorized_key", NormalizeModule("ansible.builtin.authorized_key"))
 	assert.Equal(t, "community.general.ufw", NormalizeModule("ufw"))
+	assert.Equal(t, "community.general.ufw", NormalizeModule("ansible.builtin.ufw"))
 	assert.Equal(t, "community.docker.docker_compose", NormalizeModule("docker_compose"))
 	assert.Equal(t, "community.docker.docker_compose_v2", NormalizeModule("docker_compose_v2"))
 	assert.Equal(t, "community.docker.docker_compose", NormalizeModule("ansible.builtin.docker_compose"))

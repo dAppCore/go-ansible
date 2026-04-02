@@ -1482,6 +1482,27 @@ func TestModulesAdv_ModuleUFW_Good_LoggingMode(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`ufw logging high`))
 }
 
+func TestModulesAdv_ModuleUFW_Good_BuiltinAliasDispatch(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	mock.expectCommand(`ufw --force enable`, "", "", 0)
+
+	task := &Task{
+		Module: "ansible.builtin.ufw",
+		Args: map[string]any{
+			"state": "enabled",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`ufw --force enable`))
+}
+
 func TestModulesAdv_ModuleUFW_Good_StateCommandFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw --force enable`, "", "ERROR: problem running ufw", 1)
