@@ -905,6 +905,32 @@ func TestModulesFile_ModuleTemplate_Good_AnsibleFactsMapTemplate(t *testing.T) {
 	assert.Contains(t, string(up.Content), "host=web01")
 }
 
+func TestModulesFile_ModuleTemplate_Good_TaskVarsAndHostMagicVars(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "context.conf.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("short={{ inventory_hostname_short }} local={{ local_value }}"), 0644))
+
+	e, mock := newTestExecutorWithMock("web01.example.com")
+	task := &Task{
+		Vars: map[string]any{
+			"local_value": "from-task",
+		},
+	}
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":  srcPath,
+		"dest": "/etc/app/context.conf",
+	}, "web01.example.com", task)
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Contains(t, string(up.Content), "short=web01")
+	assert.Contains(t, string(up.Content), "local=from-task")
+}
+
 func TestModulesFile_ModuleTemplate_Good_CustomMode(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcPath := joinPath(tmpDir, "script.sh.j2")

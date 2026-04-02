@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
 	coreio "dappco.re/go/core/io"
@@ -3631,49 +3630,5 @@ func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 		return "", err
 	}
 
-	// Convert Jinja2 to Go template syntax (basic conversion)
-	tmplContent := content
-	tmplContent = replaceAll(tmplContent, "{{", "{{ .")
-	tmplContent = replaceAll(tmplContent, "{%", "{{")
-	tmplContent = replaceAll(tmplContent, "%}", "}}")
-
-	tmpl, err := template.New("template").Parse(tmplContent)
-	if err != nil {
-		// Fall back to simple replacement
-		return e.templateString(content, host, task), nil
-	}
-
-	// Build context map
-	context := make(map[string]any)
-	for k, v := range e.vars {
-		context[k] = v
-	}
-	// Add host vars
-	if e.inventory != nil {
-		hostVars := GetHostVars(e.inventory, host)
-		for k, v := range hostVars {
-			context[k] = v
-		}
-	}
-	// Add facts
-	if facts, ok := e.facts[host]; ok {
-		context["ansible_facts"] = factsToMap(facts)
-		context["ansible_hostname"] = facts.Hostname
-		context["ansible_fqdn"] = facts.FQDN
-		context["ansible_os_family"] = facts.OS
-		context["ansible_memtotal_mb"] = facts.Memory
-		context["ansible_processor_vcpus"] = facts.CPUs
-		context["ansible_default_ipv4_address"] = facts.IPv4
-		context["ansible_distribution"] = facts.Distribution
-		context["ansible_distribution_version"] = facts.Version
-		context["ansible_architecture"] = facts.Architecture
-		context["ansible_kernel"] = facts.Kernel
-	}
-
-	buf := newBuilder()
-	if err := tmpl.Execute(buf, context); err != nil {
-		return e.templateString(content, host, task), nil
-	}
-
-	return buf.String(), nil
+	return e.templateString(content, host, task), nil
 }
