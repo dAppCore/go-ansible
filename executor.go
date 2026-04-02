@@ -911,7 +911,7 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 		}
 	}
 	var savedLoopMeta any
-	if task.LoopControl != nil && task.LoopControl.Extended {
+	if task.LoopControl != nil && (task.LoopControl.Extended || task.LoopControl.Label != "") {
 		if v, ok := e.vars["ansible_loop"]; ok {
 			savedLoopMeta = v
 		}
@@ -924,30 +924,31 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 		if indexVar != "" {
 			e.vars[indexVar] = i
 		}
-		if task.LoopControl != nil && task.LoopControl.Extended {
-			var prevItem any
-			if i > 0 {
-				prevItem = items[i-1]
-			}
-			var nextItem any
-			if i+1 < len(items) {
-				nextItem = items[i+1]
-			}
-			loopMeta := map[string]any{
-				"index":     i + 1,
-				"index0":    i,
-				"first":     i == 0,
-				"last":      i == len(items)-1,
-				"length":    len(items),
-				"revindex":  len(items) - i,
-				"revindex0": len(items) - i - 1,
-				"allitems":  append([]any(nil), items...),
-			}
-			if prevItem != nil {
-				loopMeta["previtem"] = prevItem
-			}
-			if nextItem != nil {
-				loopMeta["nextitem"] = nextItem
+		if task.LoopControl != nil && (task.LoopControl.Extended || task.LoopControl.Label != "") {
+			loopMeta := map[string]any{}
+			if task.LoopControl.Extended {
+				var prevItem any
+				if i > 0 {
+					prevItem = items[i-1]
+				}
+				var nextItem any
+				if i+1 < len(items) {
+					nextItem = items[i+1]
+				}
+				loopMeta["index"] = i + 1
+				loopMeta["index0"] = i
+				loopMeta["first"] = i == 0
+				loopMeta["last"] = i == len(items)-1
+				loopMeta["length"] = len(items)
+				loopMeta["revindex"] = len(items) - i
+				loopMeta["revindex0"] = len(items) - i - 1
+				loopMeta["allitems"] = append([]any(nil), items...)
+				if prevItem != nil {
+					loopMeta["previtem"] = prevItem
+				}
+				if nextItem != nil {
+					loopMeta["nextitem"] = nextItem
+				}
 			}
 			if task.LoopControl.Label != "" {
 				loopMeta["label"] = e.templateString(task.LoopControl.Label, host, task)
@@ -991,7 +992,7 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 			delete(e.vars, indexVar)
 		}
 	}
-	if task.LoopControl != nil && task.LoopControl.Extended {
+	if task.LoopControl != nil && (task.LoopControl.Extended || task.LoopControl.Label != "") {
 		if savedLoopMeta != nil {
 			e.vars["ansible_loop"] = savedLoopMeta
 		} else {
