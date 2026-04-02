@@ -1658,6 +1658,8 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	method := getStringArg(args, "method", "GET")
 	bodyFormat := lower(getStringArg(args, "body_format", ""))
 	returnContent := getBoolArg(args, "return_content", false)
+	timeout := getIntArg(args, "timeout", 0)
+	validateCerts := getBoolArg(args, "validate_certs", true)
 
 	if url == "" {
 		return nil, mockError("moduleURIWithClient", "uri: url required")
@@ -1672,6 +1674,10 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 		for k, v := range headers {
 			curlOpts = append(curlOpts, "-H", sprintf("%q", sprintf("%s: %v", k, v)))
 		}
+	}
+
+	if !validateCerts {
+		curlOpts = append(curlOpts, "-k")
 	}
 
 	// Body
@@ -1691,6 +1697,10 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 				}
 			}
 		}
+	}
+
+	if timeout > 0 {
+		curlOpts = append(curlOpts, "--max-time", strconv.Itoa(timeout))
 	}
 
 	// Status code

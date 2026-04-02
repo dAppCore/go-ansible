@@ -1370,6 +1370,23 @@ func TestModulesAdv_ModuleURI_Good_JSONBodyFormat(t *testing.T) {
 	assert.True(t, mock.containsSubstring("Content-Type: application/json"))
 }
 
+func TestModulesAdv_ModuleURI_Good_TimeoutAndInsecureSkipVerify(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl`, "OK\n200", "", 0)
+
+	result, err := moduleURIWithClient(e, mock, map[string]any{
+		"url":            "https://insecure.example.com/health",
+		"timeout":        15,
+		"validate_certs": false,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, 200, result.RC)
+	assert.True(t, mock.containsSubstring("-k"))
+	assert.True(t, mock.containsSubstring("--max-time 15"))
+}
+
 func TestModulesAdv_ModuleURI_Good_MultipleExpectedStatuses(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "\n202", "", 0)

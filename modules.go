@@ -1277,6 +1277,8 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	method := getStringArg(args, "method", "GET")
 	bodyFormat := lower(getStringArg(args, "body_format", ""))
 	returnContent := getBoolArg(args, "return_content", false)
+	timeout := getIntArg(args, "timeout", 0)
+	validateCerts := getBoolArg(args, "validate_certs", true)
 
 	if url == "" {
 		return nil, coreerr.E("Executor.moduleURI", "url required", nil)
@@ -1291,6 +1293,10 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 		for k, v := range headers {
 			curlOpts = append(curlOpts, "-H", sprintf("%q", sprintf("%s: %v", k, v)))
 		}
+	}
+
+	if !validateCerts {
+		curlOpts = append(curlOpts, "-k")
 	}
 
 	// Body
@@ -1310,6 +1316,10 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 				}
 			}
 		}
+	}
+
+	if timeout > 0 {
+		curlOpts = append(curlOpts, "--max-time", strconv.Itoa(timeout))
 	}
 
 	// Status code
