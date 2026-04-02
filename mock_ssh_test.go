@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"path"
 	"regexp"
 	"strconv"
 	"sync"
@@ -1330,15 +1331,50 @@ func modulePipWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	name := getStringArg(args, "name", "")
 	state := getStringArg(args, "state", "present")
 	executable := getStringArg(args, "executable", "pip3")
+	virtualenv := getStringArg(args, "virtualenv", "")
+	requirements := getStringArg(args, "requirements", "")
+	extraArgs := getStringArg(args, "extra_args", "")
+
+	if virtualenv != "" && executable == "pip3" {
+		executable = path.Join(virtualenv, "bin", "pip")
+	}
 
 	var cmd string
 	switch state {
 	case "present", "installed":
-		cmd = sprintf("%s install %s", executable, name)
+		parts := []string{executable, "install"}
+		if extraArgs != "" {
+			parts = append(parts, extraArgs)
+		}
+		switch {
+		case requirements != "":
+			parts = append(parts, sprintf("-r %q", requirements))
+		case name != "":
+			parts = append(parts, name)
+		}
+		cmd = join(" ", parts)
 	case "absent", "removed":
-		cmd = sprintf("%s uninstall -y %s", executable, name)
+		if name != "" {
+			parts := []string{executable, "uninstall", "-y"}
+			if extraArgs != "" {
+				parts = append(parts, extraArgs)
+			}
+			parts = append(parts, name)
+			cmd = join(" ", parts)
+		}
 	case "latest":
-		cmd = sprintf("%s install --upgrade %s", executable, name)
+		if name != "" {
+			parts := []string{executable, "install", "--upgrade"}
+			if extraArgs != "" {
+				parts = append(parts, extraArgs)
+			}
+			parts = append(parts, name)
+			cmd = join(" ", parts)
+		}
+	}
+
+	if cmd == "" {
+		return &TaskResult{Changed: false}, nil
 	}
 
 	stdout, stderr, rc, err := client.Run(context.Background(), cmd)

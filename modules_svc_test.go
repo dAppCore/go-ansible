@@ -859,6 +859,36 @@ func TestModulesSvc_ModulePip_Good_CustomExecutable(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`/opt/venv/bin/pip install requests`))
 }
 
+func TestModulesSvc_ModulePip_Good_RequirementsFile(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`pip3 install -r "/tmp/requirements.txt"`, "", "", 0)
+
+	result, err := modulePipWithClient(e, mock, map[string]any{
+		"requirements": "/tmp/requirements.txt",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`pip3 install -r "/tmp/requirements.txt"`))
+}
+
+func TestModulesSvc_ModulePip_Good_VirtualenvUsesVenvPip(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`/opt/venv/bin/pip install requests`, "", "", 0)
+
+	result, err := modulePipWithClient(e, mock, map[string]any{
+		"name":       "requests",
+		"state":      "present",
+		"virtualenv": "/opt/venv",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`/opt/venv/bin/pip install requests`))
+}
+
 func TestModulesSvc_ModulePip_Good_DefaultStateIsPresent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install django`, "", "", 0)
