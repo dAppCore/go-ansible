@@ -1605,6 +1605,21 @@ func TestModulesAdv_ModuleDockerCompose_Good_StateAbsent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`docker compose down`))
 }
 
+func TestModulesAdv_ModuleDockerCompose_Good_StateStopped(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`docker compose stop`, "Stopping container_1\n", "", 0)
+
+	result, err := moduleDockerComposeWithClient(e, mock, map[string]any{
+		"project_src": "/opt/myapp",
+		"state":       "stopped",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`docker compose stop`))
+}
+
 func TestModulesAdv_ModuleDockerCompose_Good_AlreadyUpToDate(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose up -d`, "Container myapp-web-1  Up to date\n", "", 0)

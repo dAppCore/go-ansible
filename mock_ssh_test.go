@@ -1823,6 +1823,8 @@ func moduleDockerComposeWithClient(_ *Executor, client sshRunner, args map[strin
 		cmd = sprintf("cd %q && docker compose up -d", projectSrc)
 	case "absent":
 		cmd = sprintf("cd %q && docker compose down", projectSrc)
+	case "stopped":
+		cmd = sprintf("cd %q && docker compose stop", projectSrc)
 	case "restarted":
 		cmd = sprintf("cd %q && docker compose restart", projectSrc)
 	default:
