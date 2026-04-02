@@ -1729,6 +1729,14 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 			}
 			return &TaskResult{Changed: false}, nil
+		case "drained":
+			cmd := sprintf("timeout %d bash -c 'until ! ss -Htan state established \"( sport = :%d or dport = :%d )\" | grep -q .; do sleep 1; done'",
+				timeout, port, port)
+			stdout, stderr, rc, err := client.Run(ctx, cmd)
+			if err != nil || rc != 0 {
+				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+			}
+			return &TaskResult{Changed: false}, nil
 		}
 	}
 

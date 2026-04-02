@@ -969,6 +969,24 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortStopped(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`until ! nc -z 127.0.0.1 8080`))
 }
 
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortDrained(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`timeout 2 bash -c 'until ! ss -Htan state established`, "", "", 0)
+
+	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
+		"host":    "127.0.0.1",
+		"port":    8080,
+		"state":   "drained",
+		"timeout": 2,
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`ss -Htan state established`))
+}
+
 // --- include_vars module ---
 
 func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *testing.T) {
