@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"maps"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -188,6 +189,82 @@ func (e *Executor) hostScopedVars(host string) map[string]any {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func inventoryHostnameShort(host string) string {
+	host = corexTrimSpace(host)
+	if host == "" {
+		return ""
+	}
+
+	short, _, ok := strings.Cut(host, ".")
+	if ok && short != "" {
+		return short
+	}
+	return host
+}
+
+func (e *Executor) hostMagicVars(host string) map[string]any {
+	values := map[string]any{
+		"inventory_hostname":       host,
+		"inventory_hostname_short": inventoryHostnameShort(host),
+	}
+
+	if e != nil && e.inventory != nil {
+		if groupNames := hostGroupNames(e.inventory.All, host); len(groupNames) > 0 {
+			values["group_names"] = groupNames
+		}
+	}
+	if e != nil {
+		if facts, ok := e.facts[host]; ok {
+			values["ansible_facts"] = factsToMap(facts)
+		}
+	}
+
+	return values
+}
+
+func hostGroupNames(group *InventoryGroup, host string) []string {
+	if group == nil || host == "" {
+		return nil
+	}
+
+	names := make(map[string]bool)
+	collectHostGroupNames(group, host, "", names)
+	if len(names) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(names))
+	for name := range names {
+		result = append(result, name)
+	}
+	slices.Sort(result)
+	return result
+}
+
+func collectHostGroupNames(group *InventoryGroup, host, name string, names map[string]bool) bool {
+	if group == nil {
+		return false
+	}
+
+	found := false
+	if _, ok := group.Hosts[host]; ok {
+		found = true
+	}
+
+	childNames := slices.Sorted(maps.Keys(group.Children))
+	for _, childName := range childNames {
+		if collectHostGroupNames(group.Children[childName], host, childName, names) {
+			found = true
+		}
+	}
+
+	if found && name != "" {
+		names[name] = true
+	}
+
+	return found
 }
 
 // Run executes a playbook.
@@ -2431,6 +2508,10 @@ func isConditionBoundary(ch byte) bool {
 func (e *Executor) lookupConditionValue(name string, host string, task *Task, locals map[string]any) (any, bool) {
 	name = corexTrimSpace(name)
 
+	if value, ok := e.hostMagicVars(host)[name]; ok {
+		return value, true
+	}
+
 	if locals != nil {
 		if val, ok := locals[name]; ok {
 			return val, true
@@ -2479,13 +2560,10 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 	}
 
-	if name == "ansible_facts" {
-		if facts, ok := e.facts[host]; ok {
+	if facts, ok := e.facts[host]; ok {
+		if name == "ansible_facts" {
 			return factsToMap(facts), true
 		}
-	}
-
-	if facts, ok := e.facts[host]; ok {
 		switch name {
 		case "ansible_hostname":
 			return facts.Hostname, true
@@ -2514,6 +2592,12 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		parts := splitN(name, ".", 2)
 		base := parts[0]
 		path := parts[1]
+
+		if magic, ok := e.hostMagicVars(host)[base]; ok {
+			if nested, ok := lookupNestedValue(magic, path); ok {
+				return nested, true
+			}
+		}
 
 		if locals != nil {
 			if val, ok := locals[base]; ok {
@@ -2705,6 +2789,10 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 				return sprintf("%t", result.Failed)
 			}
 		}
+	}
+
+	if value, ok := e.hostMagicVars(host)[expr]; ok {
+		return sprintf("%v", value)
 	}
 
 	// Resolve nested maps from vars, task vars, or host vars.

@@ -1843,6 +1843,48 @@ func TestExecutor_TemplateString_Good_NoTemplate(t *testing.T) {
 	assert.Equal(t, "plain string", result)
 }
 
+func TestExecutor_TemplateString_Good_InventoryHostnameShort(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := e.templateString("{{ inventory_hostname_short }}", "web01.example.com", nil)
+
+	assert.Equal(t, "web01", result)
+}
+
+func TestExecutor_TemplateString_Good_GroupNames(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Children: map[string]*InventoryGroup{
+				"production": {
+					Hosts: map[string]*Host{
+						"web01.example.com": {},
+					},
+				},
+				"web": {
+					Children: map[string]*InventoryGroup{
+						"frontend": {
+							Hosts: map[string]*Host{
+								"web01.example.com": {},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	result := e.templateString("{{ group_names }}", "web01.example.com", nil)
+
+	assert.Equal(t, "[frontend production web]", result)
+}
+
+func TestExecutor_EvalCondition_Good_InventoryHostnameShort(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	assert.True(t, e.evalCondition("inventory_hostname_short == 'web01'", "web01.example.com"))
+}
+
 // --- applyFilter ---
 
 func TestExecutor_ApplyFilter_Good_Default(t *testing.T) {
