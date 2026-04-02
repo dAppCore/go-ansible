@@ -110,7 +110,7 @@ go-ansible/
   types.go          Core data types: Playbook, Play, Task, Inventory, Host, Facts
   parser.go         YAML parser for playbooks, inventories, tasks, roles
   executor.go       Execution engine: module dispatch, templating, conditions, loops
-  modules.go        41 module implementations (shell, apt, docker-compose, etc.)
+  modules.go        49 module implementations (shell, apt, docker-compose, setup, etc.)
   ssh.go            SSH client with key/password auth, become/sudo, file transfer
   types_test.go     Tests for data types and YAML unmarshalling
   parser_test.go    Tests for the YAML parser
@@ -126,7 +126,7 @@ go-ansible/
 
 ## Supported Modules
 
-43 module handlers are implemented, covering the most commonly used Ansible modules:
+49 module handlers are implemented, covering the most commonly used Ansible modules:
 
 | Category | Modules |
 |----------|---------|
