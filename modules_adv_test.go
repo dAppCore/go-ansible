@@ -1383,6 +1383,27 @@ func TestModulesAdv_ModuleUFW_Good_LimitRule(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`ufw limit 22/tcp`))
 }
 
+func TestModulesAdv_ModuleUFW_Good_LoggingMode(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	mock.expectCommand(`ufw logging high`, "Logging enabled\n", "", 0)
+
+	task := &Task{
+		Module: "community.general.ufw",
+		Args: map[string]any{
+			"logging": "high",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`ufw logging high`))
+}
+
 func TestModulesAdv_ModuleUFW_Good_StateCommandFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw --force enable`, "", "ERROR: problem running ufw", 1)

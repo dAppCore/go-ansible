@@ -2734,8 +2734,19 @@ func (e *Executor) moduleUFW(ctx context.Context, client sshExecutorClient, args
 	port := getStringArg(args, "port", "")
 	proto := getStringArg(args, "proto", "tcp")
 	state := getStringArg(args, "state", "")
+	logging := getStringArg(args, "logging", "")
 
 	var cmd string
+
+	// Handle logging configuration.
+	if logging != "" {
+		cmd = sprintf("ufw logging %s", logging)
+		stdout, stderr, rc, err := client.Run(ctx, cmd)
+		if err != nil || rc != 0 {
+			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		}
+		return &TaskResult{Changed: true}, nil
+	}
 
 	// Handle state (enable/disable)
 	if state != "" {
