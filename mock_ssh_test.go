@@ -1,12 +1,14 @@
 package ansible
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"io/fs"
 	"regexp"
 	"strconv"
 	"sync"
+	"time"
 
 	core "dappco.re/go/core"
 )
@@ -626,6 +628,7 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 		return nil, mockError("moduleCopyWithClient", "copy: dest required")
 	}
 	force := getBoolArg(args, "force", true)
+	backup := getBoolArg(args, "backup", false)
 	remoteSrc := getBoolArg(args, "remote_src", false)
 
 	var content []byte
@@ -666,6 +669,14 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 		}
 	}
 
+	var backupPath string
+	if backup && hasBefore {
+		backupPath = sprintf("%s.%s.bak", dest, time.Now().UTC().Format("20060102T150405Z"))
+		if err := client.Upload(context.Background(), bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+			return nil, err
+		}
+	}
+
 	err = client.Upload(context.Background(), newReader(string(content)), dest, mode)
 	if err != nil {
 		return nil, err
@@ -680,13 +691,17 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 	}
 
 	result := &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
 	if e.Diff && hasBefore {
-		result.Data = map[string]any{
-			"diff": map[string]any{
-				"path":   dest,
-				"before": before,
-				"after":  string(content),
-			},
+		if result.Data == nil {
+			result.Data = make(map[string]any)
+		}
+		result.Data["diff"] = map[string]any{
+			"path":   dest,
+			"before": before,
+			"after":  string(content),
 		}
 	}
 	return result, nil
@@ -699,6 +714,7 @@ func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string
 		return nil, mockError("moduleTemplateWithClient", "template: src and dest required")
 	}
 	force := getBoolArg(args, "force", true)
+	backup := getBoolArg(args, "backup", false)
 
 	// Process template
 	content, err := e.TemplateFile(src, host, task)
@@ -721,19 +737,31 @@ func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string
 		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
 	}
 
+	var backupPath string
+	if backup && hasBefore {
+		backupPath = sprintf("%s.%s.bak", dest, time.Now().UTC().Format("20060102T150405Z"))
+		if err := client.Upload(context.Background(), bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+			return nil, err
+		}
+	}
+
 	err = client.Upload(context.Background(), newReader(content), dest, mode)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
 	if e.Diff && hasBefore {
-		result.Data = map[string]any{
-			"diff": map[string]any{
-				"path":   dest,
-				"before": before,
-				"after":  content,
-			},
+		if result.Data == nil {
+			result.Data = make(map[string]any)
+		}
+		result.Data["diff"] = map[string]any{
+			"path":   dest,
+			"before": before,
+			"after":  content,
 		}
 	}
 	return result, nil

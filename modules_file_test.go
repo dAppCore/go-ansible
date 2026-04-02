@@ -194,6 +194,29 @@ func TestModulesFile_ModuleCopy_Good_ForceFalseSkipsExistingDest(t *testing.T) {
 	assert.Contains(t, result.Msg, "skipped existing destination")
 }
 
+func TestModulesFile_ModuleCopy_Good_BackupExistingDest(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/app/config", []byte("server_name=old"))
+
+	result, err := moduleCopyWithClient(e, mock, map[string]any{
+		"content": "server_name=new",
+		"dest":    "/etc/app/config",
+		"backup":  true,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	require.NotNil(t, result.Data)
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/app/config.")
+	assert.Equal(t, 2, mock.uploadCount())
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("server_name=old"), backupContent)
+}
+
 // --- file module ---
 
 func TestModulesFile_ModuleFile_Good_StateDirectory(t *testing.T) {
@@ -807,6 +830,33 @@ func TestModulesFile_ModuleTemplate_Good_ForceFalseSkipsExistingDest(t *testing.
 	assert.False(t, result.Changed)
 	assert.Equal(t, 0, mock.uploadCount())
 	assert.Contains(t, result.Msg, "skipped existing destination")
+}
+
+func TestModulesFile_ModuleTemplate_Good_BackupExistingDest(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "config.tmpl")
+	require.NoError(t, writeTestFile(srcPath, []byte("server_name={{ inventory_hostname }}"), 0644))
+
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/app/config", []byte("server_name=old"))
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":    srcPath,
+		"dest":   "/etc/app/config",
+		"backup": true,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	require.NotNil(t, result.Data)
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/app/config.")
+	assert.Equal(t, 2, mock.uploadCount())
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("server_name=old"), backupContent)
 }
 
 func TestModulesFile_ModuleTemplate_Bad_MissingSrc(t *testing.T) {

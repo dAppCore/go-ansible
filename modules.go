@@ -2,6 +2,7 @@ package ansible
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -188,6 +189,20 @@ func fileDiffData(path, before, after string) map[string]any {
 		"before": before,
 		"after":  after,
 	}
+}
+
+func backupRemoteFile(ctx context.Context, client sshExecutorClient, path string) (string, bool, error) {
+	before, ok := remoteFileText(ctx, client, path)
+	if !ok {
+		return "", false, nil
+	}
+
+	backupPath := sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
+	if err := client.Upload(ctx, bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+		return "", true, err
+	}
+
+	return backupPath, true, nil
 }
 
 // templateArgs templates all string values in args.
@@ -438,6 +453,7 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 		return nil, coreerr.E("Executor.moduleCopy", "dest required", nil)
 	}
 	force := getBoolArg(args, "force", true)
+	backup := getBoolArg(args, "backup", false)
 	remoteSrc := getBoolArg(args, "remote_src", false)
 
 	var content string
@@ -481,6 +497,14 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 		}
 	}
 
+	var backupPath string
+	if backup && hasBefore {
+		backupPath, _, err = backupRemoteFile(ctx, client, dest)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleCopy", "backup destination", err)
+		}
+	}
+
 	err = client.Upload(ctx, newReader(content), dest, mode)
 	if err != nil {
 		return nil, err
@@ -495,9 +519,15 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 	}
 
 	result := &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
 	if e.Diff {
 		if hasBefore {
-			result.Data = map[string]any{"diff": fileDiffData(dest, before, content)}
+			if result.Data == nil {
+				result.Data = make(map[string]any)
+			}
+			result.Data["diff"] = fileDiffData(dest, before, content)
 		}
 	}
 	return result, nil
@@ -510,6 +540,7 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 		return nil, coreerr.E("Executor.moduleTemplate", "src and dest required", nil)
 	}
 	force := getBoolArg(args, "force", true)
+	backup := getBoolArg(args, "backup", false)
 
 	// Process template
 	src = e.resolveLocalPath(src)
@@ -533,15 +564,29 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
 	}
 
+	var backupPath string
+	if backup && hasBefore {
+		backupPath, _, err = backupRemoteFile(ctx, client, dest)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleTemplate", "backup destination", err)
+		}
+	}
+
 	err = client.Upload(ctx, newReader(content), dest, mode)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
 	if e.Diff {
 		if hasBefore {
-			result.Data = map[string]any{"diff": fileDiffData(dest, before, content)}
+			if result.Data == nil {
+				result.Data = make(map[string]any)
+			}
+			result.Data["diff"] = fileDiffData(dest, before, content)
 		}
 	}
 	return result, nil
