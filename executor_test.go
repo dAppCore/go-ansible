@@ -1003,6 +1003,41 @@ func TestExecutor_RunTaskOnHost_Good_LoopFromWithTogether(t *testing.T) {
 	assert.Equal(t, "blue=large", result.Results[1].Msg)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithSubelements(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+	e.vars["users"] = []any{
+		map[string]any{
+			"name":       "alice",
+			"authorized": []any{"ssh-rsa AAA", "ssh-ed25519 BBB"},
+		},
+		map[string]any{
+			"name":       "bob",
+			"authorized": "ssh-rsa CCC",
+		},
+	}
+
+	task := &Task{
+		Name:   "Subelements loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0.name }}={{ item.1 }}",
+		},
+		WithSubelements: []any{"{{ users }}", "authorized"},
+		Register:        "subelements_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["subelements_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 3)
+	assert.Equal(t, "alice=ssh-rsa AAA", result.Results[0].Msg)
+	assert.Equal(t, "alice=ssh-ed25519 BBB", result.Results[1].Msg)
+	assert.Equal(t, "bob=ssh-rsa CCC", result.Results[2].Msg)
+}
+
 func TestExecutor_RunTaskOnHosts_Good_LoopNotifiesAndCallsCallback(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.clients["host1"] = NewMockSSHClient()

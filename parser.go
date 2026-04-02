@@ -357,7 +357,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"action": true, "local_action": true,
 		"include_tasks": true, "import_tasks": true,
 		"include_role": true, "import_role": true,
-		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_nested": true, "with_together": true, "with_file": true, "with_fileglob": true, "with_sequence": true,
+		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_nested": true, "with_together": true, "with_subelements": true, "with_file": true, "with_fileglob": true, "with_sequence": true,
 	}
 
 	for key, val := range m {

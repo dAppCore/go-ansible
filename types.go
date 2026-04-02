@@ -117,13 +117,14 @@ type Task struct {
 	Until        string            `yaml:"until,omitempty"`
 
 	// Include/import directives
-	IncludeTasks string `yaml:"include_tasks,omitempty"`
-	ImportTasks  string `yaml:"import_tasks,omitempty"`
-	WithFile     any    `yaml:"with_file,omitempty"`
-	WithFileGlob any    `yaml:"with_fileglob,omitempty"`
-	WithSequence any    `yaml:"with_sequence,omitempty"`
-	WithTogether any    `yaml:"with_together,omitempty"`
-	IncludeRole  *struct {
+	IncludeTasks    string `yaml:"include_tasks,omitempty"`
+	ImportTasks     string `yaml:"import_tasks,omitempty"`
+	WithFile        any    `yaml:"with_file,omitempty"`
+	WithFileGlob    any    `yaml:"with_fileglob,omitempty"`
+	WithSequence    any    `yaml:"with_sequence,omitempty"`
+	WithTogether    any    `yaml:"with_together,omitempty"`
+	WithSubelements any    `yaml:"with_subelements,omitempty"`
+	IncludeRole     *struct {
 		Name         string         `yaml:"name"`
 		TasksFrom    string         `yaml:"tasks_from,omitempty"`
 		DefaultsFrom string         `yaml:"defaults_from,omitempty"`

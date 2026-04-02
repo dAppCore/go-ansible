@@ -400,6 +400,25 @@ with_together:
 	assert.Equal(t, []any{"blue", "large"}, second)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithSubelements(t *testing.T) {
+	input := `
+name: Subelement loop values
+debug:
+  msg: "{{ item.0.name }} {{ item.1 }}"
+with_subelements:
+  - users
+  - authorized
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.WithSubelements)
+	values, ok := task.WithSubelements.([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"users", "authorized"}, values)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
 	input := `
 name: Install package

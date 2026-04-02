@@ -676,8 +676,9 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", executionHost), err)
 	}
 
-	// Handle loops, including legacy with_file, with_fileglob, with_sequence, and with_together syntax.
-	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil || task.WithTogether != nil {
+	// Handle loops, including legacy with_file, with_fileglob, with_sequence,
+	// with_together, and with_subelements syntax.
+	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil || task.WithTogether != nil || task.WithSubelements != nil {
 		return e.runLoop(ctx, host, client, task, play, start)
 	}
 
@@ -881,6 +882,8 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 		items, err = e.resolveWithSequenceLoop(task.WithSequence, host, task)
 	} else if task.WithTogether != nil {
 		items, err = e.resolveWithTogetherLoop(task.WithTogether, host, task)
+	} else if task.WithSubelements != nil {
+		items, err = e.resolveWithSubelementsLoop(task.WithSubelements, host, task)
 	} else {
 		items = e.resolveLoopWithTask(task.Loop, host, task)
 	}
@@ -1165,6 +1168,85 @@ func (e *Executor) resolveWithTogetherLoop(loop any, host string, task *Task) ([
 	}
 
 	return items, nil
+}
+
+func (e *Executor) resolveWithSubelementsLoop(loop any, host string, task *Task) ([]any, error) {
+	source, subelement, ok := parseSubelementsSpec(loop)
+	if !ok {
+		return nil, nil
+	}
+	if subelement == "" {
+		return nil, coreerr.E("Executor.resolveWithSubelementsLoop", "with_subelements requires a subelement name", nil)
+	}
+
+	parents := e.resolveSubelementsParents(source, host, task)
+	items := make([]any, 0)
+	for _, parent := range parents {
+		for _, subitem := range subelementItems(parent, subelement) {
+			items = append(items, []any{parent, subitem})
+		}
+	}
+
+	return items, nil
+}
+
+func parseSubelementsSpec(loop any) (any, string, bool) {
+	switch v := loop.(type) {
+	case []any:
+		if len(v) < 2 {
+			return nil, "", false
+		}
+		return v[0], sprintf("%v", v[1]), true
+	case []string:
+		if len(v) < 2 {
+			return nil, "", false
+		}
+		return v[0], v[1], true
+	case string:
+		parts := strings.Fields(v)
+		if len(parts) < 2 {
+			return nil, "", false
+		}
+		return parts[0], parts[1], true
+	default:
+		return nil, "", false
+	}
+}
+
+func (e *Executor) resolveSubelementsParents(value any, host string, task *Task) []any {
+	switch v := value.(type) {
+	case string:
+		if items := e.resolveLoopWithTask(v, host, task); len(items) > 0 {
+			return items
+		}
+		if items, ok := anySliceFromValue(e.templateString(v, host, task)); ok {
+			return items
+		}
+		if task != nil {
+			if items, ok := anySliceFromValue(task.Vars[v]); ok {
+				return items
+			}
+		}
+	default:
+		if items, ok := anySliceFromValue(v); ok {
+			return items
+		}
+	}
+
+	return nil
+}
+
+func subelementItems(parent any, path string) []any {
+	value, ok := lookupNestedValue(parent, path)
+	if !ok || value == nil {
+		return nil
+	}
+
+	if items, ok := anySliceFromValue(value); ok {
+		return items
+	}
+
+	return []any{value}
 }
 
 func parseSequenceSpec(loop any) (*sequenceSpec, error) {
