@@ -1581,6 +1581,7 @@ func isCheckModeSafeTask(task *Task) bool {
 	case "ansible.builtin.debug",
 		"ansible.builtin.fail",
 		"ansible.builtin.assert",
+		"ansible.builtin.ping",
 		"ansible.builtin.pause",
 		"ansible.builtin.wait_for",
 		"ansible.builtin.stat",

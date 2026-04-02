@@ -129,6 +129,8 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		return e.moduleFail(args)
 	case "ansible.builtin.assert":
 		return e.moduleAssert(args, host)
+	case "ansible.builtin.ping":
+		return e.modulePing(ctx, client, args)
 	case "ansible.builtin.set_fact":
 		return e.moduleSetFact(args)
 	case "ansible.builtin.add_host":
@@ -1481,6 +1483,19 @@ func (e *Executor) moduleFail(args map[string]any) (*TaskResult, error) {
 		Failed: true,
 		Msg:    msg,
 	}, nil
+}
+
+func (e *Executor) modulePing(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	data := getStringArg(args, "data", "pong")
+	stdout, stderr, rc, err := client.Run(ctx, "true")
+	if err != nil {
+		return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
+	}
+	if rc != 0 {
+		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, Stderr: stderr, RC: rc}, nil
+	}
+
+	return &TaskResult{Msg: data}, nil
 }
 
 func (e *Executor) moduleAssert(args map[string]any, host string) (*TaskResult, error) {

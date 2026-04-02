@@ -61,6 +61,37 @@ func TestExecutorExtra_ModuleFail_Good_CustomMessage(t *testing.T) {
 	assert.Equal(t, "deployment blocked", result.Msg)
 }
 
+// --- modulePing ---
+
+func TestExecutorExtra_ModulePing_Good_DefaultPong(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := executeModuleWithMock(e, mock, "host1", &Task{
+		Module: "ping",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.Equal(t, "pong", result.Msg)
+	assert.True(t, mock.hasExecuted(`^true$`))
+}
+
+func TestExecutorExtra_ModulePing_Good_CustomData(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := executeModuleWithMock(e, mock, "host1", &Task{
+		Module: "ansible.builtin.ping",
+		Args: map[string]any{
+			"data": "hello",
+		},
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, "hello", result.Msg)
+}
+
 // --- moduleAssert ---
 
 func TestExecutorExtra_ModuleAssert_Good_PassingAssertion(t *testing.T) {
