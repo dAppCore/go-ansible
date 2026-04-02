@@ -123,6 +123,38 @@ func TestParser_ParsePlaybook_Good_ImportPlaybook(t *testing.T) {
 	assert.Equal(t, "Say imported", plays[1].Tasks[0].Name)
 }
 
+func TestParser_ParsePlaybook_Good_TemplatedImportPlaybook(t *testing.T) {
+	dir := t.TempDir()
+	mainPath := joinPath(dir, "site.yml")
+	importDir := joinPath(dir, "plays")
+	importPath := joinPath(importDir, "web.yml")
+
+	yamlMain := `---
+- import_playbook: "{{ playbook_dir }}/web.yml"
+`
+	yamlImported := `---
+- name: Imported play
+  hosts: all
+  tasks:
+    - name: Say imported
+      debug:
+        msg: "imported"
+`
+	require.NoError(t, os.MkdirAll(importDir, 0755))
+	require.NoError(t, writeTestFile(mainPath, []byte(yamlMain), 0644))
+	require.NoError(t, writeTestFile(importPath, []byte(yamlImported), 0644))
+
+	p := NewParser(dir)
+	p.vars["playbook_dir"] = "plays"
+
+	plays, err := p.ParsePlaybook(mainPath)
+
+	require.NoError(t, err)
+	require.Len(t, plays, 1)
+	assert.Equal(t, "Imported play", plays[0].Name)
+	assert.Equal(t, "all", plays[0].Hosts)
+}
+
 func TestParser_ParsePlaybook_Good_WithVars(t *testing.T) {
 	dir := t.TempDir()
 	path := joinPath(dir, "playbook.yml")

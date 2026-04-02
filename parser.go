@@ -66,7 +66,7 @@ func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error
 	// Process each play
 	for i := range plays {
 		if plays[i].ImportPlaybook != "" {
-			importPath := joinPath(pathDir(path), plays[i].ImportPlaybook)
+			importPath := joinPath(pathDir(path), p.templatePath(plays[i].ImportPlaybook))
 			imported, err := p.parsePlaybook(importPath, seen)
 			if err != nil {
 				return nil, coreerr.E("Parser.ParsePlaybook", sprintf("expand import_playbook %d", i), err)
@@ -185,6 +185,16 @@ func (p *Parser) resolvePath(path string) string {
 	}
 
 	return joinPath(p.basePath, path)
+}
+
+// templatePath renders a path-like string against the parser's variable scope.
+func (p *Parser) templatePath(value string) string {
+	if value == "" {
+		return ""
+	}
+
+	exec := &Executor{vars: p.vars}
+	return exec.templateString(value, "", nil)
 }
 
 // ParseTasksIter returns an iterator for tasks in a tasks file.
