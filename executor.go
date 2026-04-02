@@ -2654,6 +2654,20 @@ func (e *Executor) applyFilter(value, filter string) string {
 		return corexTrimSpace(value)
 	}
 
+	// Handle regex_replace
+	if corexHasPrefix(filter, "regex_replace(") {
+		pattern, replacement, ok := parseRegexReplaceFilter(filter)
+		if !ok {
+			return value
+		}
+
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			return value
+		}
+		return compiled.ReplaceAllString(value, replacement)
+	}
+
 	// Handle b64decode
 	if filter == "b64decode" {
 		decoded, err := base64.StdEncoding.DecodeString(value)
@@ -2667,6 +2681,65 @@ func (e *Executor) applyFilter(value, filter string) string {
 	}
 
 	return value
+}
+
+func parseRegexReplaceFilter(filter string) (string, string, bool) {
+	if !corexHasPrefix(filter, "regex_replace(") || !corexHasSuffix(filter, ")") {
+		return "", "", false
+	}
+
+	args := strings.TrimSpace(filter[len("regex_replace(") : len(filter)-1])
+	parts := splitFilterArgs(args)
+	if len(parts) < 2 {
+		return "", "", false
+	}
+
+	return trimCutset(parts[0], "'\""), trimCutset(parts[1], "'\""), true
+}
+
+func splitFilterArgs(args string) []string {
+	if args == "" {
+		return nil
+	}
+
+	var (
+		parts    []string
+		current  strings.Builder
+		inSingle bool
+		inDouble bool
+		escaped  bool
+	)
+
+	for _, r := range args {
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+		case r == '\\' && (inSingle || inDouble):
+			current.WriteRune(r)
+			escaped = true
+		case r == '\'' && !inDouble:
+			current.WriteRune(r)
+			inSingle = !inSingle
+		case r == '"' && !inSingle:
+			current.WriteRune(r)
+			inDouble = !inDouble
+		case r == ',' && !inSingle && !inDouble:
+			part := strings.TrimSpace(current.String())
+			if part != "" {
+				parts = append(parts, part)
+			}
+			current.Reset()
+		default:
+			current.WriteRune(r)
+		}
+	}
+
+	if tail := strings.TrimSpace(current.String()); tail != "" {
+		parts = append(parts, tail)
+	}
+
+	return parts
 }
 
 func isUnresolvedTemplateValue(value string) bool {

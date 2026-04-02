@@ -499,6 +499,12 @@ func TestModulesInfra_ApplyFilter_Good_TrimFilter(t *testing.T) {
 	assert.Equal(t, "", e.applyFilter("   ", "trim"))
 }
 
+func TestModulesInfra_ApplyFilter_Good_RegexReplaceFilter(t *testing.T) {
+	e := NewExecutor("/tmp")
+	assert.Equal(t, "app-01", e.applyFilter("app_01", "regex_replace('_', '-')"))
+	assert.Equal(t, "42", e.applyFilter("v42", `regex_replace("^v", "")`))
+}
+
 func TestModulesInfra_ApplyFilter_Good_B64Decode(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.Equal(t, "test", e.applyFilter("dGVzdA==", "b64decode"))

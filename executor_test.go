@@ -1707,6 +1707,13 @@ func TestExecutor_ApplyFilter_Good_Trim(t *testing.T) {
 	assert.Equal(t, "hello", e.applyFilter("  hello  ", "trim"))
 }
 
+func TestExecutor_ApplyFilter_Good_RegexReplace(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	assert.Equal(t, "web-01", e.applyFilter("web_01", "regex_replace('_', '-')"))
+	assert.Equal(t, "123", e.applyFilter("abc123", `regex_replace("\D+", "")`))
+}
+
 // --- resolveLoop ---
 
 func TestExecutor_ResolveLoop_Good_SliceAny(t *testing.T) {
