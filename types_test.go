@@ -69,6 +69,7 @@ name: web
 tasks_from: setup.yml
 defaults_from: custom-defaults.yml
 vars_from: custom-vars.yml
+public: true
 `
 	var ref RoleRef
 	err := yaml.Unmarshal([]byte(input), &ref)
@@ -78,6 +79,7 @@ vars_from: custom-vars.yml
 	assert.Equal(t, "setup.yml", ref.TasksFrom)
 	assert.Equal(t, "custom-defaults.yml", ref.DefaultsFrom)
 	assert.Equal(t, "custom-vars.yml", ref.VarsFrom)
+	assert.True(t, ref.Public)
 }
 
 // --- Task UnmarshalYAML ---
@@ -580,6 +582,7 @@ include_role:
   tasks_from: setup.yml
   defaults_from: defaults.yml
   vars_from: vars.yml
+  public: true
   apply:
     tags:
       - deploy
@@ -597,6 +600,7 @@ include_role:
 	assert.Equal(t, "setup.yml", task.IncludeRole.TasksFrom)
 	assert.Equal(t, "defaults.yml", task.IncludeRole.DefaultsFrom)
 	assert.Equal(t, "vars.yml", task.IncludeRole.VarsFrom)
+	assert.True(t, task.IncludeRole.Public)
 	require.NotNil(t, task.IncludeRole.Apply)
 	assert.Equal(t, []string{"deploy"}, task.IncludeRole.Apply.Tags)
 	require.NotNil(t, task.IncludeRole.Apply.Become)

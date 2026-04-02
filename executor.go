@@ -481,7 +481,9 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	}
 
 	// Restore vars
-	e.vars = oldVars
+	if roleRef == nil || !roleRef.Public {
+		e.vars = oldVars
+	}
 	return nil
 }
 
@@ -1703,6 +1705,7 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		VarsFrom:     e.templateString(varsFrom, host, task),
 		Vars:         renderedVars,
 		Apply:        apply,
+		Public:       task.IncludeRole != nil && task.IncludeRole.Public || task.ImportRole != nil && task.ImportRole.Public,
 		When:         task.When,
 		Tags:         task.Tags,
 	}

@@ -52,6 +52,7 @@ type RoleRef struct {
 	VarsFrom     string         `yaml:"vars_from,omitempty"`
 	Vars         map[string]any `yaml:"vars,omitempty"`
 	Apply        *TaskApply     `yaml:"apply,omitempty"`
+	Public       bool           `yaml:"public,omitempty"`
 	When         any            `yaml:"when,omitempty"`
 	Tags         []string       `yaml:"tags,omitempty"`
 }
@@ -131,6 +132,7 @@ type Task struct {
 		VarsFrom     string         `yaml:"vars_from,omitempty"`
 		Vars         map[string]any `yaml:"vars,omitempty"`
 		Apply        *TaskApply     `yaml:"apply,omitempty"`
+		Public       bool           `yaml:"public,omitempty"`
 	} `yaml:"include_role,omitempty"`
 	ImportRole *struct {
 		Name         string         `yaml:"name"`
@@ -139,6 +141,7 @@ type Task struct {
 		VarsFrom     string         `yaml:"vars_from,omitempty"`
 		Vars         map[string]any `yaml:"vars,omitempty"`
 		Apply        *TaskApply     `yaml:"apply,omitempty"`
+		Public       bool           `yaml:"public,omitempty"`
 	} `yaml:"import_role,omitempty"`
 
 	// Raw YAML for module extraction

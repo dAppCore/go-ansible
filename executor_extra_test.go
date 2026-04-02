@@ -786,6 +786,7 @@ func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
 			VarsFrom     string         `yaml:"vars_from,omitempty"`
 			Vars         map[string]any `yaml:"vars,omitempty"`
 			Apply        *TaskApply     `yaml:"apply,omitempty"`
+			Public       bool           `yaml:"public,omitempty"`
 		}{
 			Name: "demo",
 		},
@@ -839,6 +840,7 @@ func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleDefaults(t *testing.T) {
 			VarsFrom     string         `yaml:"vars_from,omitempty"`
 			Vars         map[string]any `yaml:"vars,omitempty"`
 			Apply        *TaskApply     `yaml:"apply,omitempty"`
+			Public       bool           `yaml:"public,omitempty"`
 		}{
 			Name: "app",
 			Apply: &TaskApply{
@@ -861,6 +863,65 @@ func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleDefaults(t *testing.T) {
 	assert.Equal(t, "from-task", started.Vars["role_message"])
 	require.NotNil(t, e.results["localhost"]["role_result"])
 	assert.Equal(t, "production|from-apply|from-task", e.results["localhost"]["role_result"].Stdout)
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_PublicVarsPersist(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "shared", "tasks", "main.yml"), []byte(`---
+- name: Shared role task
+  debug:
+    msg: "{{ shared_message }}"
+  register: shared_role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name: "Load public role",
+				IncludeRole: &struct {
+					Name         string         `yaml:"name"`
+					TasksFrom    string         `yaml:"tasks_from,omitempty"`
+					DefaultsFrom string         `yaml:"defaults_from,omitempty"`
+					VarsFrom     string         `yaml:"vars_from,omitempty"`
+					Vars         map[string]any `yaml:"vars,omitempty"`
+					Apply        *TaskApply     `yaml:"apply,omitempty"`
+					Public       bool           `yaml:"public,omitempty"`
+				}{
+					Name:   "shared",
+					Public: true,
+				},
+				Vars: map[string]any{"shared_message": "hello from public role"},
+			},
+			{
+				Name:   "Use public role vars",
+				Module: "debug",
+				Args: map[string]any{
+					"msg": "{{ shared_message }}",
+				},
+				Register: "after_public_role",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["localhost"]["shared_role_result"])
+	assert.Equal(t, "hello from public role", e.results["localhost"]["shared_role_result"].Msg)
+	require.NotNil(t, e.results["localhost"]["after_public_role"])
+	assert.Equal(t, "hello from public role", e.results["localhost"]["after_public_role"].Msg)
 }
 
 func TestExecutorExtra_GetHostsIter_Good(t *testing.T) {
