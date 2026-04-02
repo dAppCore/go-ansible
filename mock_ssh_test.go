@@ -1359,6 +1359,8 @@ func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[strin
 	key := getStringArg(args, "key", "")
 	state := getStringArg(args, "state", "present")
 	exclusive := getBoolArg(args, "exclusive", false)
+	manageDir := getBoolArg(args, "manage_dir", true)
+	pathArg := getStringArg(args, "path", "")
 
 	if user == "" || key == "" {
 		return nil, mockError("moduleAuthorizedKeyWithClient", "authorized_key: user and key required")
@@ -1377,7 +1379,17 @@ func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[strin
 		}
 	}
 
-	authKeysPath := joinPath(home, ".ssh", "authorized_keys")
+	authKeysPath := pathArg
+	if authKeysPath == "" {
+		authKeysPath = joinPath(home, ".ssh", "authorized_keys")
+	} else if corexHasPrefix(authKeysPath, "~/") {
+		authKeysPath = joinPath(home, corexTrimPrefix(authKeysPath, "~/"))
+	} else if authKeysPath == "~" {
+		authKeysPath = home
+	}
+	if authKeysPath == "" {
+		authKeysPath = joinPath(home, ".ssh", "authorized_keys")
+	}
 
 	if state == "absent" {
 		// Remove the exact key line when present.
@@ -1387,9 +1399,11 @@ func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[strin
 		return &TaskResult{Changed: true}, nil
 	}
 
-	// Ensure .ssh directory exists (best-effort)
-	_, _, _, _ = client.Run(context.Background(), sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
-		pathDir(authKeysPath), pathDir(authKeysPath), user, user, pathDir(authKeysPath)))
+	if manageDir {
+		// Ensure the parent directory exists (best-effort).
+		_, _, _, _ = client.Run(context.Background(), sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
+			pathDir(authKeysPath), pathDir(authKeysPath), user, user, pathDir(authKeysPath)))
+	}
 
 	if exclusive {
 		cmd := sprintf("printf '%%s\\n' %q > %q", key, authKeysPath)

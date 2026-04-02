@@ -433,6 +433,48 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *testing.T)
 	assert.False(t, mock.hasExecuted(`grep -qF`))
 }
 
+func TestModulesAdv_ModuleAuthorizedKey_Good_CustomPath(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
+	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
+	mock.expectCommand(`mkdir -p "/srv/keys"`, "", "", 0)
+	mock.expectCommand(`grep -qF`, "", "", 1)
+	mock.expectCommand(`echo`, "", "", 0)
+	mock.expectCommand(`chmod 600`, "", "", 0)
+
+	result, err := moduleAuthorizedKeyWithClient(e, mock, map[string]any{
+		"user": "deploy",
+		"key":  testKey,
+		"path": "/srv/keys/deploy_keys",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.containsSubstring("/srv/keys/deploy_keys"))
+	assert.True(t, mock.hasExecuted(`mkdir -p "/srv/keys"`))
+}
+
+func TestModulesAdv_ModuleAuthorizedKey_Good_ManageDirDisabled(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
+	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
+	mock.expectCommand(`grep -qF`, "", "", 1)
+	mock.expectCommand(`echo`, "", "", 0)
+	mock.expectCommand(`chmod 600`, "", "", 0)
+
+	result, err := moduleAuthorizedKeyWithClient(e, mock, map[string]any{
+		"user":       "deploy",
+		"key":        testKey,
+		"manage_dir": false,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.False(t, mock.hasExecuted(`mkdir -p`))
+}
+
 func TestModulesAdv_ModuleAuthorizedKey_Good_RootUserFallback(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... admin@host"
