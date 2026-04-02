@@ -484,6 +484,12 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 	case "ansible.builtin.ping", "ping":
 		return e.modulePing(context.Background(), mock, args)
 
+	case "ansible.builtin.debug":
+		return e.moduleDebug(host, task, args)
+
+	case "ansible.builtin.set_fact":
+		return e.moduleSetFact(host, args)
+
 	case "ansible.builtin.setup":
 		return e.moduleSetup(context.Background(), host, mock, args)
 

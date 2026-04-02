@@ -17,7 +17,7 @@ import (
 
 func TestExecutorExtra_ModuleDebug_Good_Message(t *testing.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleDebug(map[string]any{"msg": "Hello world"})
+	result, err := e.moduleDebug("host1", nil, map[string]any{"msg": "Hello world"})
 
 	require.NoError(t, err)
 	assert.False(t, result.Changed)
@@ -26,9 +26,9 @@ func TestExecutorExtra_ModuleDebug_Good_Message(t *testing.T) {
 
 func TestExecutorExtra_ModuleDebug_Good_Var(t *testing.T) {
 	e := NewExecutor("/tmp")
-	e.vars["my_version"] = "1.2.3"
+	e.setHostVars("host1", map[string]any{"my_version": "1.2.3"})
 
-	result, err := e.moduleDebug(map[string]any{"var": "my_version"})
+	result, err := e.moduleDebug("host1", nil, map[string]any{"var": "my_version"})
 
 	require.NoError(t, err)
 	assert.Contains(t, result.Msg, "1.2.3")
@@ -36,7 +36,7 @@ func TestExecutorExtra_ModuleDebug_Good_Var(t *testing.T) {
 
 func TestExecutorExtra_ModuleDebug_Good_EmptyArgs(t *testing.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleDebug(map[string]any{})
+	result, err := e.moduleDebug("host1", nil, map[string]any{})
 
 	require.NoError(t, err)
 	assert.Equal(t, "", result.Msg)
@@ -156,28 +156,42 @@ func TestExecutorExtra_ModuleAssert_Good_MultipleConditions(t *testing.T) {
 func TestExecutorExtra_ModuleSetFact_Good(t *testing.T) {
 	e := NewExecutor("/tmp")
 
-	result, err := e.moduleSetFact(map[string]any{
+	result, err := e.moduleSetFact("host1", map[string]any{
 		"app_version": "2.0.0",
 		"deploy_env":  "production",
 	})
 
 	require.NoError(t, err)
 	assert.True(t, result.Changed)
-	assert.Equal(t, "2.0.0", e.vars["app_version"])
-	assert.Equal(t, "production", e.vars["deploy_env"])
+	require.Contains(t, e.hostVars, "host1")
+	assert.Equal(t, "2.0.0", e.hostVars["host1"]["app_version"])
+	assert.Equal(t, "production", e.hostVars["host1"]["deploy_env"])
 }
 
 func TestExecutorExtra_ModuleSetFact_Good_SkipsCacheable(t *testing.T) {
 	e := NewExecutor("/tmp")
 
-	e.moduleSetFact(map[string]any{
+	e.moduleSetFact("host1", map[string]any{
 		"my_fact":   "value",
 		"cacheable": true,
 	})
 
-	assert.Equal(t, "value", e.vars["my_fact"])
-	_, hasCacheable := e.vars["cacheable"]
+	require.Contains(t, e.hostVars, "host1")
+	assert.Equal(t, "value", e.hostVars["host1"]["my_fact"])
+	_, hasCacheable := e.hostVars["host1"]["cacheable"]
 	assert.False(t, hasCacheable)
+}
+
+func TestExecutorExtra_ModuleSetFact_Good_HostScopedLookup(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleSetFact("host1", map[string]any{
+		"build_id": "2026.04.02",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "2026.04.02", e.templateString("{{ build_id }}", "host1", nil))
+	assert.Equal(t, "{{ build_id }}", e.templateString("{{ build_id }}", "host2", nil))
 }
 
 // --- moduleAddHost ---

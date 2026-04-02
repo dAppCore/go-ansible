@@ -64,6 +64,7 @@ type Executor struct {
 	inventory          *Inventory
 	inventoryPath      string
 	vars               map[string]any
+	hostVars           map[string]map[string]any
 	facts              map[string]*Facts
 	results            map[string]map[string]*TaskResult // host -> register_name -> result
 	handlers           map[string][]Task
@@ -98,6 +99,7 @@ func NewExecutor(basePath string) *Executor {
 	return &Executor{
 		parser:             NewParser(basePath),
 		vars:               make(map[string]any),
+		hostVars:           make(map[string]map[string]any),
 		facts:              make(map[string]*Facts),
 		results:            make(map[string]map[string]*TaskResult),
 		handlers:           make(map[string][]Task),
@@ -146,6 +148,46 @@ func (e *Executor) SetVar(key string, value any) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.vars[key] = value
+}
+
+func (e *Executor) setHostVars(host string, values map[string]any) {
+	if host == "" || len(values) == 0 {
+		return
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.hostVars == nil {
+		e.hostVars = make(map[string]map[string]any)
+	}
+	if e.hostVars[host] == nil {
+		e.hostVars[host] = make(map[string]any)
+	}
+
+	for key, value := range values {
+		e.hostVars[host][key] = value
+	}
+}
+
+func (e *Executor) hostScopedVars(host string) map[string]any {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if len(e.hostVars) == 0 {
+		return nil
+	}
+
+	values := e.hostVars[host]
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]any, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 // Run executes a playbook.
@@ -2424,6 +2466,12 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 	}
 
+	if hostVars := e.hostScopedVars(host); hostVars != nil {
+		if val, ok := hostVars[name]; ok {
+			return val, true
+		}
+	}
+
 	if e.inventory != nil {
 		hostVars := GetHostVars(e.inventory, host)
 		if val, ok := hostVars[name]; ok {
@@ -2486,6 +2534,14 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		if val, ok := e.vars[base]; ok {
 			if nested, ok := lookupNestedValue(val, path); ok {
 				return nested, true
+			}
+		}
+
+		if hostVars := e.hostScopedVars(host); hostVars != nil {
+			if val, ok := hostVars[base]; ok {
+				if nested, ok := lookupNestedValue(val, path); ok {
+					return nested, true
+				}
 			}
 		}
 
@@ -2673,6 +2729,12 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 		}
 	}
 
+	if hostVars := e.hostScopedVars(host); hostVars != nil {
+		if val, ok := hostVars[expr]; ok {
+			return sprintf("%v", val)
+		}
+	}
+
 	// Check host vars
 	if e.inventory != nil {
 		hostVars := GetHostVars(e.inventory, host)
@@ -2773,6 +2835,11 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 			return val, true
 		}
 	}
+	if hostVars := e.hostScopedVars(host); hostVars != nil {
+		if val, ok := hostVars[name]; ok {
+			return val, true
+		}
+	}
 	if e.inventory != nil {
 		hostVars := GetHostVars(e.inventory, host)
 		if val, ok := hostVars[name]; ok {
@@ -2794,6 +2861,14 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 		if base == "ansible_facts" {
 			if facts, ok := e.facts[host]; ok {
 				if nested, ok := lookupNestedValue(factsToMap(facts), path); ok {
+					return nested, true
+				}
+			}
+		}
+
+		if hostVars := e.hostScopedVars(host); hostVars != nil {
+			if val, ok := hostVars[base]; ok {
+				if nested, ok := lookupNestedValue(val, path); ok {
 					return nested, true
 				}
 			}

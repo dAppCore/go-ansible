@@ -124,7 +124,7 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 
 	// Misc
 	case "ansible.builtin.debug":
-		return e.moduleDebug(args)
+		return e.moduleDebug(host, task, args)
 	case "ansible.builtin.fail":
 		return e.moduleFail(args)
 	case "ansible.builtin.assert":
@@ -132,7 +132,7 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 	case "ansible.builtin.ping":
 		return e.modulePing(ctx, client, args)
 	case "ansible.builtin.set_fact":
-		return e.moduleSetFact(args)
+		return e.moduleSetFact(host, args)
 	case "ansible.builtin.add_host":
 		return e.moduleAddHost(args)
 	case "ansible.builtin.group_by":
@@ -1540,10 +1540,15 @@ func hasHeaderIgnoreCase(headers map[string]any, name string) bool {
 
 // --- Misc Modules ---
 
-func (e *Executor) moduleDebug(args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleDebug(host string, task *Task, args map[string]any) (*TaskResult, error) {
 	msg := getStringArg(args, "msg", "")
 	if v, ok := args["var"]; ok {
-		msg = sprintf("%v = %v", v, e.vars[sprintf("%v", v)])
+		name := sprintf("%v", v)
+		if value, ok := e.lookupConditionValue(name, host, task, nil); ok {
+			msg = sprintf("%s = %v", name, value)
+		} else {
+			msg = sprintf("%s = <undefined>", name)
+		}
 	}
 
 	return &TaskResult{
@@ -1590,12 +1595,15 @@ func (e *Executor) moduleAssert(args map[string]any, host string) (*TaskResult, 
 	return &TaskResult{Changed: false, Msg: "All assertions passed"}, nil
 }
 
-func (e *Executor) moduleSetFact(args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleSetFact(host string, args map[string]any) (*TaskResult, error) {
+	values := make(map[string]any, len(args))
 	for k, v := range args {
-		if k != "cacheable" {
-			e.vars[k] = v
+		if k == "cacheable" {
+			continue
 		}
+		values[k] = v
 	}
+	e.setHostVars(host, values)
 	return &TaskResult{Changed: true}, nil
 }
 
