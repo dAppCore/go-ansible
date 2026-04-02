@@ -331,80 +331,96 @@ func (e *Executor) loadPlayVarsFiles(play *Play) error {
 
 // splitSerialHosts splits a host list into serial batches.
 func splitSerialHosts(hosts []string, serial any) [][]string {
-	batchSize := resolveSerialBatchSize(serial, len(hosts))
-	if batchSize <= 0 || batchSize >= len(hosts) {
-		if len(hosts) == 0 {
-			return nil
-		}
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	sizes := resolveSerialBatchSizes(serial, len(hosts))
+	if len(sizes) == 0 {
 		return [][]string{hosts}
 	}
 
-	batches := make([][]string, 0, (len(hosts)+batchSize-1)/batchSize)
-	for len(hosts) > 0 {
-		size := batchSize
-		if size > len(hosts) {
-			size = len(hosts)
+	batches := make([][]string, 0, len(sizes))
+	remaining := append([]string(nil), hosts...)
+	lastSize := sizes[len(sizes)-1]
+	for i := 0; len(remaining) > 0; i++ {
+		size := lastSize
+		if i < len(sizes) {
+			size = sizes[i]
 		}
-		batch := append([]string(nil), hosts[:size]...)
-		batches = append(batches, batch)
-		hosts = hosts[size:]
+		if size <= 0 {
+			size = len(remaining)
+		}
+		if size > len(remaining) {
+			size = len(remaining)
+		}
+		batches = append(batches, append([]string(nil), remaining[:size]...))
+		remaining = remaining[size:]
 	}
 	return batches
 }
 
 // resolveSerialBatchSize converts a play serial value into a concrete batch size.
 func resolveSerialBatchSize(serial any, total int) int {
+	sizes := resolveSerialBatchSizes(serial, total)
+	if len(sizes) == 0 {
+		return total
+	}
+	return sizes[0]
+}
+
+func resolveSerialBatchSizes(serial any, total int) []int {
 	if total <= 0 {
-		return 0
+		return nil
 	}
 
 	switch v := serial.(type) {
 	case nil:
-		return total
+		return []int{total}
 	case int:
 		if v > 0 {
-			return v
+			return []int{v}
 		}
 	case int8:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case int16:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case int32:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case int64:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case uint:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case uint8:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case uint16:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case uint32:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case uint64:
 		if v > 0 {
-			return int(v)
+			return []int{int(v)}
 		}
 	case string:
 		s := corexTrimSpace(v)
 		if s == "" {
-			return total
+			return []int{total}
 		}
 		if corexHasSuffix(s, "%") {
 			percent, err := strconv.Atoi(strings.TrimSuffix(s, "%"))
@@ -416,16 +432,45 @@ func resolveSerialBatchSize(serial any, total int) int {
 				if size > total {
 					size = total
 				}
-				return size
+				return []int{size}
 			}
-			return total
 		}
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			return n
+			return []int{n}
+		}
+	case []int:
+		sizes := make([]int, 0, len(v))
+		for _, item := range v {
+			if size := resolveSerialBatchSize(item, total); size > 0 {
+				sizes = append(sizes, size)
+			}
+		}
+		if len(sizes) > 0 {
+			return sizes
+		}
+	case []string:
+		sizes := make([]int, 0, len(v))
+		for _, item := range v {
+			if size := resolveSerialBatchSize(item, total); size > 0 {
+				sizes = append(sizes, size)
+			}
+		}
+		if len(sizes) > 0 {
+			return sizes
+		}
+	case []any:
+		sizes := make([]int, 0, len(v))
+		for _, item := range v {
+			if size := resolveSerialBatchSize(item, total); size > 0 {
+				sizes = append(sizes, size)
+			}
+		}
+		if len(sizes) > 0 {
+			return sizes
 		}
 	}
 
-	return total
+	return []int{total}
 }
 
 // runRole executes a role on hosts.

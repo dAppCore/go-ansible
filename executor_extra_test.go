@@ -528,6 +528,25 @@ func TestExecutorExtra_RunPlay_Good_MetaEndBatchAdvancesToNextSerialBatch(t *tes
 	assert.Contains(t, started, "host3:follow-up")
 }
 
+func TestExecutorExtra_SplitSerialHosts_Good_ListValues(t *testing.T) {
+	batches := splitSerialHosts([]string{"host1", "host2", "host3", "host4"}, []any{1, "50%"})
+
+	require.Len(t, batches, 3)
+	assert.Equal(t, []string{"host1"}, batches[0])
+	assert.Equal(t, []string{"host2", "host3"}, batches[1])
+	assert.Equal(t, []string{"host4"}, batches[2])
+}
+
+func TestExecutorExtra_SplitSerialHosts_Good_ListRepeatsLastValue(t *testing.T) {
+	batches := splitSerialHosts([]string{"host1", "host2", "host3", "host4", "host5"}, []any{2, 1})
+
+	require.Len(t, batches, 4)
+	assert.Equal(t, []string{"host1", "host2"}, batches[0])
+	assert.Equal(t, []string{"host3"}, batches[1])
+	assert.Equal(t, []string{"host4"}, batches[2])
+	assert.Equal(t, []string{"host5"}, batches[3])
+}
+
 // ============================================================
 // Tests for handleLookup (0% coverage)
 // ============================================================
