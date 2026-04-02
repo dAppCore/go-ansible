@@ -3279,11 +3279,15 @@ func (e *Executor) resolveLoop(loop any, host string) []any {
 func (e *Executor) resolveLoopWithTask(loop any, host string, task *Task) []any {
 	switch v := loop.(type) {
 	case []any:
-		return v
+		items := make([]any, len(v))
+		for i, item := range v {
+			items[i] = e.templateLoopItem(item, host, task)
+		}
+		return items
 	case []string:
 		items := make([]any, len(v))
 		for i, s := range v {
-			items[i] = s
+			items[i] = e.templateLoopItem(s, host, task)
 		}
 		return items
 	case string:
@@ -3303,6 +3307,33 @@ func (e *Executor) resolveLoopWithTask(loop any, host string, task *Task) []any 
 		}
 	}
 	return nil
+}
+
+func (e *Executor) templateLoopItem(value any, host string, task *Task) any {
+	switch v := value.(type) {
+	case string:
+		return e.templateString(v, host, task)
+	case map[string]any:
+		tmpl := make(map[string]any, len(v))
+		for key, item := range v {
+			tmpl[key] = e.templateLoopItem(item, host, task)
+		}
+		return tmpl
+	case []any:
+		tmpl := make([]any, len(v))
+		for i, item := range v {
+			tmpl[i] = e.templateLoopItem(item, host, task)
+		}
+		return tmpl
+	case []string:
+		tmpl := make([]any, len(v))
+		for i, item := range v {
+			tmpl[i] = e.templateLoopItem(item, host, task)
+		}
+		return tmpl
+	default:
+		return value
+	}
 }
 
 func (e *Executor) resolveLoopExpression(loop string, host string, task *Task) ([]any, bool) {
