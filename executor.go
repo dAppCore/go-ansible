@@ -1948,40 +1948,61 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 		cfg.KeyFile = k
 	}
 
+	desiredLocal := isLocalConnection(host, play, vars)
+	desiredBecome := play != nil && play.Become
+	desiredBecomeUser := ""
+	desiredBecomePass := ""
+	if desiredBecome {
+		desiredBecomeUser = play.BecomeUser
+		if bp, ok := vars["ansible_become_password"].(string); ok {
+			desiredBecomePass = bp
+		} else if cfg.Password != "" {
+			desiredBecomePass = cfg.Password
+		}
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if client, ok := e.clients[host]; ok {
-		if !isLocalConnection(host, play, vars) {
+		switch cached := client.(type) {
+		case *localClient:
+			if desiredLocal {
+				cached.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
+				return cached, nil
+			}
+			_ = cached.Close()
+			delete(e.clients, host)
+		case *SSHClient:
+			if !desiredLocal &&
+				cached.host == cfg.Host &&
+				cached.port == cfg.Port &&
+				cached.user == cfg.User &&
+				cached.password == cfg.Password &&
+				cached.keyFile == cfg.KeyFile {
+				cached.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
+				return cached, nil
+			}
+			_ = cached.Close()
+			delete(e.clients, host)
+		default:
+			client.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
 			return client, nil
 		}
 	}
 
-	if isLocalConnection(host, play, vars) {
+	if desiredLocal {
 		client := newLocalClient()
-		if play.Become {
-			becomePass := ""
-			if bp, ok := vars["ansible_become_password"].(string); ok {
-				becomePass = bp
-			} else if p, ok := vars["ansible_password"].(string); ok {
-				becomePass = p
-			}
-			client.SetBecome(true, play.BecomeUser, becomePass)
-		}
+		client.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
 		e.clients[host] = client
 		return client, nil
 	}
 
 	// Apply play become settings
-	if play.Become {
+	if desiredBecome {
 		cfg.Become = true
-		cfg.BecomeUser = play.BecomeUser
-		if bp, ok := vars["ansible_become_password"].(string); ok {
-			cfg.BecomePass = bp
-		} else if cfg.Password != "" {
-			// Use SSH password for sudo if no become password specified
-			cfg.BecomePass = cfg.Password
-		}
+		cfg.BecomeUser = desiredBecomeUser
+		cfg.BecomePass = desiredBecomePass
 	}
 
 	client, err := NewSSHClient(cfg)

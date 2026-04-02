@@ -94,6 +94,6 @@ func TestExecutor_RunTaskOnHost_Good_TaskBecomeFalseOverridesPlayBecome(t *testi
 	require.Len(t, client.runBecomeSeen, 1)
 	assert.False(t, client.runBecomeSeen[0])
 	assert.True(t, client.become)
-	assert.Equal(t, "root", client.becomeUser)
+	assert.Equal(t, "admin", client.becomeUser)
 	assert.Equal(t, "secret", client.becomePass)
 }

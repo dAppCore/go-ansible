@@ -128,6 +128,30 @@ func TestExecutor_GetClient_Good_PlayVarsOverrideInventoryVars(t *testing.T) {
 	assert.Equal(t, "play-user", sshClient.user)
 }
 
+func TestExecutor_GetClient_Good_UpdatesCachedBecomeState(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {AnsibleHost: "127.0.0.1"},
+			},
+		},
+	})
+
+	cached := &becomeRecordingClient{}
+	e.clients["host1"] = cached
+
+	play := &Play{Become: true, BecomeUser: "admin"}
+	client, err := e.getClient("host1", play)
+	require.NoError(t, err)
+	require.Same(t, cached, client)
+
+	become, user, pass := cached.BecomeState()
+	assert.True(t, become)
+	assert.Equal(t, "admin", user)
+	assert.Empty(t, pass)
+}
+
 // --- matchesTags ---
 
 func TestExecutor_MatchesTags_Good_NoTagsFilter(t *testing.T) {
