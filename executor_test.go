@@ -1722,6 +1722,26 @@ func TestExecutor_EvaluateWhen_Good_LogicalExpressionParentheses(t *testing.T) {
 	assert.False(t, e.evaluateWhen("enabled and (maintenance or false)", "host1", nil))
 }
 
+func TestExecutor_EvaluateWhen_Good_NestedVarAccess(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["feature"] = map[string]any{
+		"enabled": true,
+		"mode":    "active",
+	}
+
+	task := &Task{
+		Vars: map[string]any{
+			"settings": map[string]any{
+				"ready": false,
+			},
+		},
+	}
+
+	assert.True(t, e.evaluateWhen("feature.enabled", "host1", nil))
+	assert.True(t, e.evaluateWhen(`feature.mode == "active"`, "host1", nil))
+	assert.False(t, e.evaluateWhen("settings.ready", "host1", task))
+}
+
 func TestExecutor_ApplyTaskResultConditions_Good_ChangedWhen(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{

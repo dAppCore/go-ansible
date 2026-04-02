@@ -2367,6 +2367,43 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 	}
 
+	if contains(name, ".") {
+		parts := splitN(name, ".", 2)
+		base := parts[0]
+		path := parts[1]
+
+		if locals != nil {
+			if val, ok := locals[base]; ok {
+				if nested, ok := lookupNestedValue(val, path); ok {
+					return nested, true
+				}
+			}
+		}
+
+		if val, ok := e.vars[base]; ok {
+			if nested, ok := lookupNestedValue(val, path); ok {
+				return nested, true
+			}
+		}
+
+		if task != nil {
+			if val, ok := task.Vars[base]; ok {
+				if nested, ok := lookupNestedValue(val, path); ok {
+					return nested, true
+				}
+			}
+		}
+
+		if e.inventory != nil {
+			hostVars := GetHostVars(e.inventory, host)
+			if val, ok := hostVars[base]; ok {
+				if nested, ok := lookupNestedValue(val, path); ok {
+					return nested, true
+				}
+			}
+		}
+	}
+
 	return nil, false
 }
 
