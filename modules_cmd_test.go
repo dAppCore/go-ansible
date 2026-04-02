@@ -345,6 +345,26 @@ func TestModulesCmd_ModuleCommand_Good_SkipsWhenCreatesExists(t *testing.T) {
 	assert.Equal(t, 0, mock.commandCount())
 }
 
+func TestModulesCmd_ModuleCommand_Good_SkipsWhenCreatesExistsUnderChdir(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/app/build/output.txt", []byte("done"))
+
+	task := &Task{
+		Module: "ansible.builtin.command",
+		Args: map[string]any{
+			"_raw_params": "echo should-not-run",
+			"creates":     "build/output.txt",
+			"chdir":       "/app",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.commandCount())
+}
+
 // --- shell module ---
 
 func TestModulesCmd_ModuleShell_Good_BasicShell(t *testing.T) {
