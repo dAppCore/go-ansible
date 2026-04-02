@@ -656,17 +656,8 @@ func TestExecutor_RunIncludeRole_Good_TemplatesRoleName(t *testing.T) {
 	}
 
 	err := e.runIncludeRole(context.Background(), []string{"localhost"}, &Task{
-		IncludeRole: &struct {
-			Name         string         `yaml:"name"`
-			TasksFrom    string         `yaml:"tasks_from,omitempty"`
-			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
-			VarsFrom     string         `yaml:"vars_from,omitempty"`
-			HandlersFrom string         `yaml:"handlers_from,omitempty"`
-			Vars         map[string]any `yaml:"vars,omitempty"`
-			Apply        *TaskApply     `yaml:"apply,omitempty"`
-			Public       bool           `yaml:"public,omitempty"`
-		}{
-			Name: "{{ role_name }}",
+		IncludeRole: &RoleRef{
+			Role: "{{ role_name }}",
 		},
 	}, &Play{})
 	require.NoError(t, err)

@@ -611,6 +611,32 @@ include_role:
 	assert.Equal(t, "production", task.IncludeRole.Apply.Environment["APP_ENV"])
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_IncludeRoleStringForm(t *testing.T) {
+	input := `
+name: Include role
+include_role: common
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.IncludeRole)
+	assert.Equal(t, "common", task.IncludeRole.Role)
+}
+
+func TestTypes_Task_UnmarshalYAML_Good_ImportRoleStringForm(t *testing.T) {
+	input := `
+name: Import role
+import_role: common
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.ImportRole)
+	assert.Equal(t, "common", task.ImportRole.Role)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_BecomeFields(t *testing.T) {
 	input := `
 name: Privileged task

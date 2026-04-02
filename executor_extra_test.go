@@ -819,17 +819,8 @@ func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
 
 	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
 		Name: "Load role",
-		IncludeRole: &struct {
-			Name         string         `yaml:"name"`
-			TasksFrom    string         `yaml:"tasks_from,omitempty"`
-			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
-			VarsFrom     string         `yaml:"vars_from,omitempty"`
-			HandlersFrom string         `yaml:"handlers_from,omitempty"`
-			Vars         map[string]any `yaml:"vars,omitempty"`
-			Apply        *TaskApply     `yaml:"apply,omitempty"`
-			Public       bool           `yaml:"public,omitempty"`
-		}{
-			Name: "demo",
+		IncludeRole: &RoleRef{
+			Role: "demo",
 		},
 		Vars: map[string]any{"role_message": "hello from role"},
 	}, play))
@@ -874,17 +865,8 @@ func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleDefaults(t *testing.T) {
 	// Re-run with callback attached so we can inspect the merged task state.
 	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
 		Name: "Load role with apply",
-		IncludeRole: &struct {
-			Name         string         `yaml:"name"`
-			TasksFrom    string         `yaml:"tasks_from,omitempty"`
-			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
-			VarsFrom     string         `yaml:"vars_from,omitempty"`
-			HandlersFrom string         `yaml:"handlers_from,omitempty"`
-			Vars         map[string]any `yaml:"vars,omitempty"`
-			Apply        *TaskApply     `yaml:"apply,omitempty"`
-			Public       bool           `yaml:"public,omitempty"`
-		}{
-			Name: "app",
+		IncludeRole: &RoleRef{
+			Role: "app",
 			Apply: &TaskApply{
 				Tags: []string{"role-apply"},
 				Vars: map[string]any{
@@ -933,17 +915,8 @@ func TestExecutorExtra_RunIncludeRole_Good_PublicVarsPersist(t *testing.T) {
 		Tasks: []Task{
 			{
 				Name: "Load public role",
-				IncludeRole: &struct {
-					Name         string         `yaml:"name"`
-					TasksFrom    string         `yaml:"tasks_from,omitempty"`
-					DefaultsFrom string         `yaml:"defaults_from,omitempty"`
-					VarsFrom     string         `yaml:"vars_from,omitempty"`
-					HandlersFrom string         `yaml:"handlers_from,omitempty"`
-					Vars         map[string]any `yaml:"vars,omitempty"`
-					Apply        *TaskApply     `yaml:"apply,omitempty"`
-					Public       bool           `yaml:"public,omitempty"`
-				}{
-					Name:   "shared",
+				IncludeRole: &RoleRef{
+					Role:   "shared",
 					Public: true,
 				},
 				Vars: map[string]any{"shared_message": "hello from public role"},

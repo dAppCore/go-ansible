@@ -1708,30 +1708,26 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		return nil
 	}
 
-	var roleName, tasksFrom, defaultsFrom, varsFrom string
-	var handlersFrom string
-	var roleVars map[string]any
-	var apply *TaskApply
-
+	var ref *RoleRef
 	if task.IncludeRole != nil {
-		roleName = task.IncludeRole.Name
-		tasksFrom = task.IncludeRole.TasksFrom
-		defaultsFrom = task.IncludeRole.DefaultsFrom
-		varsFrom = task.IncludeRole.VarsFrom
-		handlersFrom = task.IncludeRole.HandlersFrom
-		roleVars = task.IncludeRole.Vars
-		apply = task.IncludeRole.Apply
+		ref = task.IncludeRole
 	} else if task.ImportRole != nil {
-		roleName = task.ImportRole.Name
-		tasksFrom = task.ImportRole.TasksFrom
-		defaultsFrom = task.ImportRole.DefaultsFrom
-		varsFrom = task.ImportRole.VarsFrom
-		handlersFrom = task.ImportRole.HandlersFrom
-		roleVars = task.ImportRole.Vars
-		apply = task.ImportRole.Apply
+		ref = task.ImportRole
 	} else {
 		return nil
 	}
+
+	roleName := ref.Role
+	if roleName == "" {
+		roleName = ref.Name
+	}
+
+	tasksFrom := ref.TasksFrom
+	defaultsFrom := ref.DefaultsFrom
+	varsFrom := ref.VarsFrom
+	handlersFrom := ref.HandlersFrom
+	roleVars := ref.Vars
+	apply := ref.Apply
 
 	renderedVars := mergeTaskVars(roleVars, task.Vars)
 	if len(renderedVars) > 0 {
@@ -1746,7 +1742,7 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		HandlersFrom: e.templateString(handlersFrom, host, task),
 		Vars:         renderedVars,
 		Apply:        apply,
-		Public:       task.IncludeRole != nil && task.IncludeRole.Public || task.ImportRole != nil && task.ImportRole.Public,
+		Public:       ref.Public,
 		When:         task.When,
 		Tags:         task.Tags,
 	}

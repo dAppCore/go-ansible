@@ -122,33 +122,15 @@ type Task struct {
 	Until        string            `yaml:"until,omitempty"`
 
 	// Include/import directives
-	IncludeTasks    string `yaml:"include_tasks,omitempty"`
-	ImportTasks     string `yaml:"import_tasks,omitempty"`
-	WithFile        any    `yaml:"with_file,omitempty"`
-	WithFileGlob    any    `yaml:"with_fileglob,omitempty"`
-	WithSequence    any    `yaml:"with_sequence,omitempty"`
-	WithTogether    any    `yaml:"with_together,omitempty"`
-	WithSubelements any    `yaml:"with_subelements,omitempty"`
-	IncludeRole     *struct {
-		Name         string         `yaml:"name"`
-		TasksFrom    string         `yaml:"tasks_from,omitempty"`
-		DefaultsFrom string         `yaml:"defaults_from,omitempty"`
-		VarsFrom     string         `yaml:"vars_from,omitempty"`
-		HandlersFrom string         `yaml:"handlers_from,omitempty"`
-		Vars         map[string]any `yaml:"vars,omitempty"`
-		Apply        *TaskApply     `yaml:"apply,omitempty"`
-		Public       bool           `yaml:"public,omitempty"`
-	} `yaml:"include_role,omitempty"`
-	ImportRole *struct {
-		Name         string         `yaml:"name"`
-		TasksFrom    string         `yaml:"tasks_from,omitempty"`
-		DefaultsFrom string         `yaml:"defaults_from,omitempty"`
-		VarsFrom     string         `yaml:"vars_from,omitempty"`
-		HandlersFrom string         `yaml:"handlers_from,omitempty"`
-		Vars         map[string]any `yaml:"vars,omitempty"`
-		Apply        *TaskApply     `yaml:"apply,omitempty"`
-		Public       bool           `yaml:"public,omitempty"`
-	} `yaml:"import_role,omitempty"`
+	IncludeTasks    string   `yaml:"include_tasks,omitempty"`
+	ImportTasks     string   `yaml:"import_tasks,omitempty"`
+	WithFile        any      `yaml:"with_file,omitempty"`
+	WithFileGlob    any      `yaml:"with_fileglob,omitempty"`
+	WithSequence    any      `yaml:"with_sequence,omitempty"`
+	WithTogether    any      `yaml:"with_together,omitempty"`
+	WithSubelements any      `yaml:"with_subelements,omitempty"`
+	IncludeRole     *RoleRef `yaml:"include_role,omitempty"`
+	ImportRole      *RoleRef `yaml:"import_role,omitempty"`
 
 	// Raw YAML for module extraction
 	raw map[string]any
