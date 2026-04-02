@@ -808,7 +808,7 @@ func isModule(key string) bool {
 	return contains(key, ".")
 }
 
-// NormalizeModule normalizes a module name to its canonical form.
+// NormalizeModule normalises a module name to its canonical form.
 //
 // Example:
 //

@@ -243,3 +243,21 @@ func TestRegister_Good_ExposesExpectedFlags(t *testing.T) {
 	assert.Equal(t, "", testCmd.Flags.String("i"))
 	assert.Equal(t, 22, testCmd.Flags.Int("port"))
 }
+
+func TestRunAnsible_Bad_MissingPlaybook(t *testing.T) {
+	result := runAnsible(core.NewOptions())
+
+	require.False(t, result.OK)
+	err, ok := result.Value.(error)
+	require.True(t, ok)
+	assert.Contains(t, err.Error(), "usage: ansible <playbook>")
+}
+
+func TestRunAnsibleTest_Bad_MissingHost(t *testing.T) {
+	result := runAnsibleTest(core.NewOptions())
+
+	require.False(t, result.OK)
+	err, ok := result.Value.(error)
+	require.True(t, ok)
+	assert.Contains(t, err.Error(), "usage: ansible test <host>")
+}

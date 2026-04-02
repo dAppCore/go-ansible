@@ -136,7 +136,7 @@ type Task struct {
 	raw map[string]any
 }
 
-// LoopControl controls loop behavior.
+// LoopControl controls loop behaviour.
 //
 // Example:
 //
