@@ -970,6 +970,21 @@ func TestModulesInfra_Facts_Good_LocalhostFacts(t *testing.T) {
 	assert.Equal(t, "localhost", result)
 }
 
+func TestModulesInfra_Facts_Good_AnsibleFactsMapResolution(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.facts["host1"] = &Facts{
+		Hostname:     "web1",
+		FQDN:         "web1.example.com",
+		Distribution: "debian",
+		Version:      "12",
+	}
+
+	assert.Equal(t, "web1", e.templateString("{{ ansible_facts.ansible_hostname }}", "host1", nil))
+	assert.Equal(t, "debian", e.templateString("{{ ansible_facts.ansible_distribution }}", "host1", nil))
+	assert.True(t, e.evalCondition("ansible_facts.ansible_hostname == 'web1'", "host1"))
+	assert.True(t, e.evalCondition("ansible_facts.ansible_distribution == 'debian'", "host1"))
+}
+
 func TestModulesInfra_ModuleSetup_Good_GathersAndStoresFacts(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 

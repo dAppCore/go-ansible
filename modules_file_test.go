@@ -881,6 +881,30 @@ func TestModulesFile_ModuleTemplate_Good_BasicTemplate(t *testing.T) {
 	assert.Contains(t, string(up.Content), "web01.example.com")
 }
 
+func TestModulesFile_ModuleTemplate_Good_AnsibleFactsMapTemplate(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "facts.conf.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("host={{ ansible_facts.ansible_hostname }}"), 0644))
+
+	e, mock := newTestExecutorWithMock("host1")
+	e.facts["host1"] = &Facts{
+		Hostname:     "web01",
+		Distribution: "debian",
+	}
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":  srcPath,
+		"dest": "/etc/app/facts.conf",
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Contains(t, string(up.Content), "host=web01")
+}
+
 func TestModulesFile_ModuleTemplate_Good_CustomMode(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcPath := joinPath(tmpDir, "script.sh.j2")

@@ -2342,6 +2342,12 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 	}
 
+	if name == "ansible_facts" {
+		if facts, ok := e.facts[host]; ok {
+			return factsToMap(facts), true
+		}
+	}
+
 	if facts, ok := e.facts[host]; ok {
 		switch name {
 		case "ansible_hostname":
@@ -2375,6 +2381,14 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		if locals != nil {
 			if val, ok := locals[base]; ok {
 				if nested, ok := lookupNestedValue(val, path); ok {
+					return nested, true
+				}
+			}
+		}
+
+		if base == "ansible_facts" {
+			if facts, ok := e.facts[host]; ok {
+				if nested, ok := lookupNestedValue(factsToMap(facts), path); ok {
 					return nested, true
 				}
 			}
@@ -2580,6 +2594,9 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 
 	// Check facts
 	if facts, ok := e.facts[host]; ok {
+		if expr == "ansible_facts" {
+			return sprintf("%v", factsToMap(facts))
+		}
 		switch expr {
 		case "ansible_hostname":
 			return facts.Hostname
@@ -2671,6 +2688,26 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 		hostVars := GetHostVars(e.inventory, host)
 		if val, ok := hostVars[name]; ok {
 			return val, true
+		}
+	}
+
+	if name == "ansible_facts" {
+		if facts, ok := e.facts[host]; ok {
+			return factsToMap(facts), true
+		}
+	}
+
+	if contains(name, ".") {
+		parts := splitN(name, ".", 2)
+		base := parts[0]
+		path := parts[1]
+
+		if base == "ansible_facts" {
+			if facts, ok := e.facts[host]; ok {
+				if nested, ok := lookupNestedValue(factsToMap(facts), path); ok {
+					return nested, true
+				}
+			}
 		}
 	}
 	return nil, false
@@ -3251,6 +3288,7 @@ func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 	}
 	// Add facts
 	if facts, ok := e.facts[host]; ok {
+		context["ansible_facts"] = factsToMap(facts)
 		context["ansible_hostname"] = facts.Hostname
 		context["ansible_fqdn"] = facts.FQDN
 		context["ansible_os_family"] = facts.OS
