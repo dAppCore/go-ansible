@@ -1,6 +1,8 @@
 package anscmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"dappco.re/go/core"
@@ -15,9 +17,10 @@ func TestExtraVars_Good_RepeatableAndCommaSeparated(t *testing.T) {
 		core.Option{Key: "extra-vars", Value: []string{"build=42"}},
 	)
 
-	vars := extraVars(opts)
+	vars, err := extraVars(opts)
+	require.NoError(t, err)
 
-	assert.Equal(t, map[string]string{
+	assert.Equal(t, map[string]any{
 		"version": "1.2.3",
 		"env":     "prod",
 		"region":  "us-east-1",
@@ -30,9 +33,10 @@ func TestExtraVars_Good_UsesShortAlias(t *testing.T) {
 		core.Option{Key: "e", Value: "version=1.2.3,env=prod"},
 	)
 
-	vars := extraVars(opts)
+	vars, err := extraVars(opts)
+	require.NoError(t, err)
 
-	assert.Equal(t, map[string]string{
+	assert.Equal(t, map[string]any{
 		"version": "1.2.3",
 		"env":     "prod",
 	}, vars)
@@ -44,12 +48,60 @@ func TestExtraVars_Good_IgnoresMalformedPairs(t *testing.T) {
 		core.Option{Key: "extra-vars", Value: "also_bad="},
 	)
 
-	vars := extraVars(opts)
+	vars, err := extraVars(opts)
+	require.NoError(t, err)
 
-	assert.Equal(t, map[string]string{
+	assert.Equal(t, map[string]any{
 		"keep":     "this",
 		"also_bad": "",
 	}, vars)
+}
+
+func TestExtraVars_Good_SupportsStructuredYAMLAndJSON(t *testing.T) {
+	opts := core.NewOptions(
+		core.Option{Key: "extra-vars", Value: "app:\n  port: 8080\n  debug: true"},
+		core.Option{Key: "extra-vars", Value: `{"image":"nginx:latest","replicas":3}`},
+	)
+
+	vars, err := extraVars(opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]any{
+		"app": map[string]any{
+			"port":  int(8080),
+			"debug": true,
+		},
+		"image":    "nginx:latest",
+		"replicas": int(3),
+	}, vars)
+}
+
+func TestExtraVars_Good_LoadsFileReferences(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vars.yml")
+	require.NoError(t, os.WriteFile(path, []byte("deploy_env: prod\nrelease: 42\n"), 0644))
+
+	opts := core.NewOptions(
+		core.Option{Key: "extra-vars", Value: "@" + path},
+	)
+
+	vars, err := extraVars(opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]any{
+		"deploy_env": "prod",
+		"release":    int(42),
+	}, vars)
+}
+
+func TestExtraVars_Bad_MissingFile(t *testing.T) {
+	opts := core.NewOptions(
+		core.Option{Key: "extra-vars", Value: "@/definitely/missing/vars.yml"},
+	)
+
+	_, err := extraVars(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read extra vars file")
 }
 
 func TestFirstString_Good_PrefersFirstNonEmptyKey(t *testing.T) {

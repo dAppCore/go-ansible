@@ -2,6 +2,7 @@ package anscmd
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"dappco.re/go/core/ansible"
 	coreio "dappco.re/go/core/io"
 	coreerr "dappco.re/go/core/log"
+	"gopkg.in/yaml.v3"
 )
 
 // args extracts all positional arguments from Options.
@@ -77,8 +79,8 @@ func verbosityLevel(opts core.Options, rawArgs []string) int {
 }
 
 // extraVars collects all repeated extra-vars values from Options.
-func extraVars(opts core.Options) map[string]string {
-	vars := make(map[string]string)
+func extraVars(opts core.Options) (map[string]any, error) {
+	vars := make(map[string]any)
 
 	for _, o := range opts.Items() {
 		if o.Key != "extra-vars" && o.Key != "e" {
@@ -100,20 +102,81 @@ func extraVars(opts core.Options) map[string]string {
 		}
 
 		for _, value := range values {
-			for _, pair := range split(value, ",") {
-				parts := splitN(pair, "=", 2)
-				if len(parts) != 2 {
-					continue
-				}
-
-				key := trimSpace(parts[0])
-				if key == "" {
-					continue
-				}
-
-				vars[key] = parts[1]
+			parsed, err := parseExtraVarsValue(value)
+			if err != nil {
+				return nil, err
+			}
+			for key, parsedValue := range parsed {
+				vars[key] = parsedValue
 			}
 		}
+	}
+
+	return vars, nil
+}
+
+func parseExtraVarsValue(value string) (map[string]any, error) {
+	trimmed := trimSpace(value)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	if strings.HasPrefix(trimmed, "@") {
+		path := trimSpace(strings.TrimPrefix(trimmed, "@"))
+		if path == "" {
+			return nil, coreerr.E("parseExtraVarsValue", "extra vars file path required", nil)
+		}
+
+		data, err := coreio.Local.Read(path)
+		if err != nil {
+			return nil, coreerr.E("parseExtraVarsValue", "read extra vars file", err)
+		}
+
+		return parseExtraVarsValue(string(data))
+	}
+
+	if structured, ok := parseStructuredExtraVars(trimmed); ok {
+		return structured, nil
+	}
+
+	if strings.Contains(trimmed, "=") {
+		return parseKeyValueExtraVars(trimmed), nil
+	}
+
+	return nil, nil
+}
+
+func parseStructuredExtraVars(value string) (map[string]any, bool) {
+	var parsed map[string]any
+	if json.Valid([]byte(value)) {
+		if err := yaml.Unmarshal([]byte(value), &parsed); err == nil && len(parsed) > 0 {
+			return parsed, true
+		}
+	}
+	if err := yaml.Unmarshal([]byte(value), &parsed); err != nil {
+		return nil, false
+	}
+	if len(parsed) == 0 {
+		return nil, false
+	}
+	return parsed, true
+}
+
+func parseKeyValueExtraVars(value string) map[string]any {
+	vars := make(map[string]any)
+
+	for _, pair := range split(value, ",") {
+		parts := splitN(pair, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := trimSpace(parts[0])
+		if key == "" {
+			continue
+		}
+
+		vars[key] = parts[1]
 	}
 
 	return vars
@@ -162,7 +225,11 @@ func runAnsible(opts core.Options) core.Result {
 	}
 
 	// Parse extra vars
-	for key, value := range extraVars(opts) {
+	vars, err := extraVars(opts)
+	if err != nil {
+		return core.Result{Value: coreerr.E("runAnsible", "parse extra vars", err)}
+	}
+	for key, value := range vars {
 		executor.SetVar(key, value)
 	}
 
