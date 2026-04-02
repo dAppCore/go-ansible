@@ -945,6 +945,7 @@ func TestParser_NormalizeModule_Good_CommunityAliases(t *testing.T) {
 	assert.Equal(t, "community.docker.docker_compose", NormalizeModule("docker_compose"))
 	assert.Equal(t, "community.docker.docker_compose_v2", NormalizeModule("docker_compose_v2"))
 	assert.Equal(t, "community.docker.docker_compose", NormalizeModule("ansible.builtin.docker_compose"))
+	assert.Equal(t, "community.docker.docker_compose_v2", NormalizeModule("ansible.builtin.docker_compose_v2"))
 }
 
 func TestParser_NormalizeModule_Good_AlreadyFQCN(t *testing.T) {

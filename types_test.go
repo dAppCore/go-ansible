@@ -826,6 +826,7 @@ func TestTypes_KnownModules_Good_ContainsExpected(t *testing.T) {
 		"community.general.ufw",
 		"ansible.posix.authorized_key",
 		"ansible.builtin.docker_compose",
+		"ansible.builtin.docker_compose_v2",
 		"community.docker.docker_compose",
 		"community.docker.docker_compose_v2",
 	}
