@@ -895,6 +895,48 @@ func TestExecutorExtra_RunIncludeTasks_Good_HonoursWhen(t *testing.T) {
 	assert.Empty(t, started)
 }
 
+func TestExecutorExtra_RunIncludeTasks_Good_TemplatesVarsAndInheritsTags(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "tasks", "common.yml"), []byte(`---
+- name: Included tagged task
+  debug:
+    msg: "{{ include_message }}"
+  register: include_result
+  tags:
+    - child-tag
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+	e.SetVar("env_name", "production")
+	e.Tags = []string{"include-tag"}
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name:         "Load included tasks",
+		IncludeTasks: "tasks/common.yml",
+		Tags:         []string{"include-tag"},
+		Vars: map[string]any{
+			"include_message": "{{ env_name }}",
+		},
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["include_result"])
+	assert.Equal(t, "production", e.results["localhost"]["include_result"].Msg)
+}
+
 func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---

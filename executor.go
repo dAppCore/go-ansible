@@ -1859,11 +1859,19 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 			return coreerr.E("Executor.runIncludeTasks", "include_tasks "+resolvedPath, err)
 		}
 
-		for _, t := range tasks {
-			effectiveTask := t
-			effectiveTask.Vars = mergeTaskVars(task.Vars, t.Vars)
-			if err := e.runTaskOnHosts(ctx, hostsByPath[resolvedPath], &effectiveTask, play); err != nil {
-				return err
+		for _, targetHost := range hostsByPath[resolvedPath] {
+			for _, t := range tasks {
+				effectiveTask := t
+				effectiveTask.Vars = mergeTaskVars(task.Vars, t.Vars)
+				if len(effectiveTask.Vars) > 0 {
+					effectiveTask.Vars = e.templateArgs(effectiveTask.Vars, targetHost, task)
+				}
+				if len(task.Tags) > 0 {
+					effectiveTask.Tags = mergeStringSlices(task.Tags, effectiveTask.Tags)
+				}
+				if err := e.runTaskOnHosts(ctx, []string{targetHost}, &effectiveTask, play); err != nil {
+					return err
+				}
 			}
 		}
 	}
