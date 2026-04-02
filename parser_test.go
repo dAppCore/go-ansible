@@ -843,9 +843,10 @@ func TestParser_GetHostVars_Good_DirectHost(t *testing.T) {
 			Vars: map[string]any{"global_var": "global"},
 			Hosts: map[string]*Host{
 				"myhost": {
-					AnsibleHost: "10.0.0.1",
-					AnsiblePort: 2222,
-					AnsibleUser: "deploy",
+					AnsibleHost:           "10.0.0.1",
+					AnsiblePort:           2222,
+					AnsibleUser:           "deploy",
+					AnsibleBecomePassword: "secret",
 				},
 			},
 		},
@@ -855,6 +856,7 @@ func TestParser_GetHostVars_Good_DirectHost(t *testing.T) {
 	assert.Equal(t, "10.0.0.1", vars["ansible_host"])
 	assert.Equal(t, 2222, vars["ansible_port"])
 	assert.Equal(t, "deploy", vars["ansible_user"])
+	assert.Equal(t, "secret", vars["ansible_become_password"])
 	assert.Equal(t, "global", vars["global_var"])
 }
 

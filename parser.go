@@ -1147,6 +1147,9 @@ func collectHostVars(group *InventoryGroup, hostname string, vars map[string]any
 			if host.AnsibleConnection != "" {
 				vars["ansible_connection"] = host.AnsibleConnection
 			}
+			if host.AnsibleBecomePassword != "" {
+				vars["ansible_become_password"] = host.AnsibleBecomePassword
+			}
 			for k, v := range host.Vars {
 				vars[k] = v
 			}

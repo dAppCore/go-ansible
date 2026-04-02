@@ -128,6 +128,30 @@ func TestExecutor_GetClient_Good_PlayVarsOverrideInventoryVars(t *testing.T) {
 	assert.Equal(t, "play-user", sshClient.user)
 }
 
+func TestExecutor_GetClient_Good_UsesInventoryBecomePassword(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {
+					AnsibleHost:           "127.0.0.1",
+					AnsibleBecomePassword: "secret",
+				},
+			},
+		},
+	})
+
+	client, err := e.getClient("host1", &Play{Become: true, BecomeUser: "admin"})
+	require.NoError(t, err)
+
+	sshClient, ok := client.(*SSHClient)
+	require.True(t, ok)
+	become, user, pass := sshClient.BecomeState()
+	assert.True(t, become)
+	assert.Equal(t, "admin", user)
+	assert.Equal(t, "secret", pass)
+}
+
 func TestExecutor_GetClient_Good_UpdatesCachedBecomeState(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
