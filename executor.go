@@ -585,6 +585,14 @@ func effectiveTaskTags(task *Task, play *Play) []string {
 	if task != nil && len(task.Tags) > 0 {
 		tags = append(tags, task.Tags...)
 	}
+	if task != nil {
+		switch {
+		case task.IncludeRole != nil && len(task.IncludeRole.Tags) > 0:
+			tags = append(tags, task.IncludeRole.Tags...)
+		case task.ImportRole != nil && len(task.ImportRole.Tags) > 0:
+			tags = append(tags, task.ImportRole.Tags...)
+		}
+	}
 	return tags
 }
 
@@ -1743,8 +1751,8 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		Vars:         renderedVars,
 		Apply:        apply,
 		Public:       ref.Public,
-		When:         task.When,
-		Tags:         task.Tags,
+		When:         mergeConditions(ref.When, task.When),
+		Tags:         mergeStringSlices(ref.Tags, task.Tags),
 	}
 }
 

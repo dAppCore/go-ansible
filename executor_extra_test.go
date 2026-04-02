@@ -948,6 +948,88 @@ func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleWhen(t *testing.T) {
 	assert.Equal(t, "Skipped due to when condition", e.results["localhost"]["role_result"].Msg)
 }
 
+func TestExecutorExtra_RunIncludeRole_Good_UsesRoleRefTagsForSelection(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "tagged", "tasks", "main.yml"), []byte(`---
+- name: Tagged role task
+  debug:
+    msg: "role task ran"
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.Tags = []string{"role-tag"}
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "host1",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, &Task{
+		Name: "Load tagged role",
+		IncludeRole: &RoleRef{
+			Role: "tagged",
+			Tags: []string{"role-tag"},
+		},
+	}, play))
+
+	require.NotNil(t, e.results["host1"]["role_result"])
+	assert.Equal(t, "role task ran", e.results["host1"]["role_result"].Msg)
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_HonoursRoleRefWhen(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "conditional", "tasks", "main.yml"), []byte(`---
+- name: Conditional role task
+  debug:
+    msg: "role task ran"
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.SetVar("role_enabled", false)
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "host1",
+		GatherFacts: &gatherFacts,
+	}
+
+	var started []string
+	e.OnTaskStart = func(_ string, task *Task) {
+		started = append(started, task.Name)
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, &Task{
+		Name: "Load conditional role",
+		IncludeRole: &RoleRef{
+			Role: "conditional",
+			When: "role_enabled",
+		},
+	}, play))
+
+	assert.Empty(t, started)
+	if results := e.results["host1"]; results != nil {
+		_, ok := results["role_result"]
+		assert.False(t, ok)
+	}
+}
+
 func TestExecutorExtra_RunIncludeRole_Good_PublicVarsPersist(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "roles", "shared", "tasks", "main.yml"), []byte(`---
