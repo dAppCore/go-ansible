@@ -931,6 +931,8 @@ func moduleBlockinfileWithClient(_ *Executor, client sshFileRunner, args map[str
 	marker := getStringArg(args, "marker", "# {mark} ANSIBLE MANAGED BLOCK")
 	state := getStringArg(args, "state", "present")
 	create := getBoolArg(args, "create", false)
+	prependNewline := getBoolArg(args, "prepend_newline", false)
+	appendNewline := getBoolArg(args, "append_newline", false)
 
 	beginMarker := replaceN(marker, "{mark}", "BEGIN", 1)
 	endMarker := replaceN(marker, "{mark}", "END", 1)
@@ -952,16 +954,21 @@ func moduleBlockinfileWithClient(_ *Executor, client sshFileRunner, args map[str
 
 	// Remove existing block and add new one
 	escapedBlock := replaceAll(block, "'", "'\\''")
+	blockContent := beginMarker + "\n" + escapedBlock + "\n" + endMarker
+	if prependNewline {
+		blockContent = "\n" + blockContent
+	}
+	if appendNewline {
+		blockContent += "\n"
+	}
 	cmd := sprintf(`
 sed -i '/%s/,/%s/d' %q 2>/dev/null || true
 cat >> %q << 'BLOCK_EOF'
 %s
-%s
-%s
 BLOCK_EOF
 `, replaceAll(beginMarker, "/", "\\/"),
 		replaceAll(endMarker, "/", "\\/"),
-		path, path, beginMarker, escapedBlock, endMarker)
+		path, path, blockContent)
 
 	stdout, stderr, rc, err := client.RunScript(context.Background(), cmd)
 	if err != nil || rc != 0 {

@@ -657,6 +657,23 @@ func TestModulesFile_ModuleBlockinfile_Good_CustomMarkers(t *testing.T) {
 	assert.True(t, mock.hasExecutedMethod("RunScript", "# END managed by devops"))
 }
 
+func TestModulesFile_ModuleBlockinfile_Good_NewlinePadding(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
+		"path":            "/etc/hosts",
+		"block":           "10.0.0.5 db01",
+		"prepend_newline": true,
+		"append_newline":  true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	cmd := mock.lastCommand().Cmd
+	assert.Contains(t, cmd, "\n\n# BEGIN ANSIBLE MANAGED BLOCK\n10.0.0.5 db01\n# END ANSIBLE MANAGED BLOCK\n")
+}
+
 func TestModulesFile_ModuleBlockinfile_Good_RemoveBlock(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
