@@ -1277,6 +1277,7 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	method := getStringArg(args, "method", "GET")
 	bodyFormat := lower(getStringArg(args, "body_format", ""))
 	returnContent := getBoolArg(args, "return_content", false)
+	dest := getStringArg(args, "dest", "")
 	timeout := getIntArg(args, "timeout", 0)
 	validateCerts := getBoolArg(args, "validate_certs", true)
 
@@ -1352,9 +1353,38 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 		data["content"] = content
 	}
 
+	if failed {
+		return &TaskResult{
+			Changed: false,
+			Failed:  true,
+			Stdout:  stdout,
+			Stderr:  stderr,
+			RC:      statusCode,
+			Data:    data,
+		}, nil
+	}
+
+	if dest != "" {
+		before, hasBefore := remoteFileText(ctx, client, dest)
+		if !hasBefore || before != content {
+			if err := client.Upload(ctx, newReader(content), dest, 0644); err != nil {
+				return nil, coreerr.E("Executor.moduleURI", "upload dest", err)
+			}
+			data["dest"] = dest
+			return &TaskResult{
+				Changed: true,
+				Stdout:  stdout,
+				Stderr:  stderr,
+				RC:      statusCode,
+				Data:    data,
+			}, nil
+		}
+
+		data["dest"] = dest
+	}
+
 	return &TaskResult{
 		Changed: false,
-		Failed:  failed,
 		Stdout:  stdout,
 		Stderr:  stderr,
 		RC:      statusCode,

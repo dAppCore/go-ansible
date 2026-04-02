@@ -1367,6 +1367,26 @@ func TestModulesAdv_ModuleURI_Good_ReturnContent(t *testing.T) {
 	assert.Equal(t, 200, result.Data["status"])
 }
 
+func TestModulesAdv_ModuleURI_Good_WritesResponseToDest(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl`, "{\"ok\":true}\n200", "", 0)
+
+	result, err := moduleURIWithClient(e, mock, map[string]any{
+		"url":  "https://example.com/api/status",
+		"dest": "/tmp/api-status.json",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "/tmp/api-status.json", result.Data["dest"])
+
+	content, err := mock.Download(context.Background(), "/tmp/api-status.json")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("{\"ok\":true}"), content)
+}
+
 func TestModulesAdv_ModuleURI_Good_JSONBodyFormat(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "{\"created\":true}\n201", "", 0)

@@ -511,6 +511,11 @@ type sshRunner interface {
 	RunScript(ctx context.Context, script string) (string, string, int, error)
 }
 
+type sshFileTransferRunner interface {
+	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
+	Download(ctx context.Context, remote string) ([]byte, error)
+}
+
 func moduleShellWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
 	cmd := getStringArg(args, "_raw_params", "")
 	if cmd == "" {
@@ -1686,6 +1691,7 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	method := getStringArg(args, "method", "GET")
 	bodyFormat := lower(getStringArg(args, "body_format", ""))
 	returnContent := getBoolArg(args, "return_content", false)
+	dest := getStringArg(args, "dest", "")
 	timeout := getIntArg(args, "timeout", 0)
 	validateCerts := getBoolArg(args, "validate_certs", true)
 
@@ -1761,9 +1767,42 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 		data["content"] = content
 	}
 
+	if failed {
+		return &TaskResult{
+			Changed: false,
+			Failed:  true,
+			Stdout:  stdout,
+			Stderr:  stderr,
+			RC:      statusCode,
+			Data:    data,
+		}, nil
+	}
+
+	if dest != "" {
+		transferClient, ok := client.(sshFileTransferRunner)
+		if !ok {
+			return nil, mockError("moduleURIWithClient", "uri: file transfer not supported")
+		}
+
+		before, err := transferClient.Download(context.Background(), dest)
+		if err != nil || string(before) != content {
+			if err := transferClient.Upload(context.Background(), newReader(content), dest, 0644); err != nil {
+				return nil, mockWrap("moduleURIWithClient", "upload dest", err)
+			}
+			data["dest"] = dest
+			return &TaskResult{
+				Changed: true,
+				Stdout:  stdout,
+				Stderr:  stderr,
+				RC:      statusCode,
+				Data:    data,
+			}, nil
+		}
+		data["dest"] = dest
+	}
+
 	return &TaskResult{
 		Changed: false,
-		Failed:  failed,
 		Stdout:  stdout,
 		Stderr:  stderr,
 		RC:      statusCode,
