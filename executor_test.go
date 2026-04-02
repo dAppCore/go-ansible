@@ -1038,6 +1038,66 @@ func TestExecutor_RunTaskOnHost_Good_LoopFromWithSubelements(t *testing.T) {
 	assert.Equal(t, "bob=ssh-rsa CCC", result.Results[2].Msg)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithSubelementsSkipMissing(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+	e.vars["users"] = []any{
+		map[string]any{
+			"name":       "alice",
+			"authorized": []any{"ssh-rsa AAA", "ssh-ed25519 BBB"},
+		},
+		map[string]any{
+			"name": "bob",
+		},
+	}
+
+	task := &Task{
+		Name:   "Subelements loop skip missing",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0.name }}={{ item.1 }}",
+		},
+		WithSubelements: []any{"users", "authorized", true},
+		Register:        "subelements_loop_skip_missing_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["subelements_loop_skip_missing_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "alice=ssh-rsa AAA", result.Results[0].Msg)
+	assert.Equal(t, "alice=ssh-ed25519 BBB", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Bad_LoopFromWithSubelementsMissingSubelement(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+	e.vars["users"] = []any{
+		map[string]any{
+			"name":       "alice",
+			"authorized": []any{"ssh-rsa AAA"},
+		},
+		map[string]any{
+			"name": "bob",
+		},
+	}
+
+	task := &Task{
+		Name:   "Subelements loop missing",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0.name }}={{ item.1 }}",
+		},
+		WithSubelements: []any{"users", "authorized"},
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "with_subelements missing subelement")
+}
+
 func TestExecutor_RunTaskOnHosts_Good_LoopNotifiesAndCallsCallback(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.clients["host1"] = NewMockSSHClient()

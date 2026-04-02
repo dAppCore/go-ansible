@@ -1171,7 +1171,7 @@ func (e *Executor) resolveWithTogetherLoop(loop any, host string, task *Task) ([
 }
 
 func (e *Executor) resolveWithSubelementsLoop(loop any, host string, task *Task) ([]any, error) {
-	source, subelement, ok := parseSubelementsSpec(loop)
+	source, subelement, skipMissing, ok := parseSubelementsSpec(loop)
 	if !ok {
 		return nil, nil
 	}
@@ -1182,7 +1182,14 @@ func (e *Executor) resolveWithSubelementsLoop(loop any, host string, task *Task)
 	parents := e.resolveSubelementsParents(source, host, task)
 	items := make([]any, 0)
 	for _, parent := range parents {
-		for _, subitem := range subelementItems(parent, subelement) {
+		subelementValues, found := subelementItems(parent, subelement)
+		if !found {
+			if skipMissing {
+				continue
+			}
+			return nil, coreerr.E("Executor.resolveWithSubelementsLoop", sprintf("with_subelements missing subelement %q", subelement), nil)
+		}
+		for _, subitem := range subelementValues {
 			items = append(items, []any{parent, subitem})
 		}
 	}
@@ -1190,26 +1197,75 @@ func (e *Executor) resolveWithSubelementsLoop(loop any, host string, task *Task)
 	return items, nil
 }
 
-func parseSubelementsSpec(loop any) (any, string, bool) {
+func parseSubelementsSpec(loop any) (any, string, bool, bool) {
 	switch v := loop.(type) {
 	case []any:
 		if len(v) < 2 {
-			return nil, "", false
+			return nil, "", false, false
 		}
-		return v[0], sprintf("%v", v[1]), true
+		return v[0], sprintf("%v", v[1]), parseSubelementsSkipMissing(v[2:]), true
 	case []string:
 		if len(v) < 2 {
-			return nil, "", false
+			return nil, "", false, false
 		}
-		return v[0], v[1], true
+		return v[0], v[1], parseSubelementsSkipMissingStrings(v[2:]), true
 	case string:
 		parts := strings.Fields(v)
 		if len(parts) < 2 {
-			return nil, "", false
+			return nil, "", false, false
 		}
-		return parts[0], parts[1], true
+		return parts[0], parts[1], parseSubelementsSkipMissingStrings(parts[2:]), true
 	default:
-		return nil, "", false
+		return nil, "", false, false
+	}
+}
+
+func parseSubelementsSkipMissing(values []any) bool {
+	for _, value := range values {
+		if parseSkipMissingValue(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseSubelementsSkipMissingStrings(values []string) bool {
+	for _, value := range values {
+		if parseSkipMissingValue(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseSkipMissingValue(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return false
+		}
+		if trimmed == "skip_missing" {
+			return true
+		}
+		if strings.HasPrefix(trimmed, "skip_missing=") {
+			return getBoolArg(map[string]any{"skip_missing": strings.TrimPrefix(trimmed, "skip_missing=")}, "skip_missing", false)
+		}
+		return getBoolArg(map[string]any{"skip_missing": trimmed}, "skip_missing", false)
+	case map[string]any:
+		return getBoolArg(v, "skip_missing", false)
+	case map[any]any:
+		converted := make(map[string]any, len(v))
+		for key, val := range v {
+			if s, ok := key.(string); ok {
+				converted[s] = val
+			}
+		}
+		return getBoolArg(converted, "skip_missing", false)
+	default:
+		return false
 	}
 }
 
@@ -1236,17 +1292,17 @@ func (e *Executor) resolveSubelementsParents(value any, host string, task *Task)
 	return nil
 }
 
-func subelementItems(parent any, path string) []any {
+func subelementItems(parent any, path string) ([]any, bool) {
 	value, ok := lookupNestedValue(parent, path)
 	if !ok || value == nil {
-		return nil
+		return nil, false
 	}
 
 	if items, ok := anySliceFromValue(value); ok {
-		return items
+		return items, true
 	}
 
-	return []any{value}
+	return []any{value}, true
 }
 
 func parseSequenceSpec(loop any) (*sequenceSpec, error) {
