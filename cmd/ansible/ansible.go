@@ -2,6 +2,9 @@ package anscmd
 
 import (
 	"context"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"dappco.re/go/core"
@@ -41,6 +44,36 @@ func firstBool(opts core.Options, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+// verbosityLevel resolves the effective verbosity from parsed options and the
+// raw command line arguments. The core CLI parser does not preserve repeated
+// `-v` tokens, so we count them from os.Args as a fallback.
+func verbosityLevel(opts core.Options, rawArgs []string) int {
+	level := opts.Int("verbose")
+	if firstBool(opts, "v") && level < 1 {
+		level = 1
+	}
+
+	for _, arg := range rawArgs {
+		switch {
+		case arg == "-v" || arg == "--verbose":
+			level++
+		case strings.HasPrefix(arg, "--verbose="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(arg, "--verbose=")); err == nil && n > level {
+				level = n
+			}
+		case strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--"):
+			short := strings.TrimPrefix(arg, "-")
+			if short != "" && strings.Trim(short, "v") == "" {
+				if n := len([]rune(short)); n > level {
+					level = n
+				}
+			}
+		}
+	}
+
+	return level
 }
 
 // extraVars collects all repeated extra-vars values from Options.
@@ -119,10 +152,7 @@ func runAnsible(opts core.Options) core.Result {
 	executor.Limit = firstString(opts, "limit", "l")
 	executor.CheckMode = opts.Bool("check")
 	executor.Diff = opts.Bool("diff")
-	executor.Verbose = opts.Int("verbose")
-	if firstBool(opts, "v") && executor.Verbose < 1 {
-		executor.Verbose = 1
-	}
+	executor.Verbose = verbosityLevel(opts, os.Args[1:])
 
 	if tags := firstString(opts, "tags", "t"); tags != "" {
 		executor.Tags = split(tags, ",")

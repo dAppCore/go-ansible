@@ -69,6 +69,24 @@ func TestFirstBool_Good_UsesAlias(t *testing.T) {
 	assert.True(t, firstBool(opts, "verbose", "v"))
 }
 
+func TestVerbosityLevel_Good_CountsStackedShortFlags(t *testing.T) {
+	opts := core.NewOptions()
+
+	assert.Equal(t, 3, verbosityLevel(opts, []string{"-vvv"}))
+}
+
+func TestVerbosityLevel_Good_CountsLongForm(t *testing.T) {
+	opts := core.NewOptions()
+
+	assert.Equal(t, 1, verbosityLevel(opts, []string{"--verbose"}))
+}
+
+func TestVerbosityLevel_Good_PreservesExplicitNumericLevel(t *testing.T) {
+	opts := core.NewOptions(core.Option{Key: "verbose", Value: 2})
+
+	assert.Equal(t, 2, verbosityLevel(opts, nil))
+}
+
 func TestTestKeyFile_Good_PrefersExplicitKey(t *testing.T) {
 	opts := core.NewOptions(
 		core.Option{Key: "key", Value: "/tmp/id_ed25519"},
