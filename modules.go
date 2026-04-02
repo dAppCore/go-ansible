@@ -2326,6 +2326,7 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 	job := getStringArg(args, "job", "")
 	state := getStringArg(args, "state", "present")
 	user := getStringArg(args, "user", "root")
+	disabled := getBoolArg(args, "disabled", false)
 
 	minute := getStringArg(args, "minute", "*")
 	hour := getStringArg(args, "hour", "*")
@@ -2346,6 +2347,9 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 	// Build cron entry
 	schedule := sprintf("%s %s %s %s %s", minute, hour, day, month, weekday)
 	entry := sprintf("%s %s # %s", schedule, job, name)
+	if disabled {
+		entry = "# " + entry
+	}
 
 	// Add to crontab
 	cmd := sprintf("(crontab -u %s -l 2>/dev/null | grep -v '# %s' ; echo %q) | crontab -u %s -",

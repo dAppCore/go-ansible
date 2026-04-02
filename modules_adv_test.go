@@ -316,6 +316,24 @@ func TestModulesAdv_ModuleCron_Good_CustomUser(t *testing.T) {
 	assert.True(t, mock.containsSubstring("0 */4 * * *"))
 }
 
+func TestModulesAdv_ModuleCron_Good_DisabledJobCommentsEntry(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`crontab -u root`, "", "", 0)
+
+	result, err := e.moduleCron(context.Background(), mock, map[string]any{
+		"name":     "backup",
+		"job":      "/usr/local/bin/backup.sh",
+		"minute":   "15",
+		"hour":     "1",
+		"disabled": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.containsSubstring(`# 15 1 * * * /usr/local/bin/backup.sh # backup`))
+}
+
 func TestModulesAdv_ModuleCron_Good_AbsentWithNoName(t *testing.T) {
 	// Absent with no name — changed but no grep command
 	e, mock := newTestExecutorWithMock("host1")
