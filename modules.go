@@ -33,7 +33,8 @@ type commandRunner interface {
 
 // executeModule dispatches to the appropriate module handler.
 func (e *Executor) executeModule(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play) (*TaskResult, error) {
-	module := NormalizeModule(task.Module)
+	originalModule := task.Module
+	module := NormalizeModule(originalModule)
 
 	// Apply task-level become overrides, including an explicit disable.
 	if task.Become != nil {
@@ -180,6 +181,9 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		// For unknown modules, try to execute as shell if it looks like a command
 		if contains(task.Module, " ") || task.Module == "" {
 			return e.moduleShell(ctx, client, args)
+		}
+		if originalModule != "" && originalModule != module {
+			return nil, coreerr.E("Executor.executeModule", "unsupported module: "+originalModule+" (resolved to "+module+")", nil)
 		}
 		return nil, coreerr.E("Executor.executeModule", "unsupported module: "+module, nil)
 	}

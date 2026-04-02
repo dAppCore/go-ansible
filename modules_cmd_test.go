@@ -866,6 +866,7 @@ func TestModulesCmd_ExecuteModuleWithMock_Bad_UnsupportedModule(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported module")
+	assert.Contains(t, err.Error(), "ansible.builtin.hostname")
 }
 
 // --- Template integration tests ---
