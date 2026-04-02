@@ -109,6 +109,8 @@ func (p *Parser) ParsePlaybookIter(path string) (iter.Seq[Play], error) {
 //
 //	inv, err := parser.ParseInventory("/workspace/inventory.yml")
 func (p *Parser) ParseInventory(path string) (*Inventory, error) {
+	path = p.resolveInventoryPath(path)
+
 	data, err := coreio.Local.Read(path)
 	if err != nil {
 		return nil, coreerr.E("Parser.ParseInventory", "read inventory", err)
@@ -120,6 +122,23 @@ func (p *Parser) ParseInventory(path string) (*Inventory, error) {
 	}
 
 	return &inv, nil
+}
+
+// resolveInventoryPath resolves inventory directories to a concrete file.
+func (p *Parser) resolveInventoryPath(path string) string {
+	path = p.resolvePath(path)
+	if path == "" || !coreio.Local.Exists(path) || !coreio.Local.IsDir(path) {
+		return path
+	}
+
+	for _, name := range []string{"inventory.yml", "hosts.yml", "inventory.yaml", "hosts.yaml"} {
+		candidate := joinPath(path, name)
+		if coreio.Local.Exists(candidate) {
+			return candidate
+		}
+	}
+
+	return path
 }
 
 // ParseTasks parses a tasks file (used by include_tasks).

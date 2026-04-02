@@ -2,6 +2,7 @@ package ansible
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -592,6 +593,27 @@ func TestExecutorExtra_SetInventory_Good(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, e.inventory)
 	assert.Len(t, e.inventory.All.Hosts, 2)
+}
+
+func TestExecutorExtra_SetInventory_Good_Directory(t *testing.T) {
+	dir := t.TempDir()
+	inventoryDir := joinPath(dir, "inventory")
+	require.NoError(t, os.MkdirAll(inventoryDir, 0755))
+
+	invPath := joinPath(inventoryDir, "inventory.yml")
+	yaml := `all:
+  hosts:
+    web1:
+      ansible_host: 10.0.0.1
+`
+	require.NoError(t, writeTestFile(invPath, []byte(yaml), 0644))
+
+	e := NewExecutor(dir)
+	err := e.SetInventory(inventoryDir)
+
+	require.NoError(t, err)
+	assert.NotNil(t, e.inventory)
+	assert.Contains(t, e.inventory.All.Hosts, "web1")
 }
 
 func TestExecutorExtra_SetInventory_Bad_FileNotFound(t *testing.T) {

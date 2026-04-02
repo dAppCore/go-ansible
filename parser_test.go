@@ -495,6 +495,29 @@ all:
 	assert.Equal(t, "192.168.1.11", inv.All.Hosts["web2"].AnsibleHost)
 }
 
+func TestParser_ParseInventory_Good_DirectoryInventory(t *testing.T) {
+	dir := t.TempDir()
+	inventoryDir := joinPath(dir, "inventory")
+	require.NoError(t, os.MkdirAll(inventoryDir, 0755))
+
+	path := joinPath(inventoryDir, "hosts.yml")
+	yaml := `---
+all:
+  hosts:
+    web1:
+      ansible_host: 192.168.1.10
+`
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
+
+	p := NewParser(dir)
+	inv, err := p.ParseInventory(inventoryDir)
+
+	require.NoError(t, err)
+	require.NotNil(t, inv.All)
+	require.Contains(t, inv.All.Hosts, "web1")
+	assert.Equal(t, "192.168.1.10", inv.All.Hosts["web1"].AnsibleHost)
+}
+
 func TestParser_ParseInventory_Good_WithGroups(t *testing.T) {
 	dir := t.TempDir()
 	path := joinPath(dir, "inventory.yml")
