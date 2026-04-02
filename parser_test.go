@@ -950,6 +950,12 @@ func TestParser_NormalizeModule_Good_AlreadyFQCN(t *testing.T) {
 	assert.Equal(t, "community.general.ufw", NormalizeModule("community.general.ufw"))
 }
 
+func TestParser_NormalizeModule_Good_LegacyNamespace(t *testing.T) {
+	assert.Equal(t, "ansible.builtin.command", NormalizeModule("ansible.legacy.command"))
+	assert.Equal(t, "ansible.posix.authorized_key", NormalizeModule("ansible.legacy.authorized_key"))
+	assert.Equal(t, "community.general.ufw", NormalizeModule("ansible.legacy.ufw"))
+}
+
 // --- NewParser ---
 
 func TestParser_NewParser_Good(t *testing.T) {

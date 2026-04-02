@@ -817,6 +817,11 @@ func NormalizeModule(name string) string {
 	if canonical, ok := ModuleAliases[name]; ok {
 		return canonical
 	}
+	if strings.HasPrefix(name, "ansible.legacy.") {
+		// Legacy module names should resolve through the existing short-form
+		// and alias logic so we keep compatibility with older playbooks.
+		return NormalizeModule(strings.TrimPrefix(name, "ansible.legacy."))
+	}
 	// Add ansible.builtin. prefix if missing
 	if !contains(name, ".") {
 		return "ansible.builtin." + name

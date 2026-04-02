@@ -93,6 +93,21 @@ func TestExecutorExtra_ModulePing_Good_CustomData(t *testing.T) {
 	assert.Equal(t, "hello", result.Msg)
 }
 
+func TestExecutorExtra_ExecuteModule_Good_LegacyNamespaceCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand("echo hello", "hello\n", "", 0)
+
+	result, err := executeModuleWithMock(e, mock, "host1", &Task{
+		Module: "ansible.legacy.command",
+		Args:   map[string]any{"_raw_params": "echo hello"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "hello\n", result.Stdout)
+	assert.True(t, mock.hasExecuted(`echo hello`))
+}
+
 // --- moduleAssert ---
 
 func TestExecutorExtra_ModuleAssert_Good_PassingAssertion(t *testing.T) {
