@@ -193,7 +193,23 @@ func (p *Parser) ParseTasksIter(path string) (iter.Seq[Task], error) {
 //
 //	tasks, err := parser.ParseRole("nginx", "main.yml")
 func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
-	tasks, _, _, err := p.loadRoleData(name, tasksFrom, "", "")
+	tasks, defaults, roleVars, err := p.loadRoleData(name, tasksFrom, "", "")
+	if err != nil {
+		return nil, err
+	}
+
+	if p.vars == nil {
+		p.vars = make(map[string]any)
+	}
+	for k, v := range defaults {
+		if _, exists := p.vars[k]; !exists {
+			p.vars[k] = v
+		}
+	}
+	for k, v := range roleVars {
+		p.vars[k] = v
+	}
+
 	return tasks, err
 }
 

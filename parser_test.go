@@ -648,6 +648,37 @@ func TestParser_ParseTasks_Bad_InvalidYAML(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestParser_ParseRole_Good_LoadsRoleVarsIntoParserContext(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "web", "tasks", "main.yml"), []byte(`---
+- name: Role task
+  debug:
+    msg: "{{ role_default }} {{ role_value }} {{ shared_value }}"
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "web", "defaults", "main.yml"), []byte(`---
+role_default: default-value
+shared_value: default-shared
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "web", "vars", "main.yml"), []byte(`---
+role_value: vars-value
+shared_value: role-shared
+`), 0644))
+
+	p := NewParser(dir)
+	p.vars["existing_value"] = "keep-me"
+
+	tasks, err := p.ParseRole("web", "main.yml")
+
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, "debug", tasks[0].Module)
+	assert.Equal(t, "keep-me", p.vars["existing_value"])
+	assert.Equal(t, "default-value", p.vars["role_default"])
+	assert.Equal(t, "vars-value", p.vars["role_value"])
+	assert.Equal(t, "role-shared", p.vars["shared_value"])
+}
+
 // --- GetHosts ---
 
 func TestParser_GetHosts_Good_AllPattern(t *testing.T) {
