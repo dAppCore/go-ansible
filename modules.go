@@ -1812,20 +1812,14 @@ func findInventoryHost(group *InventoryGroup, name string) *Host {
 }
 
 func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	port := 0
-	if p, ok := args["port"].(int); ok {
-		port = p
-	}
+	port := getIntArg(args, "port", 0)
 	path := getStringArg(args, "path", "")
 	host := getStringArg(args, "host", "127.0.0.1")
 	state := getStringArg(args, "state", "started")
 	searchRegex := getStringArg(args, "search_regex", "")
 	timeoutMsg := getStringArg(args, "msg", "wait_for timed out")
 	delay := getIntArg(args, "delay", 0)
-	timeout := 300
-	if t, ok := args["timeout"].(int); ok {
-		timeout = t
-	}
+	timeout := getIntArg(args, "timeout", 300)
 	var compiledRegex *regexp.Regexp
 	if searchRegex != "" {
 		var err error
