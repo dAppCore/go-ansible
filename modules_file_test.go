@@ -705,6 +705,30 @@ func TestModulesFile_ModuleBlockinfile_Good_CreateFile(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`touch "/etc/new-config"`))
 }
 
+func TestModulesFile_ModuleBlockinfile_Good_BackupExistingDest(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/config", []byte("old block contents"))
+
+	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
+		"path":   "/etc/config",
+		"block":  "new block contents",
+		"backup": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/config.")
+	assert.Equal(t, 1, mock.uploadCount())
+
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("old block contents"), backupContent)
+}
+
 func TestModulesFile_ModuleBlockinfile_Bad_MissingPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 

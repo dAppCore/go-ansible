@@ -2371,11 +2371,21 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClie
 	marker := getStringArg(args, "marker", "# {mark} ANSIBLE MANAGED BLOCK")
 	state := getStringArg(args, "state", "present")
 	create := getBoolArg(args, "create", false)
+	backup := getBoolArg(args, "backup", false)
 	prependNewline := getBoolArg(args, "prepend_newline", false)
 	appendNewline := getBoolArg(args, "append_newline", false)
 
 	beginMarker := replaceN(marker, "{mark}", "BEGIN", 1)
 	endMarker := replaceN(marker, "{mark}", "END", 1)
+
+	var backupPath string
+	if backup {
+		var hasBefore bool
+		backupPath, hasBefore, _ = backupRemoteFile(ctx, client, path)
+		if !hasBefore {
+			backupPath = ""
+		}
+	}
 
 	if state == "absent" {
 		// Remove block
@@ -2415,7 +2425,12 @@ BLOCK_EOF
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 	}
 
-	return &TaskResult{Changed: true}, nil
+	result := &TaskResult{Changed: true}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
+
+	return result, nil
 }
 
 func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
