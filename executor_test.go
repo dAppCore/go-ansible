@@ -638,6 +638,41 @@ role_value: vars-custom
 	assert.Equal(t, "vars-custom|include-value", e.results["host1"]["role_result"].Msg)
 }
 
+func TestExecutor_RunIncludeRole_Good_TemplatesRoleName(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(`---
+- name: templated role task
+  debug:
+    msg: role ran
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("role_name", "webserver")
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runIncludeRole(context.Background(), []string{"localhost"}, &Task{
+		IncludeRole: &struct {
+			Name         string         `yaml:"name"`
+			TasksFrom    string         `yaml:"tasks_from,omitempty"`
+			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
+			VarsFrom     string         `yaml:"vars_from,omitempty"`
+			Vars         map[string]any `yaml:"vars,omitempty"`
+		}{
+			Name: "{{ role_name }}",
+		},
+	}, &Play{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"localhost:templated role task"}, started)
+	require.NotNil(t, e.results["localhost"]["role_result"])
+	assert.Equal(t, "role ran", e.results["localhost"]["role_result"].Msg)
+}
+
 func TestExecutor_RunPlay_Good_AppliesPlayTagsToTasks(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Tags = []string{"deploy"}

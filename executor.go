@@ -1508,6 +1508,28 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 
 // runIncludeRole handles include_role/import_role.
 func (e *Executor) runIncludeRole(ctx context.Context, hosts []string, task *Task, play *Play) error {
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	for _, host := range hosts {
+		roleRef := e.resolveIncludeRoleRef(host, task)
+		if roleRef == nil || roleRef.Role == "" {
+			continue
+		}
+		if err := e.runRole(ctx, []string{host}, roleRef, play); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
+	if task == nil {
+		return nil
+	}
+
 	var roleName, tasksFrom, defaultsFrom, varsFrom string
 	var roleVars map[string]any
 
@@ -1517,23 +1539,30 @@ func (e *Executor) runIncludeRole(ctx context.Context, hosts []string, task *Tas
 		defaultsFrom = task.IncludeRole.DefaultsFrom
 		varsFrom = task.IncludeRole.VarsFrom
 		roleVars = task.IncludeRole.Vars
-	} else {
+	} else if task.ImportRole != nil {
 		roleName = task.ImportRole.Name
 		tasksFrom = task.ImportRole.TasksFrom
 		defaultsFrom = task.ImportRole.DefaultsFrom
 		varsFrom = task.ImportRole.VarsFrom
 		roleVars = task.ImportRole.Vars
+	} else {
+		return nil
 	}
 
-	roleRef := &RoleRef{
-		Role:         roleName,
-		TasksFrom:    tasksFrom,
-		DefaultsFrom: defaultsFrom,
-		VarsFrom:     varsFrom,
-		Vars:         mergeTaskVars(roleVars, task.Vars),
+	renderedVars := mergeTaskVars(roleVars, task.Vars)
+	if len(renderedVars) > 0 {
+		renderedVars = e.templateArgs(renderedVars, host, task)
 	}
 
-	return e.runRole(ctx, hosts, roleRef, play)
+	return &RoleRef{
+		Role:         e.templateString(roleName, host, task),
+		TasksFrom:    e.templateString(tasksFrom, host, task),
+		DefaultsFrom: e.templateString(defaultsFrom, host, task),
+		VarsFrom:     e.templateString(varsFrom, host, task),
+		Vars:         renderedVars,
+		When:         task.When,
+		Tags:         task.Tags,
+	}
 }
 
 // mergeTaskVars combines include-task vars with child task vars.
