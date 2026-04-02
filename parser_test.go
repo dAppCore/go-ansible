@@ -525,6 +525,41 @@ all:
 	assert.Len(t, inv.All.Children["databases"].Hosts, 1)
 }
 
+func TestParser_ParseInventory_Good_TopLevelGroups(t *testing.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "inventory.yml")
+
+	yaml := `---
+webservers:
+  vars:
+    tier: web
+  hosts:
+    web1:
+      ansible_host: 10.0.0.1
+    web2:
+      ansible_host: 10.0.0.2
+databases:
+  hosts:
+    db1:
+      ansible_host: 10.0.1.1
+`
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
+
+	p := NewParser(dir)
+	inv, err := p.ParseInventory(path)
+
+	require.NoError(t, err)
+	require.NotNil(t, inv.All)
+	require.NotNil(t, inv.All.Children["webservers"])
+	require.NotNil(t, inv.All.Children["databases"])
+	assert.Len(t, inv.All.Children["webservers"].Hosts, 2)
+	assert.Len(t, inv.All.Children["databases"].Hosts, 1)
+	assert.Equal(t, "web", inv.All.Children["webservers"].Vars["tier"])
+	assert.ElementsMatch(t, []string{"web1", "web2", "db1"}, GetHosts(inv, "all"))
+	assert.Equal(t, []string{"web1", "web2"}, GetHosts(inv, "webservers"))
+	assert.Equal(t, "web", GetHostVars(inv, "web1")["tier"])
+}
+
 func TestParser_ParseInventory_Good_WithVars(t *testing.T) {
 	dir := t.TempDir()
 	path := joinPath(dir, "inventory.yml")

@@ -2,6 +2,9 @@ package ansible
 
 import (
 	"time"
+
+	coreerr "dappco.re/go/core/log"
+	"gopkg.in/yaml.v3"
 )
 
 // Playbook represents an Ansible playbook.
@@ -203,6 +206,103 @@ type TaskResult struct {
 //	inv := Inventory{All: &InventoryGroup{Hosts: map[string]*Host{"web1": {AnsibleHost: "10.0.0.1"}}}}
 type Inventory struct {
 	All *InventoryGroup `yaml:"all"`
+}
+
+// UnmarshalYAML supports both the explicit `all:` root and inventories that
+// declare top-level groups directly.
+func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
+	var raw map[string]any
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+
+	root := &InventoryGroup{}
+	rootInput := make(map[string]any)
+	if all, ok := raw["all"]; ok {
+		group, err := decodeInventoryGroupValue(all)
+		if err != nil {
+			return coreerr.E("Inventory.UnmarshalYAML", "decode all group", err)
+		}
+		root = group
+	}
+
+	for name, value := range raw {
+		if name == "all" {
+			continue
+		}
+
+		switch name {
+		case "hosts", "children", "vars":
+			rootInput[name] = value
+			continue
+		}
+
+		group, err := decodeInventoryGroupValue(value)
+		if err != nil {
+			return coreerr.E("Inventory.UnmarshalYAML", "decode group "+name, err)
+		}
+
+		if root.Children == nil {
+			root.Children = make(map[string]*InventoryGroup)
+		}
+		root.Children[name] = group
+	}
+
+	if len(rootInput) > 0 {
+		extra, err := decodeInventoryGroupValue(rootInput)
+		if err != nil {
+			return coreerr.E("Inventory.UnmarshalYAML", "decode root group", err)
+		}
+		mergeInventoryGroups(root, extra)
+	}
+
+	i.All = root
+	return nil
+}
+
+func decodeInventoryGroupValue(value any) (*InventoryGroup, error) {
+	if value == nil {
+		return &InventoryGroup{}, nil
+	}
+
+	data, err := yaml.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+
+	var group InventoryGroup
+	if err := yaml.Unmarshal(data, &group); err != nil {
+		return nil, err
+	}
+
+	return &group, nil
+}
+
+func mergeInventoryGroups(dst, src *InventoryGroup) {
+	if dst == nil || src == nil {
+		return
+	}
+
+	if dst.Hosts == nil && len(src.Hosts) > 0 {
+		dst.Hosts = make(map[string]*Host, len(src.Hosts))
+	}
+	for name, host := range src.Hosts {
+		dst.Hosts[name] = host
+	}
+
+	if dst.Children == nil && len(src.Children) > 0 {
+		dst.Children = make(map[string]*InventoryGroup, len(src.Children))
+	}
+	for name, child := range src.Children {
+		dst.Children[name] = child
+	}
+
+	if dst.Vars == nil && len(src.Vars) > 0 {
+		dst.Vars = make(map[string]any, len(src.Vars))
+	}
+	for key, value := range src.Vars {
+		dst.Vars[key] = value
+	}
 }
 
 // InventoryGroup represents a group in inventory.
