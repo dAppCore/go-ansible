@@ -2548,7 +2548,7 @@ func (e *Executor) handleLookup(expr string) string {
 	case "env":
 		return env(arg)
 	case "file":
-		if data, err := coreio.Local.Read(arg); err == nil {
+		if data, err := coreio.Local.Read(e.resolveLocalPath(arg)); err == nil {
 			return data
 		}
 	}

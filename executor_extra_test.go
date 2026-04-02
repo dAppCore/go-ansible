@@ -514,6 +514,16 @@ func TestExecutorExtra_HandleLookup_Good_EnvVarMissing(t *testing.T) {
 	assert.Equal(t, "", result)
 }
 
+func TestExecutorExtra_HandleLookup_Good_FileLookupResolvesBasePath(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "vars.txt"), []byte("from base path"), 0644))
+
+	e := NewExecutor(dir)
+	result := e.handleLookup("lookup('file', 'vars.txt')")
+
+	assert.Equal(t, "from base path", result)
+}
+
 func TestExecutorExtra_HandleLookup_Bad_InvalidSyntax(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result := e.handleLookup("lookup(invalid)")
