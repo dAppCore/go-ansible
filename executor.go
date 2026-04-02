@@ -479,9 +479,24 @@ func (e *Executor) loadPlayVarsFiles(play *Play) error {
 		return nil
 	}
 
+	// Vars file paths may reference play or executor variables, so render them
+	// against a temporary merged scope before reading from disk.
+	savedVars := e.vars
+	renderVars := make(map[string]any, len(savedVars)+len(play.Vars))
+	for k, v := range savedVars {
+		renderVars[k] = v
+	}
+	for k, v := range play.Vars {
+		renderVars[k] = v
+	}
+	e.vars = renderVars
+	defer func() {
+		e.vars = savedVars
+	}()
+
 	merged := make(map[string]any)
 	for _, file := range files {
-		resolved := e.resolveLocalPath(file)
+		resolved := e.resolveLocalPath(e.templateString(file, "", nil))
 		data, err := coreio.Local.Read(resolved)
 		if err != nil {
 			return coreerr.E("Executor.loadPlayVarsFiles", "read vars file", err)

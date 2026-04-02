@@ -399,6 +399,37 @@ app_name: demo
 	assert.Equal(t, "8080 demo prod", e.results["localhost"]["vars_result"].Msg)
 }
 
+func TestExecutor_Run_Good_VarsFilesSupportTemplatedPaths(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "prod.yml"), []byte(`---
+app_name: templated
+`), 0644))
+
+	playbookPath := joinPath(dir, "playbook.yml")
+	require.NoError(t, writeTestFile(playbookPath, []byte(`---
+- name: Vars files templated path
+  hosts: localhost
+  gather_facts: false
+  vars:
+    environment: prod
+  vars_files:
+    - vars/{{ environment }}.yml
+  tasks:
+    - name: Show templated var
+      debug:
+        msg: "{{ app_name }}"
+      register: vars_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.Run(context.Background(), playbookPath))
+
+	require.NotNil(t, e.results["localhost"])
+	require.NotNil(t, e.results["localhost"]["vars_result"])
+	assert.Equal(t, "templated", e.results["localhost"]["vars_result"].Msg)
+}
+
 func TestExecutor_RunTaskOnHosts_Good_WithFileUsesFileContents(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "fragments", "hello.txt"), []byte("hello from file"), 0644))
