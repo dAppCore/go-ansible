@@ -858,6 +858,8 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 	regexpArg := getStringArg(args, "regexp", "")
 	state := getStringArg(args, "state", "present")
 	backrefs := getBoolArg(args, "backrefs", false)
+	insertBefore := getStringArg(args, "insertbefore", "")
+	insertAfter := getStringArg(args, "insertafter", "")
 
 	if state == "absent" {
 		if regexpArg != "" {
@@ -887,11 +889,22 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 				if backrefs {
 					return &TaskResult{Changed: false}, nil
 				}
+				if inserted, err := insertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter); err != nil {
+					return nil, err
+				} else if inserted {
+					return &TaskResult{Changed: true}, nil
+				}
 				// Line not found, append.
 				cmd = sprintf("echo %q >> %q", line, path)
 				_, _, _, _ = client.Run(context.Background(), cmd)
 			}
 		} else if line != "" {
+			if inserted, err := insertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter); err != nil {
+				return nil, err
+			} else if inserted {
+				return &TaskResult{Changed: true}, nil
+			}
+
 			// Ensure line is present
 			cmd := sprintf("grep -qxF %q %q || echo %q >> %q", line, path, line, path)
 			_, _, _, _ = client.Run(context.Background(), cmd)

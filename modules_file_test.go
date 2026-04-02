@@ -3,6 +3,7 @@ package ansible
 import (
 	"context"
 	"io/fs"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -516,6 +517,36 @@ func TestModulesFile_ModuleLineinfile_Good_BackrefsNoMatchNoAppend(t *testing.T)
 	assert.Equal(t, 1, mock.commandCount())
 	assert.Contains(t, mock.lastCommand().Cmd, "grep -Eq")
 	assert.False(t, mock.hasExecuted(`echo`))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_InsertBeforeAnchor(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":         "/etc/example.conf",
+		"line":         "setting=value",
+		"insertbefore": "^# managed settings",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`grep -Eq`))
+	assert.True(t, mock.hasExecuted(regexp.QuoteMeta("print line; done=1 } print")))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":        "/etc/example.conf",
+		"line":        "setting=value",
+		"insertafter": "^# managed settings",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`grep -Eq`))
+	assert.True(t, mock.hasExecuted(regexp.QuoteMeta("print; if (!done && $0 ~ re) { print line; done=1 }")))
 }
 
 func TestModulesFile_ModuleLineinfile_Bad_MissingPath(t *testing.T) {
