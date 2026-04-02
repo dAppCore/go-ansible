@@ -833,6 +833,39 @@ func TestExecutorExtra_RunIncludeTasks_Good_HostSpecificTemplate(t *testing.T) {
 	assert.Contains(t, started, "db1:DB included task")
 }
 
+func TestExecutorExtra_RunIncludeTasks_Good_HonoursWhen(t *testing.T) {
+	dir := t.TempDir()
+	includedPath := joinPath(dir, "conditional.yml")
+	yaml := `- name: Conditional included task
+  debug:
+    msg: should not run
+`
+	require.NoError(t, writeTestFile(includedPath, []byte(yaml), 0644))
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Conditional include",
+		Hosts:       "localhost",
+		GatherFacts: &gatherFacts,
+	}
+
+	e := NewExecutor(dir)
+	e.SetVar("include_enabled", false)
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name:         "Load conditional tasks",
+		IncludeTasks: "conditional.yml",
+		When:         "include_enabled",
+	}, play))
+
+	assert.Empty(t, started)
+}
+
 func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---

@@ -1704,6 +1704,21 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 		return nil
 	}
 
+	// Static include/import tasks still honour their own when-clause before the
+	// child task file is expanded for each host.
+	if task.When != nil {
+		filtered := make([]string, 0, len(hosts))
+		for _, host := range hosts {
+			if e.evaluateWhen(task.When, host, task) {
+				filtered = append(filtered, host)
+			}
+		}
+		hosts = filtered
+		if len(hosts) == 0 {
+			return nil
+		}
+	}
+
 	// Resolve the include path per host so host-specific vars can select a
 	// different task file for each target.
 	hostsByPath := make(map[string][]string)
