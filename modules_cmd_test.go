@@ -256,6 +256,25 @@ func TestModulesCmd_ModuleCommand_Good_WithChdir(t *testing.T) {
 	assert.Contains(t, last.Cmd, "ls")
 }
 
+func TestModulesCmd_ModuleCommand_Good_WithStdin(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand("cat", "input\n", "", 0)
+
+	result, err := moduleCommandWithClient(e, mock, map[string]any{
+		"_raw_params": "cat",
+		"stdin":       "payload",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "input\n", result.Stdout)
+	last := mock.lastCommand()
+	assert.Equal(t, "Run", last.Method)
+	assert.Contains(t, last.Cmd, "printf %s")
+	assert.Contains(t, last.Cmd, "| cat")
+	assert.Contains(t, last.Cmd, "payload\n")
+}
+
 func TestModulesCmd_ModuleCommand_Bad_NoCommand(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
@@ -703,6 +722,22 @@ func TestModulesCmd_ModuleDifferentiation_Good_ShellUsesRunScript(t *testing.T) 
 	cmds := mock.executedCommands()
 	require.Len(t, cmds, 1)
 	assert.Equal(t, "RunScript", cmds[0].Method, "shell module must use RunScript()")
+}
+
+func TestModulesCmd_ModuleDifferentiation_Good_ShellWithStdinStillUsesRunScript(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand("echo test", "test\n", "", 0)
+
+	_, _ = moduleShellWithClient(e, mock, map[string]any{
+		"_raw_params": "echo test",
+		"stdin":       "payload",
+	})
+
+	cmds := mock.executedCommands()
+	require.Len(t, cmds, 1)
+	assert.Equal(t, "RunScript", cmds[0].Method, "shell module must still use RunScript()")
+	assert.Contains(t, cmds[0].Cmd, "printf %s")
+	assert.Contains(t, cmds[0].Cmd, "| echo test")
 }
 
 func TestModulesCmd_ModuleDifferentiation_Good_RawUsesRun(t *testing.T) {

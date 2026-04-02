@@ -521,6 +521,10 @@ func moduleShellWithClient(_ *Executor, client sshRunner, args map[string]any) (
 		cmd = sprintf("cd %q && %s", chdir, cmd)
 	}
 
+	if stdin := getStringArg(args, "stdin", ""); stdin != "" {
+		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
+	}
+
 	stdout, stderr, rc, err := client.RunScript(context.Background(), cmd)
 	if err != nil {
 		return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
@@ -543,6 +547,10 @@ func moduleCommandWithClient(_ *Executor, client sshRunner, args map[string]any)
 
 	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
 		cmd = sprintf("cd %q && %s", chdir, cmd)
+	}
+
+	if stdin := getStringArg(args, "stdin", ""); stdin != "" {
+		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
 	}
 
 	stdout, stderr, rc, err := client.Run(context.Background(), cmd)

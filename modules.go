@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	coreio "dappco.re/go/core/io"
@@ -262,6 +263,10 @@ func (e *Executor) moduleShell(ctx context.Context, client sshExecutorClient, ar
 		cmd = sprintf("cd %q && %s", chdir, cmd)
 	}
 
+	if stdin := getStringArg(args, "stdin", ""); stdin != "" {
+		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
+	}
+
 	stdout, stderr, rc, err := client.RunScript(ctx, cmd)
 	if err != nil {
 		return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
@@ -293,6 +298,10 @@ func (e *Executor) moduleCommand(ctx context.Context, client sshExecutorClient, 
 	// Handle chdir
 	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
 		cmd = sprintf("cd %q && %s", chdir, cmd)
+	}
+
+	if stdin := getStringArg(args, "stdin", ""); stdin != "" {
+		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
 	}
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
@@ -1894,6 +1903,20 @@ func quoteArgs(values []string) []string {
 		quoted = append(quoted, sprintf("%q", value))
 	}
 	return quoted
+}
+
+func prefixCommandStdin(cmd, stdin string, addNewline bool) string {
+	if stdin == "" {
+		return cmd
+	}
+	if addNewline {
+		stdin += "\n"
+	}
+	return sprintf("printf %%s %s | %s", shellSingleQuote(stdin), cmd)
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 // --- Helpers ---
