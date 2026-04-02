@@ -860,6 +860,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 	backrefs := getBoolArg(args, "backrefs", false)
 	insertBefore := getStringArg(args, "insertbefore", "")
 	insertAfter := getStringArg(args, "insertafter", "")
+	firstMatch := getBoolArg(args, "firstmatch", false)
 
 	if state == "absent" {
 		if regexpArg != "" {
@@ -889,7 +890,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 				if backrefs {
 					return &TaskResult{Changed: false}, nil
 				}
-				if inserted, err := insertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter); err != nil {
+				if inserted, err := mockInsertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
 					return nil, err
 				} else if inserted {
 					return &TaskResult{Changed: true}, nil
@@ -899,7 +900,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 				_, _, _, _ = client.Run(context.Background(), cmd)
 			}
 		} else if line != "" {
-			if inserted, err := insertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter); err != nil {
+			if inserted, err := mockInsertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
 				return nil, err
 			} else if inserted {
 				return &TaskResult{Changed: true}, nil
@@ -965,6 +966,88 @@ BLOCK_EOF
 	}
 
 	return &TaskResult{Changed: true}, nil
+}
+
+func mockInsertLineRelativeToMatch(ctx context.Context, client commandRunner, path, line, insertBefore, insertAfter string, firstMatch bool) (bool, error) {
+	if line == "" {
+		return false, nil
+	}
+
+	if insertBefore == "BOF" {
+		cmd := sprintf("tmp=$(mktemp) && { printf %%s %s; cat %q; } > \"$tmp\" && mv \"$tmp\" %q", shellSingleQuote(line+"\n"), path, path)
+		stdout, stderr, rc, err := client.Run(ctx, cmd)
+		if err != nil || rc != 0 {
+			return false, mockWrap("mockInsertLineRelativeToMatch", "insertbefore line", err)
+		}
+		_ = stdout
+		_ = stderr
+		return true, nil
+	}
+
+	if insertAfter == "EOF" {
+		cmd := sprintf("echo %q >> %q", line, path)
+		stdout, stderr, rc, err := client.Run(ctx, cmd)
+		if err != nil || rc != 0 {
+			return false, mockWrap("mockInsertLineRelativeToMatch", "insertafter line", err)
+		}
+		_ = stdout
+		_ = stderr
+		return true, nil
+	}
+
+	if insertBefore != "" {
+		matchCmd := sprintf("grep -Eq %q %q", insertBefore, path)
+		_, _, matchRC, _ := client.Run(ctx, matchCmd)
+		if matchRC == 0 {
+			cmd := mockBuildLineinfileInsertCommand(path, line, insertBefore, false, firstMatch)
+			stdout, stderr, rc, err := client.Run(ctx, cmd)
+			if err != nil || rc != 0 {
+				return false, mockWrap("mockInsertLineRelativeToMatch", "insertbefore line", err)
+			}
+			_ = stdout
+			_ = stderr
+			return true, nil
+		}
+	}
+
+	if insertAfter != "" {
+		matchCmd := sprintf("grep -Eq %q %q", insertAfter, path)
+		_, _, matchRC, _ := client.Run(ctx, matchCmd)
+		if matchRC == 0 {
+			cmd := mockBuildLineinfileInsertCommand(path, line, insertAfter, true, firstMatch)
+			stdout, stderr, rc, err := client.Run(ctx, cmd)
+			if err != nil || rc != 0 {
+				return false, mockWrap("mockInsertLineRelativeToMatch", "insertafter line", err)
+			}
+			_ = stdout
+			_ = stderr
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func mockBuildLineinfileInsertCommand(path, line, anchor string, after, firstMatch bool) string {
+	quotedLine := shellSingleQuote(line)
+	quotedAnchor := shellSingleQuote(anchor)
+	if firstMatch {
+		if after {
+			return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{done=0} { print; if (!done && $0 ~ re) { print line; done=1 } }' %q > \"$tmp\" && mv \"$tmp\" %q",
+				quotedLine, quotedAnchor, path, path)
+		}
+
+		return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{done=0} { if (!done && $0 ~ re) { print line; done=1 } print }' %q > \"$tmp\" && mv \"$tmp\" %q",
+			quotedLine, quotedAnchor, path, path)
+	}
+
+	if after {
+		return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{pos=0} { lines[NR]=$0; if ($0 ~ re) { pos=NR } } END { for (i=1; i<=NR; i++) { print lines[i]; if (i==pos) { print line } } }' %q > \"$tmp\" && mv \"$tmp\" %q",
+			quotedLine, quotedAnchor, path, path)
+	}
+
+	return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{pos=0} { lines[NR]=$0; if ($0 ~ re) { pos=NR } } END { for (i=1; i<=NR; i++) { if (i==pos) { print line } print lines[i] } }' %q > \"$tmp\" && mv \"$tmp\" %q",
+		quotedLine, quotedAnchor, path, path)
 }
 
 func moduleStatWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {

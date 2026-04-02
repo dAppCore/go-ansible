@@ -526,6 +526,7 @@ func TestModulesFile_ModuleLineinfile_Good_InsertBeforeAnchor(t *testing.T) {
 		"path":         "/etc/example.conf",
 		"line":         "setting=value",
 		"insertbefore": "^# managed settings",
+		"firstmatch":   true,
 	})
 
 	require.NoError(t, err)
@@ -541,12 +542,29 @@ func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor(t *testing.T) {
 		"path":        "/etc/example.conf",
 		"line":        "setting=value",
 		"insertafter": "^# managed settings",
+		"firstmatch":  true,
 	})
 
 	require.NoError(t, err)
 	assert.True(t, result.Changed)
 	assert.True(t, mock.hasExecuted(`grep -Eq`))
 	assert.True(t, mock.hasExecuted(regexp.QuoteMeta("print; if (!done && $0 ~ re) { print line; done=1 }")))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor_DefaultUsesLastMatch(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":        "/etc/example.conf",
+		"line":        "setting=value",
+		"insertafter": "^# managed settings",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`grep -Eq`))
+	assert.True(t, mock.hasExecuted("pos=NR"))
+	assert.False(t, mock.hasExecuted("done=1"))
 }
 
 func TestModulesFile_ModuleLineinfile_Bad_MissingPath(t *testing.T) {

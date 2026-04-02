@@ -691,6 +691,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	create := getBoolArg(args, "create", false)
 	insertBefore := getStringArg(args, "insertbefore", "")
 	insertAfter := getStringArg(args, "insertafter", "")
+	firstMatch := getBoolArg(args, "firstmatch", false)
 
 	if state == "absent" {
 		if regexp != "" {
@@ -728,7 +729,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 				if backrefs {
 					return &TaskResult{Changed: false}, nil
 				}
-				if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter); err != nil {
+				if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
 					return nil, err
 				} else if inserted {
 					return &TaskResult{Changed: true}, nil
@@ -738,7 +739,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 				_, _, _, _ = client.Run(ctx, cmd)
 			}
 		} else if line != "" {
-			if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter); err != nil {
+			if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
 				return nil, err
 			} else if inserted {
 				return &TaskResult{Changed: true}, nil
@@ -753,7 +754,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	return &TaskResult{Changed: true}, nil
 }
 
-func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, line, insertBefore, insertAfter string) (bool, error) {
+func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, line, insertBefore, insertAfter string, firstMatch bool) (bool, error) {
 	if line == "" {
 		return false, nil
 	}
@@ -784,7 +785,7 @@ func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, 
 		matchCmd := sprintf("grep -Eq %q %q", insertBefore, path)
 		_, _, matchRC, _ := client.Run(ctx, matchCmd)
 		if matchRC == 0 {
-			cmd := buildLineinfileInsertCommand(path, line, insertBefore, false)
+			cmd := buildLineinfileInsertCommand(path, line, insertBefore, false, firstMatch)
 			stdout, stderr, rc, err := client.Run(ctx, cmd)
 			if err != nil || rc != 0 {
 				return false, coreerr.E("Executor.moduleLineinfile", "insertbefore line", err)
@@ -799,7 +800,7 @@ func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, 
 		matchCmd := sprintf("grep -Eq %q %q", insertAfter, path)
 		_, _, matchRC, _ := client.Run(ctx, matchCmd)
 		if matchRC == 0 {
-			cmd := buildLineinfileInsertCommand(path, line, insertAfter, true)
+			cmd := buildLineinfileInsertCommand(path, line, insertAfter, true, firstMatch)
 			stdout, stderr, rc, err := client.Run(ctx, cmd)
 			if err != nil || rc != 0 {
 				return false, coreerr.E("Executor.moduleLineinfile", "insertafter line", err)
@@ -813,15 +814,25 @@ func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, 
 	return false, nil
 }
 
-func buildLineinfileInsertCommand(path, line, anchor string, after bool) string {
+func buildLineinfileInsertCommand(path, line, anchor string, after, firstMatch bool) string {
 	quotedLine := shellSingleQuote(line)
 	quotedAnchor := shellSingleQuote(anchor)
-	if after {
-		return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{done=0} { print; if (!done && $0 ~ re) { print line; done=1 } }' %q > \"$tmp\" && mv \"$tmp\" %q",
+	if firstMatch {
+		if after {
+			return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{done=0} { print; if (!done && $0 ~ re) { print line; done=1 } }' %q > \"$tmp\" && mv \"$tmp\" %q",
+				quotedLine, quotedAnchor, path, path)
+		}
+
+		return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{done=0} { if (!done && $0 ~ re) { print line; done=1 } print }' %q > \"$tmp\" && mv \"$tmp\" %q",
 			quotedLine, quotedAnchor, path, path)
 	}
 
-	return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{done=0} { if (!done && $0 ~ re) { print line; done=1 } print }' %q > \"$tmp\" && mv \"$tmp\" %q",
+	if after {
+		return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{pos=0} { lines[NR]=$0; if ($0 ~ re) { pos=NR } } END { for (i=1; i<=NR; i++) { print lines[i]; if (i==pos) { print line } } }' %q > \"$tmp\" && mv \"$tmp\" %q",
+			quotedLine, quotedAnchor, path, path)
+	}
+
+	return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{pos=0} { lines[NR]=$0; if ($0 ~ re) { pos=NR } } END { for (i=1; i<=NR; i++) { if (i==pos) { print line } print lines[i] } }' %q > \"$tmp\" && mv \"$tmp\" %q",
 		quotedLine, quotedAnchor, path, path)
 }
 
