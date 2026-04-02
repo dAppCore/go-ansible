@@ -775,6 +775,7 @@ func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
 			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 			VarsFrom     string         `yaml:"vars_from,omitempty"`
 			Vars         map[string]any `yaml:"vars,omitempty"`
+			Apply        *TaskApply     `yaml:"apply,omitempty"`
 		}{
 			Name: "demo",
 		},
@@ -783,6 +784,73 @@ func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
 
 	require.NotNil(t, e.results["localhost"]["role_result"])
 	assert.Equal(t, "hello from role", e.results["localhost"]["role_result"].Msg)
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleDefaults(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "app", "tasks", "main.yml"), []byte(`---
+- name: Applied role task
+  vars:
+    role_message: from-task
+  shell: printf '%s|%s|%s' "$APP_ENV" "{{ apply_message }}" "{{ role_message }}"
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	var started *Task
+	e.OnTaskStart = func(host string, task *Task) {
+		if task.Name == "Applied role task" {
+			started = task
+		}
+	}
+
+	// Re-run with callback attached so we can inspect the merged task state.
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name: "Load role with apply",
+		IncludeRole: &struct {
+			Name         string         `yaml:"name"`
+			TasksFrom    string         `yaml:"tasks_from,omitempty"`
+			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
+			VarsFrom     string         `yaml:"vars_from,omitempty"`
+			Vars         map[string]any `yaml:"vars,omitempty"`
+			Apply        *TaskApply     `yaml:"apply,omitempty"`
+		}{
+			Name: "app",
+			Apply: &TaskApply{
+				Tags: []string{"role-apply"},
+				Vars: map[string]any{
+					"apply_message": "from-apply",
+					"role_message":  "from-apply",
+				},
+				Environment: map[string]string{
+					"APP_ENV": "production",
+				},
+			},
+		},
+	}, play))
+
+	require.NotNil(t, started)
+	assert.Contains(t, started.Tags, "role-apply")
+	assert.Equal(t, "production", started.Environment["APP_ENV"])
+	assert.Equal(t, "from-apply", started.Vars["apply_message"])
+	assert.Equal(t, "from-task", started.Vars["role_message"])
+	require.NotNil(t, e.results["localhost"]["role_result"])
+	assert.Equal(t, "production|from-apply|from-task", e.results["localhost"]["role_result"].Stdout)
 }
 
 func TestExecutorExtra_GetHostsIter_Good(t *testing.T) {

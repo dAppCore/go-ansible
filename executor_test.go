@@ -662,6 +662,7 @@ func TestExecutor_RunIncludeRole_Good_TemplatesRoleName(t *testing.T) {
 			DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 			VarsFrom     string         `yaml:"vars_from,omitempty"`
 			Vars         map[string]any `yaml:"vars,omitempty"`
+			Apply        *TaskApply     `yaml:"apply,omitempty"`
 		}{
 			Name: "{{ role_name }}",
 		},

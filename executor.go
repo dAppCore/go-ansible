@@ -469,8 +469,9 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	// Execute tasks
 	for _, task := range tasks {
 		effectiveTask := task
+		e.applyRoleTaskDefaults(&effectiveTask, roleRef.Apply)
 		if len(roleRef.Tags) > 0 {
-			effectiveTask.Tags = mergeStringSlices(roleRef.Tags, task.Tags)
+			effectiveTask.Tags = mergeStringSlices(roleRef.Tags, effectiveTask.Tags)
 		}
 		if err := e.runTaskOnHosts(ctx, eligibleHosts, &effectiveTask, play); err != nil {
 			// Restore vars
@@ -1532,6 +1533,7 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 
 	var roleName, tasksFrom, defaultsFrom, varsFrom string
 	var roleVars map[string]any
+	var apply *TaskApply
 
 	if task.IncludeRole != nil {
 		roleName = task.IncludeRole.Name
@@ -1539,12 +1541,14 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		defaultsFrom = task.IncludeRole.DefaultsFrom
 		varsFrom = task.IncludeRole.VarsFrom
 		roleVars = task.IncludeRole.Vars
+		apply = task.IncludeRole.Apply
 	} else if task.ImportRole != nil {
 		roleName = task.ImportRole.Name
 		tasksFrom = task.ImportRole.TasksFrom
 		defaultsFrom = task.ImportRole.DefaultsFrom
 		varsFrom = task.ImportRole.VarsFrom
 		roleVars = task.ImportRole.Vars
+		apply = task.ImportRole.Apply
 	} else {
 		return nil
 	}
@@ -1560,6 +1564,7 @@ func (e *Executor) resolveIncludeRoleRef(host string, task *Task) *RoleRef {
 		DefaultsFrom: e.templateString(defaultsFrom, host, task),
 		VarsFrom:     e.templateString(varsFrom, host, task),
 		Vars:         renderedVars,
+		Apply:        apply,
 		When:         task.When,
 		Tags:         task.Tags,
 	}
@@ -1579,6 +1584,55 @@ func mergeTaskVars(parent, child map[string]any) map[string]any {
 		merged[k] = v
 	}
 	return merged
+}
+
+func mergeStringMap(parent, child map[string]string) map[string]string {
+	if len(parent) == 0 && len(child) == 0 {
+		return nil
+	}
+
+	merged := make(map[string]string, len(parent)+len(child))
+	for k, v := range parent {
+		merged[k] = v
+	}
+	for k, v := range child {
+		merged[k] = v
+	}
+	return merged
+}
+
+func (e *Executor) applyRoleTaskDefaults(task *Task, apply *TaskApply) {
+	if task == nil || apply == nil {
+		return
+	}
+
+	if len(apply.Tags) > 0 {
+		task.Tags = mergeStringSlices(apply.Tags, task.Tags)
+	}
+	if len(apply.Vars) > 0 {
+		task.Vars = mergeTaskVars(apply.Vars, task.Vars)
+	}
+	if len(apply.Environment) > 0 {
+		task.Environment = mergeStringMap(apply.Environment, task.Environment)
+	}
+	if apply.Become != nil && task.Become == nil {
+		task.Become = apply.Become
+	}
+	if apply.BecomeUser != "" && task.BecomeUser == "" {
+		task.BecomeUser = apply.BecomeUser
+	}
+	if apply.Delegate != "" && task.Delegate == "" {
+		task.Delegate = apply.Delegate
+	}
+	if apply.RunOnce && !task.RunOnce {
+		task.RunOnce = true
+	}
+	if apply.NoLog {
+		task.NoLog = true
+	}
+	if apply.IgnoreErrors {
+		task.IgnoreErrors = true
+	}
 }
 
 // getHosts returns hosts matching the pattern.

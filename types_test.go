@@ -561,6 +561,13 @@ include_role:
   tasks_from: setup.yml
   defaults_from: defaults.yml
   vars_from: vars.yml
+  apply:
+    tags:
+      - deploy
+    become: true
+    become_user: root
+    environment:
+      APP_ENV: production
 `
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
@@ -571,6 +578,12 @@ include_role:
 	assert.Equal(t, "setup.yml", task.IncludeRole.TasksFrom)
 	assert.Equal(t, "defaults.yml", task.IncludeRole.DefaultsFrom)
 	assert.Equal(t, "vars.yml", task.IncludeRole.VarsFrom)
+	require.NotNil(t, task.IncludeRole.Apply)
+	assert.Equal(t, []string{"deploy"}, task.IncludeRole.Apply.Tags)
+	require.NotNil(t, task.IncludeRole.Apply.Become)
+	assert.True(t, *task.IncludeRole.Apply.Become)
+	assert.Equal(t, "root", task.IncludeRole.Apply.BecomeUser)
+	assert.Equal(t, "production", task.IncludeRole.Apply.Environment["APP_ENV"])
 }
 
 func TestTypes_Task_UnmarshalYAML_Good_BecomeFields(t *testing.T) {

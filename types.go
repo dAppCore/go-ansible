@@ -51,6 +51,7 @@ type RoleRef struct {
 	DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 	VarsFrom     string         `yaml:"vars_from,omitempty"`
 	Vars         map[string]any `yaml:"vars,omitempty"`
+	Apply        *TaskApply     `yaml:"apply,omitempty"`
 	When         any            `yaml:"when,omitempty"`
 	Tags         []string       `yaml:"tags,omitempty"`
 }
@@ -128,6 +129,7 @@ type Task struct {
 		DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 		VarsFrom     string         `yaml:"vars_from,omitempty"`
 		Vars         map[string]any `yaml:"vars,omitempty"`
+		Apply        *TaskApply     `yaml:"apply,omitempty"`
 	} `yaml:"include_role,omitempty"`
 	ImportRole *struct {
 		Name         string         `yaml:"name"`
@@ -135,6 +137,7 @@ type Task struct {
 		DefaultsFrom string         `yaml:"defaults_from,omitempty"`
 		VarsFrom     string         `yaml:"vars_from,omitempty"`
 		Vars         map[string]any `yaml:"vars,omitempty"`
+		Apply        *TaskApply     `yaml:"apply,omitempty"`
 	} `yaml:"import_role,omitempty"`
 
 	// Raw YAML for module extraction
@@ -152,6 +155,23 @@ type LoopControl struct {
 	Label    string `yaml:"label,omitempty"`
 	Pause    int    `yaml:"pause,omitempty"`
 	Extended bool   `yaml:"extended,omitempty"`
+}
+
+// TaskApply captures role-level task defaults from include_role/import_role.
+//
+// Example:
+//
+//	apply := TaskApply{Tags: []string{"deploy"}}
+type TaskApply struct {
+	Tags         []string          `yaml:"tags,omitempty"`
+	Vars         map[string]any    `yaml:"vars,omitempty"`
+	Environment  map[string]string `yaml:"environment,omitempty"`
+	Become       *bool             `yaml:"become,omitempty"`
+	BecomeUser   string            `yaml:"become_user,omitempty"`
+	Delegate     string            `yaml:"delegate_to,omitempty"`
+	RunOnce      bool              `yaml:"run_once,omitempty"`
+	NoLog        bool              `yaml:"no_log,omitempty"`
+	IgnoreErrors bool              `yaml:"ignore_errors,omitempty"`
 }
 
 // TaskResult holds the result of executing a task.
