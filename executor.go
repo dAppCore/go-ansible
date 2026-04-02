@@ -1793,6 +1793,9 @@ func (e *Executor) applyRoleTaskDefaults(task *Task, apply *TaskApply) {
 	if len(apply.Environment) > 0 {
 		task.Environment = mergeStringMap(apply.Environment, task.Environment)
 	}
+	if apply.When != nil {
+		task.When = mergeConditions(apply.When, task.When)
+	}
 	if apply.Become != nil && task.Become == nil {
 		task.Become = apply.Become
 	}
@@ -1811,6 +1814,16 @@ func (e *Executor) applyRoleTaskDefaults(task *Task, apply *TaskApply) {
 	if apply.IgnoreErrors {
 		task.IgnoreErrors = true
 	}
+}
+
+func mergeConditions(parent, child any) any {
+	merged := make([]string, 0)
+	merged = append(merged, normalizeConditions(parent)...)
+	merged = append(merged, normalizeConditions(child)...)
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 // getHosts returns hosts matching the pattern.

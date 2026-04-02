@@ -889,6 +889,43 @@ func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleDefaults(t *testing.T) {
 	assert.Equal(t, "production|from-apply|from-task", e.results["localhost"]["role_result"].Stdout)
 }
 
+func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleWhen(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "app", "tasks", "main.yml"), []byte(`---
+- name: Conditional role task
+  debug:
+    msg: "role task ran"
+  when: task_enabled
+  register: role_result
+`), 0644))
+
+	e, _ := newTestExecutorWithMock("localhost")
+	e.parser = NewParser(dir)
+	e.SetVar("task_enabled", true)
+	e.SetVar("apply_enabled", false)
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name: "Load role with conditional apply",
+		IncludeRole: &RoleRef{
+			Role: "app",
+			Apply: &TaskApply{
+				When: "apply_enabled",
+			},
+		},
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["role_result"])
+	assert.True(t, e.results["localhost"]["role_result"].Skipped)
+	assert.Equal(t, "Skipped due to when condition", e.results["localhost"]["role_result"].Msg)
+}
+
 func TestExecutorExtra_RunIncludeRole_Good_PublicVarsPersist(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "roles", "shared", "tasks", "main.yml"), []byte(`---

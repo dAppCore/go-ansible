@@ -618,6 +618,7 @@ include_role:
   apply:
     tags:
       - deploy
+    when: apply_enabled
     become: true
     become_user: root
     environment:
@@ -636,6 +637,7 @@ include_role:
 	assert.True(t, task.IncludeRole.Public)
 	require.NotNil(t, task.IncludeRole.Apply)
 	assert.Equal(t, []string{"deploy"}, task.IncludeRole.Apply.Tags)
+	assert.Equal(t, "apply_enabled", task.IncludeRole.Apply.When)
 	require.NotNil(t, task.IncludeRole.Apply.Become)
 	assert.True(t, *task.IncludeRole.Apply.Become)
 	assert.Equal(t, "root", task.IncludeRole.Apply.BecomeUser)

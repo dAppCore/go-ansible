@@ -158,6 +158,7 @@ type TaskApply struct {
 	Tags         []string          `yaml:"tags,omitempty"`
 	Vars         map[string]any    `yaml:"vars,omitempty"`
 	Environment  map[string]string `yaml:"environment,omitempty"`
+	When         any               `yaml:"when,omitempty"`
 	Become       *bool             `yaml:"become,omitempty"`
 	BecomeUser   string            `yaml:"become_user,omitempty"`
 	Delegate     string            `yaml:"delegate_to,omitempty"`
