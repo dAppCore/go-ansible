@@ -23,12 +23,32 @@ func args(opts core.Options) []string {
 	return out
 }
 
+// firstString returns the first non-empty string for any of the provided keys.
+func firstString(opts core.Options, keys ...string) string {
+	for _, key := range keys {
+		if value := opts.String(key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// firstBool returns true when any of the provided keys is set to true.
+func firstBool(opts core.Options, keys ...string) bool {
+	for _, key := range keys {
+		if opts.Bool(key) {
+			return true
+		}
+	}
+	return false
+}
+
 // extraVars collects all repeated extra-vars values from Options.
 func extraVars(opts core.Options) map[string]string {
 	vars := make(map[string]string)
 
 	for _, o := range opts.Items() {
-		if o.Key != "extra-vars" {
+		if o.Key != "extra-vars" && o.Key != "e" {
 			continue
 		}
 
@@ -96,12 +116,15 @@ func runAnsible(opts core.Options) core.Result {
 	defer executor.Close()
 
 	// Set options
-	executor.Limit = opts.String("limit")
+	executor.Limit = firstString(opts, "limit", "l")
 	executor.CheckMode = opts.Bool("check")
 	executor.Diff = opts.Bool("diff")
 	executor.Verbose = opts.Int("verbose")
+	if firstBool(opts, "v") && executor.Verbose < 1 {
+		executor.Verbose = 1
+	}
 
-	if tags := opts.String("tags"); tags != "" {
+	if tags := firstString(opts, "tags", "t"); tags != "" {
 		executor.Tags = split(tags, ",")
 	}
 	if skipTags := opts.String("skip-tags"); skipTags != "" {
@@ -114,7 +137,7 @@ func runAnsible(opts core.Options) core.Result {
 	}
 
 	// Load inventory
-	if invPath := opts.String("inventory"); invPath != "" {
+	if invPath := firstString(opts, "inventory", "i"); invPath != "" {
 		if !pathIsAbs(invPath) {
 			invPath = absPath(invPath)
 		}
@@ -231,7 +254,7 @@ func runAnsibleTest(opts core.Options) core.Result {
 	cfg := ansible.SSHConfig{
 		Host:     host,
 		Port:     opts.Int("port"),
-		User:     opts.String("user"),
+		User:     firstString(opts, "user", "u"),
 		Password: opts.String("password"),
 		KeyFile:  testKeyFile(opts),
 		Timeout:  30 * time.Second,
