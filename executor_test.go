@@ -752,6 +752,55 @@ func TestExecutor_RunRole_Good_HostSpecificWhen(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestExecutor_RunPlay_Good_LoadsRoleHandlers(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---
+- name: role task
+  set_fact:
+    role_triggered: true
+  notify: role handler
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "handlers", "main.yml"), []byte(`---
+- name: role handler
+  debug:
+    msg: handler ran
+  register: role_handler_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Roles: []RoleRef{
+			{Role: "demo"},
+		},
+	}
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.NoError(t, err)
+
+	assert.Contains(t, started, "localhost:role task")
+	assert.Contains(t, started, "localhost:role handler")
+	require.NotNil(t, e.results["localhost"]["role_handler_result"])
+	assert.Equal(t, "handler ran", e.results["localhost"]["role_handler_result"].Msg)
+}
+
 func TestExecutor_RunPlay_Good_SerialBatchesHosts(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{

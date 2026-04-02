@@ -208,32 +208,10 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 		varsFrom = "main.yml"
 	}
 
-	// Search paths for roles (in order of precedence)
-	searchPaths := []string{
-		// Relative to playbook
-		joinPath(p.basePath, "roles", name, "tasks", tasksFrom),
-		// Parent directory roles
-		joinPath(pathDir(p.basePath), "roles", name, "tasks", tasksFrom),
-		// Sibling roles directory
-		joinPath(p.basePath, "..", "roles", name, "tasks", tasksFrom),
-		// playbooks/roles pattern
-		joinPath(p.basePath, "playbooks", "roles", name, "tasks", tasksFrom),
-		// Common DevOps structure
-		joinPath(pathDir(pathDir(p.basePath)), "roles", name, "tasks", tasksFrom),
-	}
-
-	var tasksPath string
-	for _, sp := range searchPaths {
-		// Clean the path to resolve .. segments
-		sp = cleanPath(sp)
-		if coreio.Local.Exists(sp) {
-			tasksPath = sp
-			break
-		}
-	}
+	tasksPath := p.findRoleFilePath(name, "tasks", tasksFrom)
 
 	if tasksPath == "" {
-		return nil, nil, nil, coreerr.E("Parser.ParseRole", sprintf("role %s not found in search paths: %v", name, searchPaths), nil)
+		return nil, nil, nil, coreerr.E("Parser.ParseRole", sprintf("role %s not found", name), nil)
 	}
 
 	defaults := make(map[string]any)
@@ -260,6 +238,54 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 	}
 
 	return tasks, defaults, roleVars, nil
+}
+
+func (p *Parser) loadRoleHandlers(name string, handlersFrom string) ([]Task, error) {
+	if handlersFrom == "" {
+		handlersFrom = "main.yml"
+	}
+
+	handlersPath := p.findRoleFilePath(name, "handlers", handlersFrom)
+	if handlersPath == "" {
+		return nil, nil
+	}
+
+	data, err := coreio.Local.Read(handlersPath)
+	if err != nil {
+		return nil, coreerr.E("Parser.loadRoleHandlers", "read role handlers", err)
+	}
+
+	var handlers []Task
+	if err := yaml.Unmarshal([]byte(data), &handlers); err != nil {
+		return nil, coreerr.E("Parser.loadRoleHandlers", "parse role handlers", err)
+	}
+
+	for i := range handlers {
+		if err := p.extractModule(&handlers[i]); err != nil {
+			return nil, coreerr.E("Parser.loadRoleHandlers", sprintf("handler %d", i), err)
+		}
+	}
+
+	return handlers, nil
+}
+
+func (p *Parser) findRoleFilePath(name string, subdir string, filename string) string {
+	searchPaths := []string{
+		joinPath(p.basePath, "roles", name, subdir, filename),
+		joinPath(pathDir(p.basePath), "roles", name, subdir, filename),
+		joinPath(p.basePath, "..", "roles", name, subdir, filename),
+		joinPath(p.basePath, "playbooks", "roles", name, subdir, filename),
+		joinPath(pathDir(pathDir(p.basePath)), "roles", name, subdir, filename),
+	}
+
+	for _, sp := range searchPaths {
+		sp = cleanPath(sp)
+		if coreio.Local.Exists(sp) {
+			return sp
+		}
+	}
+
+	return ""
 }
 
 // processPlay processes a play and extracts modules from tasks.

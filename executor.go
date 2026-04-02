@@ -60,18 +60,19 @@ func (c *environmentSSHClient) RunScript(ctx context.Context, script string) (st
 //
 //	exec := NewExecutor("/workspace/playbooks")
 type Executor struct {
-	parser           *Parser
-	inventory        *Inventory
-	inventoryPath    string
-	vars             map[string]any
-	facts            map[string]*Facts
-	results          map[string]map[string]*TaskResult // host -> register_name -> result
-	handlers         map[string][]Task
-	notified         map[string]bool
-	clients          map[string]sshExecutorClient
-	batchFailedHosts map[string]bool
-	endedHosts       map[string]bool
-	mu               sync.RWMutex
+	parser             *Parser
+	inventory          *Inventory
+	inventoryPath      string
+	vars               map[string]any
+	facts              map[string]*Facts
+	results            map[string]map[string]*TaskResult // host -> register_name -> result
+	handlers           map[string][]Task
+	loadedRoleHandlers map[string]bool
+	notified           map[string]bool
+	clients            map[string]sshExecutorClient
+	batchFailedHosts   map[string]bool
+	endedHosts         map[string]bool
+	mu                 sync.RWMutex
 
 	// Callbacks
 	OnPlayStart func(play *Play)
@@ -95,14 +96,15 @@ type Executor struct {
 //	exec := NewExecutor("/workspace/playbooks")
 func NewExecutor(basePath string) *Executor {
 	return &Executor{
-		parser:     NewParser(basePath),
-		vars:       make(map[string]any),
-		facts:      make(map[string]*Facts),
-		results:    make(map[string]map[string]*TaskResult),
-		handlers:   make(map[string][]Task),
-		notified:   make(map[string]bool),
-		clients:    make(map[string]sshExecutorClient),
-		endedHosts: make(map[string]bool),
+		parser:             NewParser(basePath),
+		vars:               make(map[string]any),
+		facts:              make(map[string]*Facts),
+		results:            make(map[string]map[string]*TaskResult),
+		handlers:           make(map[string][]Task),
+		loadedRoleHandlers: make(map[string]bool),
+		notified:           make(map[string]bool),
+		clients:            make(map[string]sshExecutorClient),
+		endedHosts:         make(map[string]bool),
 	}
 }
 
@@ -191,6 +193,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 	for k, v := range play.Vars {
 		e.vars[k] = v
 	}
+	e.loadedRoleHandlers = make(map[string]bool)
 
 	for _, batch := range splitSerialHosts(hosts, play.Serial) {
 		if len(batch) == 0 {
@@ -437,6 +440,10 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 		e.vars = oldVars
 		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
 	}
+	if err := e.attachRoleHandlers(roleRef.Role, play); err != nil {
+		e.vars = oldVars
+		return coreerr.E("executor.runRole", sprintf("load handlers for role %s", roleRef.Role), err)
+	}
 
 	roleScope := make(map[string]any, len(oldVars)+len(defaults)+len(roleVars)+len(roleRef.Vars))
 	for k, v := range oldVars {
@@ -484,6 +491,30 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	if roleRef == nil || !roleRef.Public {
 		e.vars = oldVars
 	}
+	return nil
+}
+
+func (e *Executor) attachRoleHandlers(roleName string, play *Play) error {
+	if play == nil || roleName == "" {
+		return nil
+	}
+	if e.loadedRoleHandlers == nil {
+		e.loadedRoleHandlers = make(map[string]bool)
+	}
+
+	key := roleName + "|handlers/main.yml"
+	if e.loadedRoleHandlers[key] {
+		return nil
+	}
+
+	handlers, err := e.parser.loadRoleHandlers(roleName, "main.yml")
+	if err != nil {
+		return err
+	}
+	if len(handlers) > 0 {
+		play.Handlers = append(play.Handlers, handlers...)
+	}
+	e.loadedRoleHandlers[key] = true
 	return nil
 }
 
