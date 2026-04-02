@@ -214,6 +214,12 @@ func (e *Executor) hostMagicVars(host string) map[string]any {
 		if groupNames := hostGroupNames(e.inventory.All, host); len(groupNames) > 0 {
 			values["group_names"] = groupNames
 		}
+		if groups := inventoryGroupHosts(e.inventory); len(groups) > 0 {
+			values["groups"] = groups
+		}
+		if hostvars := inventoryHostVars(e.inventory); len(hostvars) > 0 {
+			values["hostvars"] = hostvars
+		}
 	}
 	if e != nil {
 		if facts, ok := e.facts[host]; ok {
@@ -241,6 +247,61 @@ func hostGroupNames(group *InventoryGroup, host string) []string {
 	}
 	slices.Sort(result)
 	return result
+}
+
+func inventoryGroupHosts(inv *Inventory) map[string]any {
+	if inv == nil || inv.All == nil {
+		return nil
+	}
+
+	groups := make(map[string]any)
+	collectInventoryGroupHosts(inv.All, "all", groups)
+	return groups
+}
+
+func collectInventoryGroupHosts(group *InventoryGroup, name string, groups map[string]any) []string {
+	if group == nil {
+		return nil
+	}
+
+	hosts := getAllHosts(group)
+	if name != "" {
+		values := make([]any, len(hosts))
+		for i, host := range hosts {
+			values[i] = host
+		}
+		groups[name] = values
+	}
+
+	childNames := slices.Sorted(maps.Keys(group.Children))
+	for _, childName := range childNames {
+		collectInventoryGroupHosts(group.Children[childName], childName, groups)
+	}
+
+	return hosts
+}
+
+func inventoryHostVars(inv *Inventory) map[string]any {
+	if inv == nil || inv.All == nil {
+		return nil
+	}
+
+	hosts := getAllHosts(inv.All)
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	values := make(map[string]any, len(hosts))
+	for _, host := range hosts {
+		hostVars := GetHostVars(inv, host)
+		if len(hostVars) == 0 {
+			values[host] = map[string]any{}
+			continue
+		}
+		values[host] = hostVars
+	}
+
+	return values
 }
 
 func collectHostGroupNames(group *InventoryGroup, host, name string, names map[string]bool) bool {
@@ -2568,6 +2629,10 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 	}
 
+	if value, ok := e.lookupMagicScopeValue(name, host); ok {
+		return value, true
+	}
+
 	if facts, ok := e.facts[host]; ok {
 		if name == "ansible_facts" {
 			return factsToMap(facts), true
@@ -2602,6 +2667,12 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		path := parts[1]
 
 		if magic, ok := e.hostMagicVars(host)[base]; ok {
+			if nested, ok := lookupNestedValue(magic, path); ok {
+				return nested, true
+			}
+		}
+
+		if magic, ok := e.lookupMagicScopeValue(base, host); ok {
 			if nested, ok := lookupNestedValue(magic, path); ok {
 				return nested, true
 			}
@@ -2923,6 +2994,10 @@ func shellQuote(value string) string {
 // lookupExprValue resolves the first segment of an expression against the
 // executor, task, and inventory scopes.
 func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, bool) {
+	if value, ok := e.lookupMagicScopeValue(name, host); ok {
+		return value, true
+	}
+
 	if val, ok := e.vars[name]; ok {
 		return val, true
 	}
@@ -2970,6 +3045,25 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 			}
 		}
 	}
+	return nil, false
+}
+
+func (e *Executor) lookupMagicScopeValue(name string, host string) (any, bool) {
+	if e == nil || e.inventory == nil {
+		return nil, false
+	}
+
+	switch name {
+	case "groups":
+		if groups := inventoryGroupHosts(e.inventory); len(groups) > 0 {
+			return groups, true
+		}
+	case "hostvars":
+		if hostvars := inventoryHostVars(e.inventory); len(hostvars) > 0 {
+			return hostvars, true
+		}
+	}
+
 	return nil, false
 }
 

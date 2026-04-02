@@ -1879,10 +1879,77 @@ func TestExecutor_TemplateString_Good_GroupNames(t *testing.T) {
 	assert.Equal(t, "[frontend production web]", result)
 }
 
+func TestExecutor_TemplateString_Good_Groups(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Children: map[string]*InventoryGroup{
+				"production": {
+					Hosts: map[string]*Host{
+						"web01": {},
+						"web02": {},
+					},
+				},
+				"web": {
+					Children: map[string]*InventoryGroup{
+						"frontend": {
+							Hosts: map[string]*Host{
+								"web01": {},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	result := e.templateString("{{ groups.production }}", "web01", nil)
+
+	assert.Equal(t, "[web01 web02]", result)
+}
+
+func TestExecutor_TemplateString_Good_HostVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Children: map[string]*InventoryGroup{
+				"production": {
+					Hosts: map[string]*Host{
+						"web01": {
+							AnsibleHost: "10.0.0.10",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	result := e.templateString("{{ hostvars.web01.ansible_host }}", "web01", nil)
+
+	assert.Equal(t, "10.0.0.10", result)
+}
+
 func TestExecutor_EvalCondition_Good_InventoryHostnameShort(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	assert.True(t, e.evalCondition("inventory_hostname_short == 'web01'", "web01.example.com"))
+}
+
+func TestExecutor_EvalCondition_Good_HostVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"web01": {
+					Vars: map[string]any{
+						"deploy_enabled": true,
+					},
+				},
+			},
+		},
+	})
+
+	assert.True(t, e.evalCondition("hostvars.web01.deploy_enabled", "web01"))
 }
 
 // --- applyFilter ---
