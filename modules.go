@@ -1848,6 +1848,7 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	urlUsername := getStringArg(args, "url_username", "")
 	urlPassword := getStringArg(args, "url_password", "")
 	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
+	followRedirects := lower(getStringArg(args, "follow_redirects", "safe"))
 
 	if url == "" {
 		return nil, coreerr.E("Executor.moduleURI", "url required", nil)
@@ -1878,6 +1879,8 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	if !validateCerts {
 		curlOpts = append(curlOpts, "-k")
 	}
+
+	curlOpts = appendURIFollowRedirects(curlOpts, method, followRedirects)
 
 	// Body
 	if body := args["body"]; body != nil {
@@ -1969,6 +1972,29 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 		RC:      statusCode,
 		Data:    data,
 	}, nil
+}
+
+func appendURIFollowRedirects(opts []string, method, followRedirects string) []string {
+	if len(opts) == 0 {
+		return opts
+	}
+
+	switch lower(corexTrimSpace(followRedirects)) {
+	case "", "safe":
+		if method == "GET" || method == "HEAD" {
+			return append(opts, "-L")
+		}
+	case "all", "yes", "true":
+		return append(opts, "-L")
+	case "none", "no", "false":
+		return append(opts, "--max-redirs", "0")
+	case "urllib2":
+		if method == "GET" || method == "HEAD" {
+			return append(opts, "-L")
+		}
+	}
+
+	return opts
 }
 
 func renderURIBody(body any, bodyFormat string) (string, error) {

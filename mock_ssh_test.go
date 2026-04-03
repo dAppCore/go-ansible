@@ -2009,6 +2009,7 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	urlUsername := getStringArg(args, "url_username", "")
 	urlPassword := getStringArg(args, "url_password", "")
 	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
+	followRedirects := lower(getStringArg(args, "follow_redirects", "safe"))
 
 	if url == "" {
 		return nil, mockError("moduleURIWithClient", "uri: url required")
@@ -2037,6 +2038,8 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	if !validateCerts {
 		curlOpts = append(curlOpts, "-k")
 	}
+
+	curlOpts = appendURIFollowRedirects(curlOpts, method, followRedirects)
 
 	// Body
 	if body := args["body"]; body != nil {

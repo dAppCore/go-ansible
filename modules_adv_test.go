@@ -1610,6 +1610,25 @@ func TestModulesAdv_ModuleURI_Good_GetRequestDefault(t *testing.T) {
 	assert.False(t, result.Changed) // URI module does not set changed
 	assert.Equal(t, 200, result.RC)
 	assert.Equal(t, 200, result.Data["status"])
+	assert.True(t, mock.containsSubstring("-L"))
+}
+
+func TestModulesAdv_ModuleURI_Good_DisablesRedirectFollowing(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*https://example.com/api/health`, "OK\n200", "", 0)
+
+	result, err := e.moduleURI(context.Background(), mock, map[string]any{
+		"url":              "https://example.com/api/health",
+		"follow_redirects": "none",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 200, result.RC)
+	assert.Equal(t, 200, result.Data["status"])
+	assert.True(t, mock.containsSubstring("--max-redirs 0"))
+	assert.False(t, mock.containsSubstring("-L"))
 }
 
 func TestModulesAdv_ModuleURI_Good_PostWithBodyAndHeaders(t *testing.T) {
