@@ -487,6 +487,23 @@ func TestModulesAdv_ModuleCron_Good_CustomUser(t *testing.T) {
 	assert.True(t, mock.containsSubstring("0 */4 * * *"))
 }
 
+func TestModulesAdv_ModuleCron_Good_SpecialTime(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	mock.expectCommand(`crontab -u root`, "", "", 0)
+
+	result, err := e.moduleCron(context.Background(), mock, map[string]any{
+		"name":         "daily-backup",
+		"job":          "/usr/local/bin/backup.sh",
+		"special_time": "daily",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.containsSubstring(`@daily /usr/local/bin/backup.sh # daily-backup`))
+}
+
 func TestModulesAdv_ModuleCron_Good_DisabledJobCommentsEntry(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`crontab -u root`, "", "", 0)
