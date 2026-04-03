@@ -12,6 +12,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type becomeCall struct {
+	become   bool
+	user     string
+	password string
+}
+
+type trackingMockClient struct {
+	*MockSSHClient
+	becomeCalls []becomeCall
+}
+
+func newTrackingMockClient() *trackingMockClient {
+	return &trackingMockClient{MockSSHClient: NewMockSSHClient()}
+}
+
+func (c *trackingMockClient) SetBecome(become bool, user, password string) {
+	c.becomeCalls = append(c.becomeCalls, becomeCall{become: become, user: user, password: password})
+	c.MockSSHClient.SetBecome(become, user, password)
+}
+
 // --- NewExecutor ---
 
 func TestExecutor_NewExecutor_Good(t *testing.T) {
@@ -744,6 +764,47 @@ func TestExecutor_RunIncludeRole_Good_TemplatesRoleName(t *testing.T) {
 	assert.Equal(t, []string{"localhost:templated role task"}, started)
 	require.NotNil(t, e.results["localhost"]["role_result"])
 	assert.Equal(t, "role ran", e.results["localhost"]["role_result"].Msg)
+}
+
+func TestExecutor_RunIncludeTasks_Good_AppliesTaskDefaultsToChildren(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "tasks", "child.yml"), []byte(`---
+- name: included shell task
+  shell: echo "{{ included_value }}"
+  register: child_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	mock := newTrackingMockClient()
+	e.clients["host1"] = mock
+	become := true
+	mock.expectCommand(`echo "from-apply"`, "from-apply\n", "", 0)
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, &Task{
+		Name:         "include child tasks",
+		IncludeTasks: "tasks/child.yml",
+		Apply: &TaskApply{
+			Vars: map[string]any{
+				"included_value": "from-apply",
+			},
+			Become:     &become,
+			BecomeUser: "root",
+		},
+	}, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["child_result"])
+	assert.Equal(t, "from-apply\n", e.results["host1"]["child_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`echo "from-apply"`))
+	require.NotEmpty(t, mock.becomeCalls)
+	assert.Contains(t, mock.becomeCalls, becomeCall{become: true, user: "root", password: ""})
 }
 
 func TestExecutor_RunPlay_Good_AppliesPlayTagsToTasks(t *testing.T) {

@@ -1938,8 +1938,9 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 			for _, t := range tasks {
 				effectiveTask := t
 				effectiveTask.Vars = mergeTaskVars(task.Vars, t.Vars)
+				e.applyRoleTaskDefaults(&effectiveTask, task.Apply)
 				if len(effectiveTask.Vars) > 0 {
-					effectiveTask.Vars = e.templateArgs(effectiveTask.Vars, targetHost, task)
+					effectiveTask.Vars = e.templateArgs(effectiveTask.Vars, targetHost, &effectiveTask)
 				}
 				if len(task.Tags) > 0 {
 					effectiveTask.Tags = mergeStringSlices(task.Tags, effectiveTask.Tags)

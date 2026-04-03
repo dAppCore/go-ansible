@@ -605,6 +605,30 @@ include_tasks: other-tasks.yml
 	assert.Equal(t, "other-tasks.yml", task.IncludeTasks)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_IncludeTasksApply(t *testing.T) {
+	input := `
+name: Include tasks
+include_tasks: other-tasks.yml
+apply:
+  tags:
+    - deploy
+  become: true
+  become_user: root
+  environment:
+    APP_ENV: production
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.Apply)
+	assert.Equal(t, []string{"deploy"}, task.Apply.Tags)
+	require.NotNil(t, task.Apply.Become)
+	assert.True(t, *task.Apply.Become)
+	assert.Equal(t, "root", task.Apply.BecomeUser)
+	assert.Equal(t, "production", task.Apply.Environment["APP_ENV"])
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_IncludeRole(t *testing.T) {
 	input := `
 name: Include role
