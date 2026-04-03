@@ -3656,9 +3656,14 @@ func (e *Executor) Close() {
 //
 //	content, err := exec.TemplateFile("/workspace/templates/app.conf.j2", "web1", &Task{})
 func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
+	src = e.resolveLocalPath(src)
+	if src == "" {
+		return "", coreerr.E("Executor.TemplateFile", "template source path required", nil)
+	}
+
 	content, err := coreio.Local.Read(src)
 	if err != nil {
-		return "", err
+		return "", coreerr.E("Executor.TemplateFile", "read template "+src, err)
 	}
 
 	return e.templateString(content, host, task), nil

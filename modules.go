@@ -246,7 +246,15 @@ func backupRemoteFile(ctx context.Context, client sshExecutorClient, path string
 // templateArgs templates all string values in args.
 func (e *Executor) templateArgs(args map[string]any, host string, task *Task) map[string]any {
 	// Set inventory_hostname for templating
+	oldInventoryHostname, hasInventoryHostname := e.vars["inventory_hostname"]
 	e.vars["inventory_hostname"] = host
+	defer func() {
+		if hasInventoryHostname {
+			e.vars["inventory_hostname"] = oldInventoryHostname
+		} else {
+			delete(e.vars, "inventory_hostname")
+		}
+	}()
 
 	result := make(map[string]any)
 	for k, v := range args {
