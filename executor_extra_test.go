@@ -896,6 +896,44 @@ func TestExecutorExtra_HandleLookup_Good_PipeLookup(t *testing.T) {
 	assert.Equal(t, "pipe-value", result)
 }
 
+func TestExecutorExtra_HandleLookup_Good_FileGlobLookup(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "files", "a.txt"), []byte("alpha"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "files", "b.txt"), []byte("bravo"), 0644))
+
+	e := NewExecutor(dir)
+	result := e.handleLookup("lookup('fileglob', 'files/*.txt')", "", nil)
+
+	assert.Equal(t, join(",", []string{
+		joinPath(dir, "files", "a.txt"),
+		joinPath(dir, "files", "b.txt"),
+	}), result)
+}
+
+func TestExecutorExtra_RunTaskOnHost_Good_LoopFromFileGlobLookup(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "files", "a.txt"), []byte("alpha"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "files", "b.txt"), []byte("bravo"), 0644))
+
+	e := NewExecutor(dir)
+	task := &Task{
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop:     "{{ lookup('fileglob', 'files/*.txt') }}",
+		Register: "glob_lookup",
+	}
+
+	require.NoError(t, e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{}))
+
+	result := e.results["host1"]["glob_lookup"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, joinPath(dir, "files", "a.txt"), result.Results[0].Msg)
+	assert.Equal(t, joinPath(dir, "files", "b.txt"), result.Results[1].Msg)
+}
+
 func TestExecutorExtra_HandleLookup_Bad_InvalidSyntax(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result := e.handleLookup("lookup(invalid)", "", nil)

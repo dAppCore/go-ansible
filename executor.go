@@ -3569,11 +3569,31 @@ func isUnresolvedTemplateValue(value string) bool {
 
 // handleLookup handles lookup() expressions.
 func (e *Executor) handleLookup(expr string, host string, task *Task) string {
+	value, ok := e.lookupValue(expr, host, task)
+	if !ok {
+		return ""
+	}
+
+	switch v := value.(type) {
+	case []any:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			parts = append(parts, sprintf("%v", item))
+		}
+		return join(",", parts)
+	case []string:
+		return join(",", v)
+	default:
+		return sprintf("%v", v)
+	}
+}
+
+func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool) {
 	// Parse lookup('type', 'arg')
 	re := regexp.MustCompile(`lookup\s*\(\s*['"](\w+)['"]\s*,\s*(.+?)\s*\)`)
 	match := re.FindStringSubmatch(expr)
 	if len(match) < 3 {
-		return ""
+		return nil, false
 	}
 
 	lookupType := match[1]
@@ -3586,23 +3606,28 @@ func (e *Executor) handleLookup(expr string, host string, task *Task) string {
 
 	switch lookupType {
 	case "env":
-		return env(arg)
+		return env(arg), true
 	case "file":
 		if data, err := coreio.Local.Read(e.resolveLocalPath(arg)); err == nil {
-			return data
+			return data, true
 		}
+	case "fileglob":
+		if matches, err := e.resolveFileGlob(arg); err == nil && len(matches) > 0 {
+			return matches, true
+		}
+		return []any{}, true
 	case "pipe":
 		stdout, _, rc, err := runLocalShell(context.Background(), arg, "")
 		if err == nil && rc == 0 {
-			return strings.TrimRight(stdout, "\r\n")
+			return strings.TrimRight(stdout, "\r\n"), true
 		}
 	case "vars":
 		if value, ok := e.lookupConditionValue(arg, host, task, nil); ok {
-			return sprintf("%v", value)
+			return value, true
 		}
 	}
 
-	return ""
+	return nil, false
 }
 
 // resolveLoop resolves loop items.
@@ -3696,6 +3721,17 @@ func (e *Executor) resolveLoopExpressionValue(parts []string, host string, task 
 	}
 
 	baseExpr := corexTrimSpace(parts[0])
+	if corexHasPrefix(baseExpr, "lookup(") {
+		if value, ok := e.lookupValue(baseExpr, host, task); ok {
+			if items, ok := anySliceFromValue(value); ok {
+				return items, true
+			}
+			if !isEmptyLoopValue(value) {
+				return value, true
+			}
+		}
+	}
+
 	value, ok := e.lookupExprValue(baseExpr, host, task)
 	if !ok || isEmptyLoopValue(value) {
 		if fallback, found := resolveDefaultLoopValue(parts[1:]); found {
