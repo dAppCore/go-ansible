@@ -614,6 +614,31 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_KeyAlreadyExists(t *testing.T) {
 	assert.Contains(t, result.Msg, "already up to date")
 }
 
+func TestModulesAdv_ModuleAuthorizedKey_Good_RewritesKeyOptionsAndComment(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	testKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA user@host"
+	authPath := "/home/deploy/.ssh/authorized_keys"
+	mock.addFile(authPath, []byte(testKey+"\n"))
+	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
+
+	result, err := e.moduleAuthorizedKey(context.Background(), mock, map[string]any{
+		"user":        "deploy",
+		"key":         testKey,
+		"key_options": "command=\"/usr/local/bin/backup-only\"",
+		"comment":     "backup access",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`chmod 600`))
+
+	content, err := mock.Download(context.Background(), authPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), `command="/usr/local/bin/backup-only" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA backup access`)
+	assert.NotContains(t, string(content), testKey)
+}
+
 func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *testing.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
@@ -621,7 +646,6 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *testing.T)
 
 	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
 	mock.expectCommand(`mkdir -p`, "", "", 0)
-	mock.expectCommand(`printf '%s\\n'`, "", "", 0)
 	mock.expectCommand(`chmod 600`, "", "", 0)
 
 	result, err := e.moduleAuthorizedKey(context.Background(), mock, map[string]any{
@@ -633,7 +657,9 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *testing.T)
 	require.NoError(t, err)
 	assert.True(t, result.Changed)
 	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`printf '%s\\n'`))
+	content, err := mock.Download(context.Background(), "/home/deploy/.ssh/authorized_keys")
+	require.NoError(t, err)
+	assert.Equal(t, testKey+"\n", string(content))
 	assert.False(t, mock.hasExecuted(`grep -qF`))
 }
 
