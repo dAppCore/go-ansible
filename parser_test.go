@@ -1007,6 +1007,12 @@ func TestParser_NormalizeModule_Good_AlreadyFQCN(t *testing.T) {
 	assert.Equal(t, "community.general.ufw", NormalizeModule("community.general.ufw"))
 }
 
+func TestParser_IsModule_Good_AdditionalFQCN(t *testing.T) {
+	assert.True(t, isModule("ansible.builtin.hostname"))
+	assert.True(t, isModule("ansible.builtin.sysctl"))
+	assert.True(t, isModule("ansible.builtin.reboot"))
+}
+
 func TestParser_NormalizeModule_Good_LegacyNamespace(t *testing.T) {
 	assert.Equal(t, "ansible.builtin.command", NormalizeModule("ansible.legacy.command"))
 	assert.Equal(t, "ansible.posix.authorized_key", NormalizeModule("ansible.legacy.authorized_key"))

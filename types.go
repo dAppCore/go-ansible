@@ -396,6 +396,9 @@ var KnownModules = []string{
 	"ansible.posix.authorized_key",
 	"ansible.builtin.docker_compose",
 	"ansible.builtin.docker_compose_v2",
+	"ansible.builtin.hostname",
+	"ansible.builtin.sysctl",
+	"ansible.builtin.reboot",
 	"community.docker.docker_compose",
 	"community.docker.docker_compose_v2",
 
