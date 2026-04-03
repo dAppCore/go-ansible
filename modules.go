@@ -318,7 +318,7 @@ func (e *Executor) moduleShell(ctx context.Context, client sshExecutorClient, ar
 		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
 	}
 
-	stdout, stderr, rc, err := client.RunScript(ctx, cmd)
+	stdout, stderr, rc, err := runShellScriptCommand(ctx, client, cmd, getStringArg(args, "executable", ""))
 	if err != nil {
 		return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
 	}
@@ -508,7 +508,7 @@ func (e *Executor) moduleScript(ctx context.Context, client sshExecutorClient, a
 		data = sprintf("cd %q && %s", chdir, data)
 	}
 
-	stdout, stderr, rc, err := client.RunScript(ctx, data)
+	stdout, stderr, rc, err := runShellScriptCommand(ctx, client, data, getStringArg(args, "executable", ""))
 	if err != nil {
 		return &TaskResult{Failed: true, Msg: err.Error()}, nil
 	}
@@ -520,6 +520,21 @@ func (e *Executor) moduleScript(ctx context.Context, client sshExecutorClient, a
 		RC:      rc,
 		Failed:  rc != 0,
 	}, nil
+}
+
+// runShellScriptCommand executes a shell script using either the default
+// heredoc path or a caller-specified executable.
+//
+// Example:
+//
+//	stdout, stderr, rc, err := runShellScriptCommand(ctx, client, "echo hi", "/bin/dash")
+func runShellScriptCommand(ctx context.Context, client sshExecutorClient, script, executable string) (stdout, stderr string, exitCode int, err error) {
+	if executable == "" {
+		return client.RunScript(ctx, script)
+	}
+
+	cmd := sprintf("%s -c %s", shellSingleQuote(executable), shellSingleQuote(script))
+	return client.Run(ctx, cmd)
 }
 
 // --- File Modules ---

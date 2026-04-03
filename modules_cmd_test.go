@@ -415,6 +415,26 @@ func TestModulesCmd_ModuleShell_Good_WithChdir(t *testing.T) {
 	assert.Contains(t, last.Cmd, "npm install")
 }
 
+func TestModulesCmd_ModuleShell_Good_ExecutableUsesRun(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`/bin/dash.*echo test`, "test\n", "", 0)
+
+	result, err := e.moduleShell(context.Background(), mock, map[string]any{
+		"_raw_params": "echo test",
+		"executable":  "/bin/dash",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	last := mock.lastCommand()
+	require.NotNil(t, last)
+	assert.Equal(t, "Run", last.Method)
+	assert.Contains(t, last.Cmd, "/bin/dash")
+	assert.Contains(t, last.Cmd, "-c")
+	assert.Contains(t, last.Cmd, "echo test")
+}
+
 func TestModulesCmd_ModuleShell_Bad_NoCommand(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
@@ -640,6 +660,31 @@ func TestModulesCmd_ModuleScript_Good_ChdirPrefixesScript(t *testing.T) {
 	require.NotNil(t, last)
 	assert.Equal(t, "RunScript", last.Method)
 	assert.Equal(t, `cd "/opt/app" && pwd`, last.Cmd)
+}
+
+func TestModulesCmd_ModuleScript_Good_ExecutableUsesRun(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := joinPath(tmpDir, "dash.sh")
+	require.NoError(t, writeTestFile(scriptPath, []byte("echo script works"), 0755))
+
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`/bin/dash.*echo script works`, "script works\n", "", 0)
+
+	result, err := e.moduleScript(context.Background(), mock, map[string]any{
+		"_raw_params": scriptPath,
+		"executable":  "/bin/dash",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Changed)
+
+	last := mock.lastCommand()
+	require.NotNil(t, last)
+	assert.Equal(t, "Run", last.Method)
+	assert.Contains(t, last.Cmd, "/bin/dash")
+	assert.Contains(t, last.Cmd, "-c")
+	assert.Contains(t, last.Cmd, "echo script works")
 }
 
 func TestModulesCmd_ModuleScript_Bad_NoScript(t *testing.T) {
