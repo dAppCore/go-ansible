@@ -1458,13 +1458,19 @@ func (e *Executor) moduleUser(ctx context.Context, client sshExecutorClient, arg
 func (e *Executor) moduleGroup(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
 	name := getStringArg(args, "name", "")
 	state := getStringArg(args, "state", "present")
+	local := getBoolArg(args, "local", false)
+	nonUnique := getBoolArg(args, "non_unique", false)
 
 	if name == "" {
 		return nil, coreerr.E("Executor.moduleGroup", "name required", nil)
 	}
 
 	if state == "absent" {
-		cmd := sprintf("groupdel %s 2>/dev/null || true", name)
+		delCmd := "groupdel"
+		if local {
+			delCmd = "lgroupdel"
+		}
+		cmd := sprintf("%s %s 2>/dev/null || true", delCmd, name)
 		_, _, _, _ = client.Run(ctx, cmd)
 		return &TaskResult{Changed: true}, nil
 	}
@@ -1476,9 +1482,17 @@ func (e *Executor) moduleGroup(ctx context.Context, client sshExecutorClient, ar
 	if getBoolArg(args, "system", false) {
 		opts = append(opts, "-r")
 	}
+	if nonUnique {
+		opts = append(opts, "-o")
+	}
 
-	cmd := sprintf("getent group %s >/dev/null 2>&1 || groupadd %s %s",
-		name, join(" ", opts), name)
+	addCmd := "groupadd"
+	if local {
+		addCmd = "lgroupadd"
+	}
+
+	cmd := sprintf("getent group %s >/dev/null 2>&1 || %s %s %s",
+		name, addCmd, join(" ", opts), name)
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {

@@ -1501,13 +1501,19 @@ func moduleUserWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 func moduleGroupWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
 	name := getStringArg(args, "name", "")
 	state := getStringArg(args, "state", "present")
+	local := getBoolArg(args, "local", false)
+	nonUnique := getBoolArg(args, "non_unique", false)
 
 	if name == "" {
 		return nil, mockError("moduleGroupWithClient", "group: name required")
 	}
 
 	if state == "absent" {
-		cmd := sprintf("groupdel %s 2>/dev/null || true", name)
+		delCmd := "groupdel"
+		if local {
+			delCmd = "lgroupdel"
+		}
+		cmd := sprintf("%s %s 2>/dev/null || true", delCmd, name)
 		_, _, _, _ = client.Run(context.Background(), cmd)
 		return &TaskResult{Changed: true}, nil
 	}
@@ -1519,9 +1525,17 @@ func moduleGroupWithClient(_ *Executor, client sshRunner, args map[string]any) (
 	if getBoolArg(args, "system", false) {
 		opts = append(opts, "-r")
 	}
+	if nonUnique {
+		opts = append(opts, "-o")
+	}
 
-	cmd := sprintf("getent group %s >/dev/null 2>&1 || groupadd %s %s",
-		name, joinStrings(opts, " "), name)
+	addCmd := "groupadd"
+	if local {
+		addCmd = "lgroupadd"
+	}
+
+	cmd := sprintf("getent group %s >/dev/null 2>&1 || %s %s %s",
+		name, addCmd, joinStrings(opts, " "), name)
 
 	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
 	if err != nil || rc != 0 {

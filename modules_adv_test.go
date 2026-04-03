@@ -303,6 +303,54 @@ func TestModulesAdv_ModuleGroup_Good_CustomGID(t *testing.T) {
 	assert.True(t, mock.containsSubstring("-g 5000"))
 }
 
+func TestModulesAdv_ModuleGroup_Good_LocalGroup(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`getent group localusers`, "", "", 1)
+	mock.expectCommand(`lgroupadd`, "", "", 0)
+
+	result, err := moduleGroupWithClient(e, mock, map[string]any{
+		"name":  "localusers",
+		"local": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.containsSubstring("lgroupadd"))
+}
+
+func TestModulesAdv_ModuleGroup_Good_LocalGroupRemove(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`lgroupdel localusers`, "", "", 0)
+
+	result, err := moduleGroupWithClient(e, mock, map[string]any{
+		"name":  "localusers",
+		"state": "absent",
+		"local": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`lgroupdel localusers`))
+}
+
+func TestModulesAdv_ModuleGroup_Good_NonUniqueGID(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`getent group|groupadd`, "", "", 0)
+
+	result, err := moduleGroupWithClient(e, mock, map[string]any{
+		"name":       "sharedgid",
+		"gid":        "5000",
+		"non_unique": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.containsSubstring("-g 5000"))
+	assert.True(t, mock.containsSubstring("-o"))
+}
+
 func TestModulesAdv_ModuleGroup_Bad_MissingName(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
