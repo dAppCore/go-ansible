@@ -790,6 +790,7 @@ func TestExecutorExtra_RunPlay_Good_ExposesPlayMagicVars(t *testing.T) {
 	e.clients["host2"] = NewMockSSHClient()
 
 	play := &Play{
+		Name:        "Inspect play magic vars",
 		Hosts:       "all",
 		Serial:      1,
 		GatherFacts: &gatherFacts,
@@ -798,7 +799,7 @@ func TestExecutorExtra_RunPlay_Good_ExposesPlayMagicVars(t *testing.T) {
 				Name:   "Inspect play magic vars",
 				Module: "debug",
 				Args: map[string]any{
-					"msg": "{{ ansible_play_hosts_all }}|{{ ansible_play_hosts }}|{{ ansible_play_batch }}",
+					"msg": "{{ ansible_play_name }}|{{ ansible_play_hosts_all }}|{{ ansible_play_hosts }}|{{ ansible_play_batch }}",
 				},
 				Register: "magic_vars",
 			},
@@ -808,9 +809,9 @@ func TestExecutorExtra_RunPlay_Good_ExposesPlayMagicVars(t *testing.T) {
 	require.NoError(t, e.runPlay(context.Background(), play))
 
 	require.NotNil(t, e.results["host1"]["magic_vars"])
-	assert.Equal(t, "[host1 host2]|[host1 host2]|[host1]", e.results["host1"]["magic_vars"].Msg)
+	assert.Equal(t, "Inspect play magic vars|[host1 host2]|[host1 host2]|[host1]", e.results["host1"]["magic_vars"].Msg)
 	require.NotNil(t, e.results["host2"]["magic_vars"])
-	assert.Equal(t, "[host1 host2]|[host1 host2]|[host2]", e.results["host2"]["magic_vars"].Msg)
+	assert.Equal(t, "Inspect play magic vars|[host1 host2]|[host1 host2]|[host2]", e.results["host2"]["magic_vars"].Msg)
 }
 
 // ============================================================

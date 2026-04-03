@@ -439,6 +439,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		return nil // No hosts matched
 	}
 	e.endedHosts = make(map[string]bool)
+	e.vars["ansible_play_name"] = play.Name
 	e.vars["ansible_play_hosts_all"] = append([]string(nil), hosts...)
 	e.vars["ansible_play_hosts"] = append([]string(nil), hosts...)
 
