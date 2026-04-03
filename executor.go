@@ -60,7 +60,7 @@ func (c *environmentSSHClient) RunScript(ctx context.Context, script string) (st
 //
 // Example:
 //
-//	exec := NewExecutor("/workspace/playbooks")
+//	executor := NewExecutor("/workspace/playbooks")
 type Executor struct {
 	parser             *Parser
 	inventory          *Inventory
@@ -96,7 +96,7 @@ type Executor struct {
 //
 // Example:
 //
-//	exec := NewExecutor("/workspace/playbooks")
+//	executor := NewExecutor("/workspace/playbooks")
 func NewExecutor(basePath string) *Executor {
 	return &Executor{
 		parser:             NewParser(basePath),
@@ -116,7 +116,7 @@ func NewExecutor(basePath string) *Executor {
 //
 // Example:
 //
-//	err := exec.SetInventory("/workspace/inventory.yml")
+//	err := executor.SetInventory("/workspace/inventory.yml")
 func (e *Executor) SetInventory(path string) error {
 	inv, err := e.parser.ParseInventory(path)
 	if err != nil {
@@ -133,7 +133,7 @@ func (e *Executor) SetInventory(path string) error {
 //
 // Example:
 //
-//	exec.SetInventoryDirect(&Inventory{All: &InventoryGroup{}})
+//	executor.SetInventoryDirect(&Inventory{All: &InventoryGroup{}})
 func (e *Executor) SetInventoryDirect(inv *Inventory) {
 	e.mu.Lock()
 	e.inventoryPath = ""
@@ -145,7 +145,7 @@ func (e *Executor) SetInventoryDirect(inv *Inventory) {
 //
 // Example:
 //
-//	exec.SetVar("env", "prod")
+//	executor.SetVar("env", "prod")
 func (e *Executor) SetVar(key string, value any) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -333,7 +333,7 @@ func collectHostGroupNames(group *InventoryGroup, host, name string, names map[s
 //
 // Example:
 //
-//	err := exec.Run(context.Background(), "/workspace/playbooks/site.yml")
+//	err := executor.Run(context.Background(), "/workspace/playbooks/site.yml")
 func (e *Executor) Run(ctx context.Context, playbookPath string) error {
 	plays, err := e.parser.ParsePlaybook(playbookPath)
 	if err != nil {
@@ -3870,7 +3870,7 @@ func (e *Executor) resetConnection(host string) {
 //
 // Example:
 //
-//	exec.Close()
+//	executor.Close()
 func (e *Executor) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -3885,7 +3885,7 @@ func (e *Executor) Close() {
 //
 // Example:
 //
-//	content, err := exec.TemplateFile("/workspace/templates/app.conf.j2", "web1", &Task{})
+//	content, err := executor.TemplateFile("/workspace/templates/app.conf.j2", "web1", &Task{})
 func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
 	src = e.resolveLocalPath(src)
 	if src == "" {

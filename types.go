@@ -227,7 +227,7 @@ type TaskResult struct {
 //
 // Example:
 //
-//	inv := Inventory{All: &InventoryGroup{Hosts: map[string]*Host{"web1": {AnsibleHost: "10.0.0.1"}}}}
+//	inventory := Inventory{All: &InventoryGroup{Hosts: map[string]*Host{"web1": {AnsibleHost: "10.0.0.1"}}}}
 type Inventory struct {
 	All *InventoryGroup `yaml:"all"`
 }

@@ -114,7 +114,7 @@ func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error
 //
 // Example:
 //
-//	seq, err := parser.ParsePlaybookIter("/workspace/playbooks/site.yml")
+//	playsSeq, err := parser.ParsePlaybookIter("/workspace/playbooks/site.yml")
 func (p *Parser) ParsePlaybookIter(path string) (iter.Seq[Play], error) {
 	plays, err := p.ParsePlaybook(path)
 	if err != nil {
@@ -133,7 +133,7 @@ func (p *Parser) ParsePlaybookIter(path string) (iter.Seq[Play], error) {
 //
 // Example:
 //
-//	inv, err := parser.ParseInventory("/workspace/inventory.yml")
+//	inventory, err := parser.ParseInventory("/workspace/inventory.yml")
 func (p *Parser) ParseInventory(path string) (*Inventory, error) {
 	path = p.resolveInventoryPath(path)
 
@@ -219,15 +219,15 @@ func (p *Parser) templatePath(value string) string {
 		return ""
 	}
 
-	exec := &Executor{vars: p.vars}
-	return exec.templateString(value, "", nil)
+	executor := &Executor{vars: p.vars}
+	return executor.templateString(value, "", nil)
 }
 
 // ParseTasksIter returns an iterator for tasks in a tasks file.
 //
 // Example:
 //
-//	seq, err := parser.ParseTasksIter("/workspace/roles/web/tasks/main.yml")
+//	tasksSeq, err := parser.ParseTasksIter("/workspace/roles/web/tasks/main.yml")
 func (p *Parser) ParseTasksIter(path string) (iter.Seq[Task], error) {
 	tasks, err := p.ParseTasks(path)
 	if err != nil {
@@ -927,27 +927,27 @@ func NormalizeModule(name string) string {
 //
 // Example:
 //
-//	hosts := GetHosts(inv, "webservers")
-func GetHosts(inv *Inventory, pattern string) []string {
+//	hosts := GetHosts(inventory, "webservers")
+func GetHosts(inventory *Inventory, pattern string) []string {
 	if pattern == "all" {
-		return getAllHosts(inv.All)
+		return getAllHosts(inventory.All)
 	}
 	if pattern == "localhost" {
 		return []string{"localhost"}
 	}
 
 	if contains(pattern, ":") {
-		return resolveHostPattern(inv, pattern)
+		return resolveHostPattern(inventory, pattern)
 	}
 
 	// Check if it's a group name
-	hosts := getGroupHosts(inv.All, pattern)
+	hosts := getGroupHosts(inventory.All, pattern)
 	if len(hosts) > 0 {
 		return hosts
 	}
 
 	// Check if it's a specific host
-	if hasHost(inv.All, pattern) {
+	if hasHost(inventory.All, pattern) {
 		return []string{pattern}
 	}
 
@@ -1097,9 +1097,9 @@ func subtractHosts(base, extra []string) []string {
 //
 // Example:
 //
-//	seq := GetHostsIter(inv, "all")
-func GetHostsIter(inv *Inventory, pattern string) iter.Seq[string] {
-	hosts := GetHosts(inv, pattern)
+//	hostsSeq := GetHostsIter(inventory, "all")
+func GetHostsIter(inventory *Inventory, pattern string) iter.Seq[string] {
+	hosts := GetHosts(inventory, pattern)
 	return func(yield func(string) bool) {
 		for _, host := range hosts {
 			if !yield(host) {
@@ -1145,7 +1145,7 @@ func collectAllHosts(group *InventoryGroup, seen map[string]bool, hosts *[]strin
 //
 // Example:
 //
-//	seq := AllHostsIter(inv.All)
+//	hostsSeq := AllHostsIter(inventory.All)
 func AllHostsIter(group *InventoryGroup) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for _, host := range getAllHosts(group) {
@@ -1198,12 +1198,12 @@ func hasHost(group *InventoryGroup, name string) bool {
 //
 // Example:
 //
-//	vars := GetHostVars(inv, "web1")
-func GetHostVars(inv *Inventory, hostname string) map[string]any {
+//	hostVars := GetHostVars(inventory, "web1")
+func GetHostVars(inventory *Inventory, hostname string) map[string]any {
 	vars := make(map[string]any)
 
 	// Collect vars from all levels
-	collectHostVars(inv.All, hostname, vars)
+	collectHostVars(inventory.All, hostname, vars)
 
 	return vars
 }

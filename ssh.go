@@ -38,7 +38,7 @@ type SSHClient struct {
 //
 // Example:
 //
-//	cfg := SSHConfig{Host: "web1", User: "deploy", Port: 22}
+//	config := SSHConfig{Host: "web1", User: "deploy", Port: 22}
 type SSHConfig struct {
 	Host       string
 	Port       int
@@ -56,27 +56,27 @@ type SSHConfig struct {
 // Example:
 //
 //	client, err := NewSSHClient(SSHConfig{Host: "web1", User: "deploy"})
-func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
-	if cfg.Port == 0 {
-		cfg.Port = 22
+func NewSSHClient(config SSHConfig) (*SSHClient, error) {
+	if config.Port == 0 {
+		config.Port = 22
 	}
-	if cfg.User == "" {
-		cfg.User = "root"
+	if config.User == "" {
+		config.User = "root"
 	}
-	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+	if config.Timeout == 0 {
+		config.Timeout = 30 * time.Second
 	}
 
 	client := &SSHClient{
-		host:       cfg.Host,
-		port:       cfg.Port,
-		user:       cfg.User,
-		password:   cfg.Password,
-		keyFile:    cfg.KeyFile,
-		become:     cfg.Become,
-		becomeUser: cfg.BecomeUser,
-		becomePass: cfg.BecomePass,
-		timeout:    cfg.Timeout,
+		host:       config.Host,
+		port:       config.Port,
+		user:       config.User,
+		password:   config.Password,
+		keyFile:    config.KeyFile,
+		become:     config.Become,
+		becomeUser: config.BecomeUser,
+		becomePass: config.BecomePass,
+		timeout:    config.Timeout,
 	}
 
 	return client, nil

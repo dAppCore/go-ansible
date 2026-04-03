@@ -197,12 +197,12 @@ func parseExtraVarsValue(value string) (map[string]any, error) {
 	}
 
 	if strings.HasPrefix(trimmed, "@") {
-		path := trimSpace(strings.TrimPrefix(trimmed, "@"))
-		if path == "" {
+		filePath := trimSpace(strings.TrimPrefix(trimmed, "@"))
+		if filePath == "" {
 			return nil, coreerr.E("parseExtraVarsValue", "extra vars file path required", nil)
 		}
 
-		data, err := coreio.Local.Read(path)
+		data, err := coreio.Local.Read(filePath)
 		if err != nil {
 			return nil, coreerr.E("parseExtraVarsValue", "read extra vars file", err)
 		}
@@ -358,26 +358,26 @@ func runPlaybookCommand(opts core.Options) core.Result {
 	}
 
 	// Load inventory
-	if invPath := firstStringOption(opts, "inventory", "i"); invPath != "" {
-		if !pathIsAbs(invPath) {
-			invPath = absPath(invPath)
+	if inventoryPath := firstStringOption(opts, "inventory", "i"); inventoryPath != "" {
+		if !pathIsAbs(inventoryPath) {
+			inventoryPath = absPath(inventoryPath)
 		}
 
-		if !coreio.Local.Exists(invPath) {
-			return core.Result{Value: coreerr.E("runPlaybookCommand", sprintf("inventory not found: %s", invPath), nil)}
+		if !coreio.Local.Exists(inventoryPath) {
+			return core.Result{Value: coreerr.E("runPlaybookCommand", sprintf("inventory not found: %s", inventoryPath), nil)}
 		}
 
-		if coreio.Local.IsDir(invPath) {
+		if coreio.Local.IsDir(inventoryPath) {
 			for _, name := range []string{"inventory.yml", "hosts.yml", "inventory.yaml", "hosts.yaml"} {
-				p := joinPath(invPath, name)
-				if coreio.Local.Exists(p) {
-					invPath = p
+				candidatePath := joinPath(inventoryPath, name)
+				if coreio.Local.Exists(candidatePath) {
+					inventoryPath = candidatePath
 					break
 				}
 			}
 		}
 
-		if err := executor.SetInventory(invPath); err != nil {
+		if err := executor.SetInventory(inventoryPath); err != nil {
 			return core.Result{Value: coreerr.E("runPlaybookCommand", "load inventory", err)}
 		}
 	}
@@ -468,7 +468,7 @@ func runSSHTestCommand(opts core.Options) core.Result {
 
 	print("Testing SSH connection to %s...", host)
 
-	cfg := ansible.SSHConfig{
+	config := ansible.SSHConfig{
 		Host:     host,
 		Port:     opts.Int("port"),
 		User:     firstStringOption(opts, "user", "u"),
@@ -477,7 +477,7 @@ func runSSHTestCommand(opts core.Options) core.Result {
 		Timeout:  30 * time.Second,
 	}
 
-	client, err := ansible.NewSSHClient(cfg)
+	client, err := ansible.NewSSHClient(config)
 	if err != nil {
 		return core.Result{Value: coreerr.E("runSSHTestCommand", "create client", err)}
 	}
