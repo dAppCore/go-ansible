@@ -900,6 +900,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 
 	line := getStringArg(args, "line", "")
 	regexpArg := getStringArg(args, "regexp", "")
+	searchString := getStringArg(args, "search_string", "")
 	state := getStringArg(args, "state", "present")
 	backup := getBoolArg(args, "backup", false)
 	backrefs := getBoolArg(args, "backrefs", false)
@@ -925,6 +926,37 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 	}
 
 	if state == "absent" {
+		if searchString != "" {
+			if before == "" || !strings.Contains(before, searchString) {
+				return &TaskResult{Changed: false}, nil
+			}
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
+			updated, changed := removeLinesContaining(before, searchString)
+			if !changed {
+				return &TaskResult{Changed: false}, nil
+			}
+			if err := client.Upload(context.Background(), bytes.NewReader([]byte(updated)), path, 0600); err != nil {
+				return nil, err
+			}
+			result := &TaskResult{Changed: true}
+			if backupPath != "" {
+				result.Data = map[string]any{"backup_file": backupPath}
+			}
+			if after, ok := mockRemoteFileText(client, path); ok && before != after {
+				if result.Data == nil {
+					result.Data = make(map[string]any)
+				}
+				result.Data["diff"] = map[string]any{
+					"path":   path,
+					"before": before,
+					"after":  after,
+				}
+			}
+			return result, nil
+		}
+
 		if regexpArg != "" {
 			if err := ensureBackup(); err != nil {
 				return nil, err
@@ -937,6 +969,78 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 		}
 	} else {
 		// state == present
+		if searchString != "" {
+			if before != "" && fileContainsExactLine(before, line) {
+				return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
+			}
+
+			if before != "" {
+				updated, changed := replaceFirstLineContaining(before, searchString, line)
+				if changed {
+					if err := ensureBackup(); err != nil {
+						return nil, err
+					}
+					if err := client.Upload(context.Background(), bytes.NewReader([]byte(updated)), path, 0600); err != nil {
+						return nil, err
+					}
+					result := &TaskResult{Changed: true}
+					if backupPath != "" {
+						result.Data = map[string]any{"backup_file": backupPath}
+					}
+					if after, ok := mockRemoteFileText(client, path); ok && before != after {
+						if result.Data == nil {
+							result.Data = make(map[string]any)
+						}
+						result.Data["diff"] = map[string]any{
+							"path":   path,
+							"before": before,
+							"after":  after,
+						}
+					}
+					return result, nil
+				}
+			}
+
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
+			if inserted, err := mockInsertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
+				return nil, err
+			} else if inserted {
+				return &TaskResult{Changed: true}, nil
+			}
+
+			updated := line
+			if before != "" {
+				updated = before
+				if updated != "" && !strings.HasSuffix(updated, "\n") {
+					updated += "\n"
+				}
+				updated += line
+			}
+			if before == "" && line != "" {
+				updated = line + "\n"
+			}
+			if err := client.Upload(context.Background(), bytes.NewReader([]byte(updated)), path, 0600); err != nil {
+				return nil, err
+			}
+			result := &TaskResult{Changed: true}
+			if backupPath != "" {
+				result.Data = map[string]any{"backup_file": backupPath}
+			}
+			if after, ok := mockRemoteFileText(client, path); ok && before != after {
+				if result.Data == nil {
+					result.Data = make(map[string]any)
+				}
+				result.Data["diff"] = map[string]any{
+					"path":   path,
+					"before": before,
+					"after":  after,
+				}
+			}
+			return result, nil
+		}
+
 		if regexpArg != "" {
 			// Replace line matching regexp.
 			escapedLine := replaceAll(line, "/", "\\/")

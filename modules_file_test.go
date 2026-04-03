@@ -810,6 +810,42 @@ func TestModulesFile_ModuleLineinfile_Good_ExactLineAlreadyPresentIsNoOp(t *test
 	assert.Equal(t, 0, mock.commandCount())
 }
 
+func TestModulesFile_ModuleLineinfile_Good_SearchStringReplacesMatchingLine(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/ssh/sshd_config", []byte("PermitRootLogin yes\nPasswordAuthentication yes\n"))
+
+	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
+		"path":          "/etc/ssh/sshd_config",
+		"search_string": "PermitRootLogin",
+		"line":          "PermitRootLogin no",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	after, err := mock.Download(context.Background(), "/etc/ssh/sshd_config")
+	require.NoError(t, err)
+	assert.Equal(t, "PermitRootLogin no\nPasswordAuthentication yes\n", string(after))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_SearchStringRemovesMatchingLine(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/ssh/sshd_config", []byte("PermitRootLogin yes\nPasswordAuthentication yes\n"))
+
+	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
+		"path":          "/etc/ssh/sshd_config",
+		"search_string": "PermitRootLogin",
+		"state":         "absent",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	after, err := mock.Download(context.Background(), "/etc/ssh/sshd_config")
+	require.NoError(t, err)
+	assert.Equal(t, "PasswordAuthentication yes\n", string(after))
+}
+
 func TestModulesFile_ModuleLineinfile_Good_BackupExistingFile(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	path := "/etc/example.conf"

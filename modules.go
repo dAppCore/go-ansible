@@ -895,6 +895,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 
 	line := getStringArg(args, "line", "")
 	regexp := getStringArg(args, "regexp", "")
+	searchString := getStringArg(args, "search_string", "")
 	state := getStringArg(args, "state", "present")
 	backup := getBoolArg(args, "backup", false)
 	backrefs := getBoolArg(args, "backrefs", false)
@@ -928,6 +929,34 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	}
 
 	if state == "absent" {
+		if searchString != "" {
+			if !hasBefore || !strings.Contains(before, searchString) {
+				return &TaskResult{Changed: false}, nil
+			}
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
+
+			updated, changed := removeLinesContaining(before, searchString)
+			if !changed {
+				return &TaskResult{Changed: false}, nil
+			}
+			if err := client.Upload(ctx, newReader(updated), path, 0644); err != nil {
+				return nil, coreerr.E("Executor.moduleLineinfile", "upload lineinfile search_string removal", err)
+			}
+			result := &TaskResult{Changed: true}
+			if backupPath != "" {
+				result.Data = map[string]any{"backup_file": backupPath}
+			}
+			if e.Diff {
+				if after, ok := remoteFileText(ctx, client, path); ok && before != after {
+					result.Data = ensureTaskResultData(result.Data)
+					result.Data["diff"] = fileDiffData(path, before, after)
+				}
+			}
+			return result, nil
+		}
+
 		if regexp != "" {
 			if content, ok := remoteFileText(ctx, client, path); !ok || !regexpMatchString(regexp, content) {
 				return &TaskResult{Changed: false}, nil
@@ -949,6 +978,71 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 		}
 
 		// state == present
+		if searchString != "" {
+			if hasBefore && fileContainsExactLine(before, line) {
+				return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
+			}
+
+			if hasBefore {
+				updated, changed := replaceFirstLineContaining(before, searchString, line)
+				if changed {
+					if err := ensureBackup(); err != nil {
+						return nil, err
+					}
+					if err := client.Upload(ctx, newReader(updated), path, 0644); err != nil {
+						return nil, coreerr.E("Executor.moduleLineinfile", "upload lineinfile search_string replacement", err)
+					}
+					result := &TaskResult{Changed: true}
+					if backupPath != "" {
+						result.Data = map[string]any{"backup_file": backupPath}
+					}
+					if e.Diff {
+						if after, ok := remoteFileText(ctx, client, path); ok && before != after {
+							result.Data = ensureTaskResultData(result.Data)
+							result.Data["diff"] = fileDiffData(path, before, after)
+						}
+					}
+					return result, nil
+				}
+			}
+
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
+			if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
+				return nil, err
+			} else if inserted {
+				return &TaskResult{Changed: true}, nil
+			}
+
+			updated := line
+			if hasBefore {
+				updated = before
+				if updated != "" && !strings.HasSuffix(updated, "\n") {
+					updated += "\n"
+				}
+				updated += line
+			}
+			if !hasBefore && line != "" {
+				updated = line + "\n"
+			}
+
+			if err := client.Upload(ctx, newReader(updated), path, 0644); err != nil {
+				return nil, coreerr.E("Executor.moduleLineinfile", "upload lineinfile search_string append", err)
+			}
+			result := &TaskResult{Changed: true}
+			if backupPath != "" {
+				result.Data = map[string]any{"backup_file": backupPath}
+			}
+			if e.Diff {
+				if after, ok := remoteFileText(ctx, client, path); ok && before != after {
+					result.Data = ensureTaskResultData(result.Data)
+					result.Data["diff"] = fileDiffData(path, before, after)
+				}
+			}
+			return result, nil
+		}
+
 		if regexp != "" {
 			escapedLine := replaceAll(line, "/", "\\/")
 			sedFlags := "-i"
@@ -1164,6 +1258,51 @@ func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, 
 	}
 
 	return false, nil
+}
+
+func replaceFirstLineContaining(content, needle, line string) (string, bool) {
+	if content == "" || needle == "" {
+		return content, false
+	}
+
+	lines := strings.Split(content, "\n")
+	changed := false
+	for i, current := range lines {
+		if changed {
+			continue
+		}
+		if strings.Contains(current, needle) {
+			lines[i] = line
+			changed = true
+		}
+	}
+	if !changed {
+		return content, false
+	}
+
+	return join("\n", lines), true
+}
+
+func removeLinesContaining(content, needle string) (string, bool) {
+	if content == "" || needle == "" {
+		return content, false
+	}
+
+	lines := strings.Split(content, "\n")
+	kept := make([]string, 0, len(lines))
+	removed := false
+	for _, current := range lines {
+		if strings.Contains(current, needle) {
+			removed = true
+			continue
+		}
+		kept = append(kept, current)
+	}
+	if !removed {
+		return content, false
+	}
+
+	return join("\n", kept), true
 }
 
 func buildLineinfileInsertCommand(path, line, anchor string, after, firstMatch bool) string {
