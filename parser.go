@@ -39,6 +39,22 @@ func NewParser(basePath string) *Parser {
 //
 //	plays, err := parser.ParsePlaybook("/workspace/playbooks/site.yml")
 func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
+	path = p.resolvePath(path)
+
+	if p.vars == nil {
+		p.vars = make(map[string]any)
+	}
+
+	savedPlaybookDir, hadPlaybookDir := p.vars["playbook_dir"]
+	p.vars["playbook_dir"] = pathDir(path)
+	defer func() {
+		if hadPlaybookDir {
+			p.vars["playbook_dir"] = savedPlaybookDir
+		} else {
+			delete(p.vars, "playbook_dir")
+		}
+	}()
+
 	return p.parsePlaybook(path, make(map[string]bool))
 }
 
@@ -65,13 +81,24 @@ func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error
 	// Process each play
 	for i := range plays {
 		if plays[i].ImportPlaybook != "" {
-			importPath := joinPath(pathDir(path), p.templatePath(plays[i].ImportPlaybook))
+			importPlaybook := p.templatePath(plays[i].ImportPlaybook)
+			importPath := importPlaybook
+			if importPath != "" && !pathIsAbs(importPath) {
+				importPath = joinPath(pathDir(path), importPath)
+			}
 			imported, err := p.parsePlaybook(importPath, seen)
 			if err != nil {
 				return nil, coreerr.E("Parser.ParsePlaybook", sprintf("expand import_playbook %d", i), err)
 			}
 			expanded = append(expanded, imported...)
 			continue
+		}
+
+		if plays[i].Vars == nil {
+			plays[i].Vars = make(map[string]any)
+		}
+		if _, ok := plays[i].Vars["playbook_dir"]; !ok {
+			plays[i].Vars["playbook_dir"] = p.vars["playbook_dir"]
 		}
 
 		if err := p.processPlay(&plays[i]); err != nil {

@@ -111,7 +111,7 @@ func TestParser_ParsePlaybook_Good_ImportPlaybook(t *testing.T) {
 	require.NoError(t, writeTestFile(importPath, []byte(yamlImported), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(mainPath)
+	plays, err := p.ParsePlaybook("site.yml")
 
 	require.NoError(t, err)
 	require.Len(t, plays, 3)
@@ -130,7 +130,7 @@ func TestParser_ParsePlaybook_Good_TemplatedImportPlaybook(t *testing.T) {
 	importPath := joinPath(importDir, "web.yml")
 
 	yamlMain := `---
-- import_playbook: "{{ playbook_dir }}/web.yml"
+- import_playbook: "{{ playbook_dir }}/plays/web.yml"
 `
 	yamlImported := `---
 - name: Imported play
@@ -145,14 +145,14 @@ func TestParser_ParsePlaybook_Good_TemplatedImportPlaybook(t *testing.T) {
 	require.NoError(t, writeTestFile(importPath, []byte(yamlImported), 0644))
 
 	p := NewParser(dir)
-	p.vars["playbook_dir"] = "plays"
-
-	plays, err := p.ParsePlaybook(mainPath)
+	plays, err := p.ParsePlaybook("site.yml")
 
 	require.NoError(t, err)
 	require.Len(t, plays, 1)
 	assert.Equal(t, "Imported play", plays[0].Name)
 	assert.Equal(t, "all", plays[0].Hosts)
+	require.NotNil(t, plays[0].Vars)
+	assert.Equal(t, dir, plays[0].Vars["playbook_dir"])
 }
 
 func TestParser_ParsePlaybook_Good_FQCNImportPlaybook(t *testing.T) {
