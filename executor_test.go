@@ -1022,6 +1022,59 @@ func TestExecutor_RunPlay_Good_SerialBatchesHosts(t *testing.T) {
 	}, got)
 }
 
+func TestExecutor_RunPlay_Good_RestoresPlayVarsBetweenPlays(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+	e.clients["localhost"] = NewMockSSHClient()
+
+	gatherFacts := false
+	first := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Vars: map[string]any{
+			"play_var": "one",
+		},
+		Tasks: []Task{
+			{
+				Name:     "use play var",
+				Module:   "debug",
+				Args:     map[string]any{"msg": "{{ play_var }}"},
+				Register: "first_result",
+			},
+		},
+	}
+	second := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:     "check play var",
+				Module:   "debug",
+				Args:     map[string]any{"msg": "{{ play_var | default('missing') }}"},
+				Register: "second_result",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), first))
+	_, leaked := e.vars["play_var"]
+	assert.False(t, leaked)
+
+	require.NoError(t, e.runPlay(context.Background(), second))
+	require.NotNil(t, e.results["localhost"]["first_result"])
+	require.NotNil(t, e.results["localhost"]["second_result"])
+	assert.Equal(t, "one", e.results["localhost"]["first_result"].Msg)
+	assert.Equal(t, "missing", e.results["localhost"]["second_result"].Msg)
+}
+
 func TestExecutor_RunTaskOnHost_Good_LoopControlPause(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{
@@ -1040,6 +1093,33 @@ func TestExecutor_RunTaskOnHost_Good_LoopControlPause(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopWhenEvaluatedPerItem(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Loop with when",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop:     []any{"skip", "run"},
+		When:     "item != 'skip'",
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.True(t, result.Results[0].Skipped)
+	assert.Equal(t, "Skipped due to when condition", result.Results[0].Msg)
+	assert.False(t, result.Results[1].Skipped)
+	assert.Equal(t, "run", result.Results[1].Msg)
 }
 
 func TestExecutor_RunTaskOnHost_Good_LoopControlExtendedExposesMetadata(t *testing.T) {

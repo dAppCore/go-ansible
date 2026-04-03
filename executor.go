@@ -359,6 +359,14 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		}
 	}()
 
+	savedVars := make(map[string]any, len(e.vars))
+	for k, v := range e.vars {
+		savedVars[k] = v
+	}
+	defer func() {
+		e.vars = savedVars
+	}()
+
 	// Get target hosts
 	hosts := e.getHosts(play.Hosts)
 	if len(hosts) == 0 {
@@ -1000,6 +1008,21 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		return e.runLoop(ctx, host, client, task, play, start)
 	}
 
+	// Check when conditions for non-loop tasks after loop-only variables have
+	// been ruled out. Loop tasks evaluate their when-clause per item.
+	if task.When != nil {
+		if !e.evaluateWhen(task.When, host, task) {
+			result := &TaskResult{Skipped: true, Msg: "Skipped due to when condition"}
+			if task.Register != "" {
+				e.results[host][task.Register] = result
+			}
+			if e.OnTaskEnd != nil {
+				e.OnTaskEnd(host, task, result)
+			}
+			return nil
+		}
+	}
+
 	// Execute the task, honouring retries/until when configured.
 	result, err := e.runTaskWithRetries(ctx, host, task, play, func() (*TaskResult, error) {
 		return e.executeModule(ctx, host, client, task, play)
@@ -1272,6 +1295,21 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 			e.vars["ansible_loop"] = loopMeta
 		}
 
+		if task.When != nil && !e.evaluateWhen(task.When, host, task) {
+			skipped := TaskResult{Skipped: true, Msg: "Skipped due to when condition"}
+			results = append(results, skipped)
+			if task.LoopControl != nil && task.LoopControl.Pause > 0 && i < len(items)-1 {
+				timer := time.NewTimer(time.Duration(task.LoopControl.Pause) * time.Second)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
+			}
+			continue
+		}
+
 		result, err := e.runTaskWithRetries(ctx, host, task, play, func() (*TaskResult, error) {
 			return e.executeModule(ctx, host, client, task, play)
 		})
@@ -1318,16 +1356,22 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 
 	// Store combined result
 	if task.Register != "" {
-		combined := &TaskResult{
-			Results: results,
-			Changed: false,
-		}
+		combined := &TaskResult{Results: results}
 		for _, r := range results {
 			if r.Changed {
 				combined.Changed = true
 			}
 			if r.Failed {
 				combined.Failed = true
+			}
+		}
+		if len(results) > 0 {
+			combined.Skipped = true
+			for _, r := range results {
+				if !r.Skipped {
+					combined.Skipped = false
+					break
+				}
 			}
 		}
 		combined.Duration = time.Since(start)
@@ -1344,6 +1388,15 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 		}
 		if r.Failed {
 			result.Failed = true
+		}
+	}
+	if len(results) > 0 {
+		result.Skipped = true
+		for _, r := range results {
+			if !r.Skipped {
+				result.Skipped = false
+				break
+			}
 		}
 	}
 	result.Duration = time.Since(start)
