@@ -3646,7 +3646,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	name := getStringArg(args, "name", "")
 	filesMatching := getStringArg(args, "files_matching", "")
 	ignoreFiles := normalizeStringList(args["ignore_files"])
-	extensions := normalizeIncludeVarsExtensions(normalizeStringList(args["extensions"]))
+	extensions := normalizeIncludeVarsExtensions(args["extensions"])
 	hashBehaviour := lower(getStringArg(args, "hash_behaviour", "replace"))
 	depth := getIntArg(args, "depth", 0)
 
@@ -3715,7 +3715,28 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	return result, nil
 }
 
-func normalizeIncludeVarsExtensions(values []string) []string {
+func normalizeIncludeVarsExtensions(value any) []string {
+	switch v := value.(type) {
+	case nil:
+		return []string{".json", ".yml", ".yaml"}
+	case string:
+		return normalizeIncludeVarsExtensionList([]string{v})
+	case []string:
+		return normalizeIncludeVarsExtensionList(v)
+	case []any:
+		values := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				values = append(values, s)
+			}
+		}
+		return normalizeIncludeVarsExtensionList(values)
+	default:
+		return normalizeIncludeVarsExtensionList([]string{corexSprint(v)})
+	}
+}
+
+func normalizeIncludeVarsExtensionList(values []string) []string {
 	if len(values) == 0 {
 		return []string{".json", ".yml", ".yaml"}
 	}
@@ -3723,11 +3744,14 @@ func normalizeIncludeVarsExtensions(values []string) []string {
 	extensions := make([]string, 0, len(values))
 	seen := make(map[string]bool, len(values))
 	for _, value := range values {
-		ext := lower(corexTrimSpace(value))
-		if ext == "" {
+		trimmed := corexTrimSpace(value)
+		ext := lower(trimmed)
+		if trimmed == "" {
+			ext = ""
+		} else if ext == "" {
 			continue
 		}
-		if !corexHasPrefix(ext, ".") {
+		if ext != "" && !corexHasPrefix(ext, ".") {
 			ext = "." + ext
 		}
 		if seen[ext] {

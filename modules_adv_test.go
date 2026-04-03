@@ -1396,6 +1396,27 @@ func TestModulesAdv_ModuleIncludeVars_Good_CustomExtensionsFilter(t *testing.T) 
 	assert.NotContains(t, result.Msg, joinPath(dir, "01-ignored.yml"))
 }
 
+func TestModulesAdv_ModuleIncludeVars_Good_LoadExtensionlessFilesWhenRequested(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "vars"), []byte("app_name: demo\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "ignored.txt"), []byte("ignored_value: true\n"), 0644))
+
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleIncludeVars(map[string]any{
+		"dir":        dir,
+		"extensions": []any{"", "yml", "yaml", "json"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "demo", e.vars["app_name"])
+	_, hasIgnored := e.vars["ignored_value"]
+	assert.False(t, hasIgnored)
+	assert.Contains(t, result.Msg, joinPath(dir, "vars"))
+	assert.NotContains(t, result.Msg, joinPath(dir, "ignored.txt"))
+}
+
 func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("app_name: demo\nnested:\n  a: 1\n"), 0644))
