@@ -2,6 +2,8 @@ package ansible
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"io/fs"
 	"regexp"
@@ -1599,4 +1601,44 @@ func TestModulesFile_ModuleFile_Good_TemplatedPath(t *testing.T) {
 	assert.True(t, result.Changed)
 	assert.True(t, mock.hasExecuted(`mkdir -p "/var/www/html/uploads"`))
 	assert.True(t, mock.hasExecuted(`chown www-data "/var/www/html/uploads"`))
+}
+
+func TestModulesFile_ModuleGetURL_Good_Checksum(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	payload := "downloaded artifact"
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, payload, "", 0)
+
+	sum := sha256.Sum256([]byte(payload))
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":      "https://downloads.example.com/app.tgz",
+		"dest":     "/tmp/app.tgz",
+		"checksum": "sha256:" + hex.EncodeToString(sum[:]),
+		"mode":     "0600",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, 1, mock.uploadCount())
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Equal(t, "/tmp/app.tgz", up.Remote)
+	assert.Equal(t, []byte(payload), up.Content)
+	assert.Equal(t, fs.FileMode(0600), up.Mode)
+}
+
+func TestModulesFile_ModuleGetURL_Bad_ChecksumMismatch(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, "downloaded artifact", "", 0)
+
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":      "https://downloads.example.com/app.tgz",
+		"dest":     "/tmp/app.tgz",
+		"checksum": "sha256:deadbeef",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Failed)
+	assert.Contains(t, result.Msg, "checksum mismatch")
+	assert.Equal(t, 0, mock.uploadCount())
 }
