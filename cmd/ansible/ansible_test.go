@@ -1,4 +1,4 @@
-package anscmd
+package ansiblecmd
 
 import (
 	"os"
@@ -110,7 +110,7 @@ func TestFirstString_Good_PrefersFirstNonEmptyKey(t *testing.T) {
 		core.Option{Key: "i", Value: "/tmp/inventory.yml"},
 	)
 
-	assert.Equal(t, "/tmp/inventory.yml", firstString(opts, "inventory", "i"))
+	assert.Equal(t, "/tmp/inventory.yml", firstStringOption(opts, "inventory", "i"))
 }
 
 func TestFirstBool_Good_UsesAlias(t *testing.T) {
@@ -118,7 +118,7 @@ func TestFirstBool_Good_UsesAlias(t *testing.T) {
 		core.Option{Key: "v", Value: true},
 	)
 
-	assert.True(t, firstBool(opts, "verbose", "v"))
+	assert.True(t, firstBoolOption(opts, "verbose", "v"))
 }
 
 func TestVerbosityLevel_Good_CountsStackedShortFlags(t *testing.T) {
@@ -145,7 +145,7 @@ func TestTestKeyFile_Good_PrefersExplicitKey(t *testing.T) {
 		core.Option{Key: "i", Value: "/tmp/ignored"},
 	)
 
-	assert.Equal(t, "/tmp/id_ed25519", testKeyFile(opts))
+	assert.Equal(t, "/tmp/id_ed25519", resolveTestSSHKeyFile(opts))
 }
 
 func TestTestKeyFile_Good_FallsBackToShortAlias(t *testing.T) {
@@ -153,7 +153,7 @@ func TestTestKeyFile_Good_FallsBackToShortAlias(t *testing.T) {
 		core.Option{Key: "i", Value: "/tmp/id_ed25519"},
 	)
 
-	assert.Equal(t, "/tmp/id_ed25519", testKeyFile(opts))
+	assert.Equal(t, "/tmp/id_ed25519", resolveTestSSHKeyFile(opts))
 }
 
 func TestFirstString_Good_ResolvesShortUserAlias(t *testing.T) {
@@ -161,7 +161,7 @@ func TestFirstString_Good_ResolvesShortUserAlias(t *testing.T) {
 		core.Option{Key: "u", Value: "deploy"},
 	)
 
-	cfgUser := firstString(opts, "user", "u")
+	cfgUser := firstStringOption(opts, "user", "u")
 
 	assert.Equal(t, "deploy", cfgUser)
 }
@@ -245,7 +245,7 @@ func TestRegister_Good_ExposesExpectedFlags(t *testing.T) {
 }
 
 func TestRunAnsible_Bad_MissingPlaybook(t *testing.T) {
-	result := runAnsible(core.NewOptions())
+	result := runPlaybookCommand(core.NewOptions())
 
 	require.False(t, result.OK)
 	err, ok := result.Value.(error)
@@ -254,7 +254,7 @@ func TestRunAnsible_Bad_MissingPlaybook(t *testing.T) {
 }
 
 func TestRunAnsibleTest_Bad_MissingHost(t *testing.T) {
-	result := runAnsibleTest(core.NewOptions())
+	result := runSSHTestCommand(core.NewOptions())
 
 	require.False(t, result.OK)
 	err, ok := result.Value.(error)

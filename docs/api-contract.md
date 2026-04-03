@@ -69,7 +69,7 @@ Function and method coverage percentages below come from `go test -coverprofile=
 | `(*SSHClient).Stat` | `func (c *SSHClient) Stat(ctx context.Context, path string) (map[string]any, error)` | Returns a minimal remote stat map describing existence and directory state. | `0.0%`; no automated tests found. |
 | `(*SSHClient).SetBecome` | `func (c *SSHClient) SetBecome(become bool, user, password string)` | Updates the privilege-escalation settings stored on the client. | `100.0%`; covered by `modules_infra_test.go: TestBecome_Infra_Good_*`. |
 
-## Package `anscmd`: CLI API
+## Package `ansiblecmd`: CLI API
 
 | Name | Signature | Description | Test coverage |
 | --- | --- | --- | --- |

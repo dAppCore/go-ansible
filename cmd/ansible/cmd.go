@@ -1,10 +1,10 @@
-package anscmd
+package ansiblecmd
 
 import (
 	"dappco.re/go/core"
 )
 
-// Register registers the 'ansible' command and all subcommands on the given Core instance.
+// Register registers the `ansible` command and its `ansible/test` subcommand.
 //
 // Example:
 //
@@ -13,7 +13,7 @@ import (
 func Register(c *core.Core) {
 	c.Command("ansible", core.Command{
 		Description: "Run Ansible playbooks natively (no Python required)",
-		Action:      runAnsible,
+		Action:      runPlaybookCommand,
 		Flags: core.NewOptions(
 			core.Option{Key: "inventory", Value: ""},
 			core.Option{Key: "i", Value: ""},
@@ -33,7 +33,7 @@ func Register(c *core.Core) {
 
 	c.Command("ansible/test", core.Command{
 		Description: "Test SSH connectivity to a host",
-		Action:      runAnsibleTest,
+		Action:      runSSHTestCommand,
 		Flags: core.NewOptions(
 			core.Option{Key: "user", Value: "root"},
 			core.Option{Key: "u", Value: "root"},

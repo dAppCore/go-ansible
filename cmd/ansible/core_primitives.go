@@ -1,4 +1,4 @@
-package anscmd
+package ansiblecmd
 
 import (
 	"unicode"

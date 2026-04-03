@@ -1,4 +1,4 @@
-package anscmd
+package ansiblecmd
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// args extracts all positional arguments from Options.
-func args(opts core.Options) []string {
+// positionalArgs extracts all positional arguments from Options.
+func positionalArgs(opts core.Options) []string {
 	var out []string
 	for _, o := range opts.Items() {
 		if o.Key == "_arg" {
@@ -28,8 +28,8 @@ func args(opts core.Options) []string {
 	return out
 }
 
-// firstString returns the first non-empty string for any of the provided keys.
-func firstString(opts core.Options, keys ...string) string {
+// firstStringOption returns the first non-empty string for any of the provided keys.
+func firstStringOption(opts core.Options, keys ...string) string {
 	for _, key := range keys {
 		if value := opts.String(key); value != "" {
 			return value
@@ -38,8 +38,8 @@ func firstString(opts core.Options, keys ...string) string {
 	return ""
 }
 
-// firstBool returns true when any of the provided keys is set to true.
-func firstBool(opts core.Options, keys ...string) bool {
+// firstBoolOption returns true when any of the provided keys is set to true.
+func firstBoolOption(opts core.Options, keys ...string) bool {
 	for _, key := range keys {
 		if opts.Bool(key) {
 			return true
@@ -53,7 +53,7 @@ func firstBool(opts core.Options, keys ...string) bool {
 // `-v` tokens, so we count them from os.Args as a fallback.
 func verbosityLevel(opts core.Options, rawArgs []string) int {
 	level := opts.Int("verbose")
-	if firstBool(opts, "v") && level < 1 {
+	if firstBoolOption(opts, "v") && level < 1 {
 		level = 1
 	}
 
@@ -182,18 +182,18 @@ func parseKeyValueExtraVars(value string) map[string]any {
 	return vars
 }
 
-// testKeyFile resolves the SSH key flag used by the ansible test subcommand.
-func testKeyFile(opts core.Options) string {
+// resolveTestSSHKeyFile resolves the SSH key flag used by the ansible test subcommand.
+func resolveTestSSHKeyFile(opts core.Options) string {
 	if key := opts.String("key"); key != "" {
 		return key
 	}
 	return opts.String("i")
 }
 
-func runAnsible(opts core.Options) core.Result {
-	positional := args(opts)
+func runPlaybookCommand(opts core.Options) core.Result {
+	positional := positionalArgs(opts)
 	if len(positional) < 1 {
-		return core.Result{Value: coreerr.E("runAnsible", "usage: ansible <playbook>", nil)}
+		return core.Result{Value: coreerr.E("runPlaybookCommand", "usage: ansible <playbook>", nil)}
 	}
 	playbookPath := positional[0]
 
@@ -203,7 +203,7 @@ func runAnsible(opts core.Options) core.Result {
 	}
 
 	if !coreio.Local.Exists(playbookPath) {
-		return core.Result{Value: coreerr.E("runAnsible", sprintf("playbook not found: %s", playbookPath), nil)}
+		return core.Result{Value: coreerr.E("runPlaybookCommand", sprintf("playbook not found: %s", playbookPath), nil)}
 	}
 
 	// Create executor
@@ -212,12 +212,12 @@ func runAnsible(opts core.Options) core.Result {
 	defer executor.Close()
 
 	// Set options
-	executor.Limit = firstString(opts, "limit", "l")
+	executor.Limit = firstStringOption(opts, "limit", "l")
 	executor.CheckMode = opts.Bool("check")
 	executor.Diff = opts.Bool("diff")
 	executor.Verbose = verbosityLevel(opts, os.Args[1:])
 
-	if tags := firstString(opts, "tags", "t"); tags != "" {
+	if tags := firstStringOption(opts, "tags", "t"); tags != "" {
 		executor.Tags = split(tags, ",")
 	}
 	if skipTags := opts.String("skip-tags"); skipTags != "" {
@@ -227,20 +227,20 @@ func runAnsible(opts core.Options) core.Result {
 	// Parse extra vars
 	vars, err := extraVars(opts)
 	if err != nil {
-		return core.Result{Value: coreerr.E("runAnsible", "parse extra vars", err)}
+		return core.Result{Value: coreerr.E("runPlaybookCommand", "parse extra vars", err)}
 	}
 	for key, value := range vars {
 		executor.SetVar(key, value)
 	}
 
 	// Load inventory
-	if invPath := firstString(opts, "inventory", "i"); invPath != "" {
+	if invPath := firstStringOption(opts, "inventory", "i"); invPath != "" {
 		if !pathIsAbs(invPath) {
 			invPath = absPath(invPath)
 		}
 
 		if !coreio.Local.Exists(invPath) {
-			return core.Result{Value: coreerr.E("runAnsible", sprintf("inventory not found: %s", invPath), nil)}
+			return core.Result{Value: coreerr.E("runPlaybookCommand", sprintf("inventory not found: %s", invPath), nil)}
 		}
 
 		if coreio.Local.IsDir(invPath) {
@@ -254,7 +254,7 @@ func runAnsible(opts core.Options) core.Result {
 		}
 
 		if err := executor.SetInventory(invPath); err != nil {
-			return core.Result{Value: coreerr.E("runAnsible", "load inventory", err)}
+			return core.Result{Value: coreerr.E("runPlaybookCommand", "load inventory", err)}
 		}
 	}
 
@@ -330,7 +330,7 @@ func runAnsible(opts core.Options) core.Result {
 	print("Running playbook: %s", playbookPath)
 
 	if err := executor.Run(ctx, playbookPath); err != nil {
-		return core.Result{Value: coreerr.E("runAnsible", "playbook failed", err)}
+		return core.Result{Value: coreerr.E("runPlaybookCommand", "playbook failed", err)}
 	}
 
 	print("")
@@ -339,10 +339,10 @@ func runAnsible(opts core.Options) core.Result {
 	return core.Result{OK: true}
 }
 
-func runAnsibleTest(opts core.Options) core.Result {
-	positional := args(opts)
+func runSSHTestCommand(opts core.Options) core.Result {
+	positional := positionalArgs(opts)
 	if len(positional) < 1 {
-		return core.Result{Value: coreerr.E("runAnsibleTest", "usage: ansible test <host>", nil)}
+		return core.Result{Value: coreerr.E("runSSHTestCommand", "usage: ansible test <host>", nil)}
 	}
 	host := positional[0]
 
@@ -351,15 +351,15 @@ func runAnsibleTest(opts core.Options) core.Result {
 	cfg := ansible.SSHConfig{
 		Host:     host,
 		Port:     opts.Int("port"),
-		User:     firstString(opts, "user", "u"),
+		User:     firstStringOption(opts, "user", "u"),
 		Password: opts.String("password"),
-		KeyFile:  testKeyFile(opts),
+		KeyFile:  resolveTestSSHKeyFile(opts),
 		Timeout:  30 * time.Second,
 	}
 
 	client, err := ansible.NewSSHClient(cfg)
 	if err != nil {
-		return core.Result{Value: coreerr.E("runAnsibleTest", "create client", err)}
+		return core.Result{Value: coreerr.E("runSSHTestCommand", "create client", err)}
 	}
 	defer func() { _ = client.Close() }()
 
@@ -369,7 +369,7 @@ func runAnsibleTest(opts core.Options) core.Result {
 	// Test connection
 	start := time.Now()
 	if err := client.Connect(ctx); err != nil {
-		return core.Result{Value: coreerr.E("runAnsibleTest", "connect failed", err)}
+		return core.Result{Value: coreerr.E("runSSHTestCommand", "connect failed", err)}
 	}
 	connectTime := time.Since(start)
 
