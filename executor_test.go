@@ -640,7 +640,7 @@ func TestExecutor_RunRole_Good_AppliesRoleTagsToTasks(t *testing.T) {
 	err := e.runRole(context.Background(), []string{"host1"}, &RoleRef{
 		Role: "webserver",
 		Tags: []string{"web"},
-	}, &Play{})
+	}, &Play{}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"host1:tagged role task"}, started)
@@ -681,7 +681,7 @@ role_value: vars-value
 		Vars: map[string]any{
 			"role_param": "include-value",
 		},
-	}, play)
+	}, play, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, e.results["host1"]["role_result"])
@@ -730,7 +730,7 @@ role_value: vars-custom
 		Vars: map[string]any{
 			"role_param": "include-value",
 		},
-	}, &Play{Connection: "local"})
+	}, &Play{Connection: "local"}, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, e.results["host1"]["role_result"])
@@ -807,6 +807,48 @@ func TestExecutor_RunIncludeTasks_Good_AppliesTaskDefaultsToChildren(t *testing.
 	assert.Contains(t, mock.becomeCalls, becomeCall{become: true, user: "root", password: ""})
 }
 
+func TestExecutor_RunIncludeTasks_Good_ImportTasksReevaluatesWhenPerTask(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "tasks", "imported.yml"), []byte(`---
+- name: set gate flag
+  set_fact:
+    gate_flag: true
+  register: first_result
+- name: gated follow-up
+  debug:
+    msg: should skip
+  register: second_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {Vars: map[string]any{"gate_flag": false}},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name:        "import child tasks",
+		ImportTasks: "tasks/imported.yml",
+		When:        "not gate_flag",
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["first_result"])
+	assert.True(t, e.results["localhost"]["first_result"].Changed)
+	require.NotNil(t, e.results["localhost"]["second_result"])
+	assert.True(t, e.results["localhost"]["second_result"].Skipped)
+	assert.Equal(t, "Skipped due to when condition", e.results["localhost"]["second_result"].Msg)
+}
+
 func TestExecutor_RunPlay_Good_AppliesPlayTagsToTasks(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Tags = []string{"deploy"}
@@ -875,13 +917,57 @@ func TestExecutor_RunRole_Good_HostSpecificWhen(t *testing.T) {
 	err := e.runRole(context.Background(), []string{"host1", "host2"}, &RoleRef{
 		Role: "webserver",
 		When: "enabled",
-	}, &Play{})
+	}, &Play{}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"host1:gated role task"}, started)
 	require.NotNil(t, e.results["host1"]["gated_result"])
 	_, ok := e.results["host2"]["gated_result"]
 	assert.False(t, ok)
+}
+
+func TestExecutor_RunIncludeRole_Good_ImportRoleReevaluatesWhenPerTask(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(`---
+- name: set role gate
+  set_fact:
+    role_gate: true
+  register: role_first_result
+- name: gated role follow-up
+  debug:
+    msg: role should skip
+  register: role_second_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {Vars: map[string]any{"role_gate": false}},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name: "import conditional role",
+		ImportRole: &RoleRef{
+			Role: "webserver",
+			When: "not role_gate",
+		},
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["role_first_result"])
+	assert.True(t, e.results["localhost"]["role_first_result"].Changed)
+	require.NotNil(t, e.results["localhost"]["role_second_result"])
+	assert.True(t, e.results["localhost"]["role_second_result"].Skipped)
+	assert.Equal(t, "Skipped due to when condition", e.results["localhost"]["role_second_result"].Msg)
 }
 
 func TestExecutor_RunPlay_Good_LoadsRoleHandlers(t *testing.T) {

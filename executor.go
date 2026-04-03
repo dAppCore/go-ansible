@@ -438,7 +438,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		// Execute roles
 		for _, roleRef := range play.Roles {
 			if err := runSection(func() error {
-				return e.runRole(ctx, batch, &roleRef, play)
+				return e.runRole(ctx, batch, &roleRef, play, nil)
 			}); err != nil {
 				if errors.Is(err, errEndPlay) {
 					return nil
@@ -699,7 +699,7 @@ func resolveSerialBatchSizes(serial any, total int) []int {
 }
 
 // runRole executes a role on hosts.
-func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef, play *Play) error {
+func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef, play *Play, inheritedWhen any) error {
 	oldVars := make(map[string]any, len(e.vars))
 	for k, v := range e.vars {
 		oldVars[k] = v
@@ -749,6 +749,9 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 		e.applyRoleTaskDefaults(&effectiveTask, roleRef.Apply)
 		if len(roleRef.Tags) > 0 {
 			effectiveTask.Tags = mergeStringSlices(roleRef.Tags, effectiveTask.Tags)
+		}
+		if inheritedWhen != nil {
+			effectiveTask.When = mergeConditions(inheritedWhen, effectiveTask.When)
 		}
 		if err := e.runTaskOnHosts(ctx, eligibleHosts, &effectiveTask, play); err != nil {
 			// Restore vars
@@ -1985,9 +1988,10 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 		return nil
 	}
 
-	// Static include/import tasks still honour their own when-clause before the
-	// child task file is expanded for each host.
-	if task.When != nil {
+	// Dynamic include_tasks honours the include task's when-clause before the
+	// child task file is expanded. Static import_tasks inherits the condition
+	// onto each child task so it can be re-evaluated after earlier tasks run.
+	if task.ImportTasks == "" && task.When != nil {
 		filtered := make([]string, 0, len(hosts))
 		for _, host := range hosts {
 			if e.evaluateWhen(task.When, host, task) {
@@ -2026,6 +2030,9 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 				effectiveTask := t
 				effectiveTask.Vars = mergeTaskVars(task.Vars, t.Vars)
 				e.applyRoleTaskDefaults(&effectiveTask, task.Apply)
+				if task.ImportTasks != "" && task.When != nil {
+					effectiveTask.When = mergeConditions(task.When, effectiveTask.When)
+				}
 				if len(effectiveTask.Vars) > 0 {
 					effectiveTask.Vars = e.templateArgs(effectiveTask.Vars, targetHost, &effectiveTask)
 				}
@@ -2053,7 +2060,13 @@ func (e *Executor) runIncludeRole(ctx context.Context, hosts []string, task *Tas
 		if roleRef == nil || roleRef.Role == "" {
 			continue
 		}
-		if err := e.runRole(ctx, []string{host}, roleRef, play); err != nil {
+		inheritedWhen := any(nil)
+		if task.ImportRole != nil {
+			inheritedWhen = roleRef.When
+			roleRef.When = nil
+		}
+
+		if err := e.runRole(ctx, []string{host}, roleRef, play, inheritedWhen); err != nil {
 			return err
 		}
 	}
