@@ -910,6 +910,31 @@ func TestExecutorExtra_HandleLookup_Good_FileGlobLookup(t *testing.T) {
 	}), result)
 }
 
+func TestExecutorExtra_HandleLookup_Good_PasswordLookupReadsExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	passPath := joinPath(dir, "secrets", "app.pass")
+	require.NoError(t, writeTestFile(passPath, []byte("s3cret\n"), 0600))
+
+	e := NewExecutor(dir)
+	result := e.handleLookup("lookup('password', 'secrets/app.pass')", "", nil)
+
+	assert.Equal(t, "s3cret", result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_PasswordLookupCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	passPath := joinPath(dir, "secrets", "generated.pass")
+
+	e := NewExecutor(dir)
+	result := e.handleLookup("lookup('password', 'secrets/generated.pass length=12 chars=digits')", "", nil)
+
+	require.Len(t, result, 12)
+	content, err := readTestFile(passPath)
+	require.NoError(t, err)
+	assert.Equal(t, result, string(content))
+	assert.Len(t, content, 12)
+}
+
 func TestExecutorExtra_RunTaskOnHost_Good_LoopFromFileGlobLookup(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "files", "a.txt"), []byte("alpha"), 0644))

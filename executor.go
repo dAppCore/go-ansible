@@ -2,6 +2,7 @@ package ansible
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -3625,9 +3626,136 @@ func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool)
 		if value, ok := e.lookupConditionValue(arg, host, task, nil); ok {
 			return value, true
 		}
+	case "password":
+		if value, ok := e.lookupPassword(arg); ok {
+			return value, true
+		}
 	}
 
 	return nil, false
+}
+
+func (e *Executor) lookupPassword(arg string) (string, bool) {
+	spec := parsePasswordLookupSpec(arg)
+	if spec.path == "" {
+		return "", false
+	}
+
+	resolvedPath := e.resolveLocalPath(spec.path)
+	if data, err := coreio.Local.Read(resolvedPath); err == nil {
+		return strings.TrimRight(data, "\r\n"), true
+	}
+
+	password, err := generatePassword(spec.length, spec.chars)
+	if err != nil {
+		return "", false
+	}
+
+	if resolvedPath != "/dev/null" {
+		if err := coreio.Local.EnsureDir(pathDir(resolvedPath)); err != nil {
+			return "", false
+		}
+		if err := coreio.Local.Write(resolvedPath, password); err != nil {
+			return "", false
+		}
+	}
+
+	return password, true
+}
+
+type passwordLookupSpec struct {
+	path   string
+	length int
+	chars  string
+}
+
+func parsePasswordLookupSpec(arg string) passwordLookupSpec {
+	spec := passwordLookupSpec{
+		length: 20,
+		chars:  passwordLookupCharset("ascii_letters,digits"),
+	}
+
+	fields := strings.Fields(arg)
+	for _, field := range fields {
+		key, value, ok := strings.Cut(field, "=")
+		if ok {
+			switch lower(strings.TrimSpace(key)) {
+			case "length":
+				if n, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && n > 0 {
+					spec.length = n
+				}
+			case "chars":
+				if chars := passwordLookupCharset(value); chars != "" {
+					spec.chars = chars
+				}
+			}
+			continue
+		}
+
+		if spec.path == "" {
+			spec.path = field
+		}
+	}
+
+	return spec
+}
+
+func passwordLookupCharset(value string) string {
+	if value == "" {
+		return ""
+	}
+
+	var chars strings.Builder
+	seen := make(map[rune]bool)
+	appendChars := func(set string) {
+		for _, r := range set {
+			if seen[r] {
+				continue
+			}
+			seen[r] = true
+			chars.WriteRune(r)
+		}
+	}
+
+	for _, token := range strings.Split(value, ",") {
+		switch lower(strings.TrimSpace(token)) {
+		case "ascii_letters":
+			appendChars("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+		case "ascii_lowercase":
+			appendChars("abcdefghijklmnopqrstuvwxyz")
+		case "ascii_uppercase":
+			appendChars("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+		case "digits":
+			appendChars("0123456789")
+		case "hexdigits":
+			appendChars("0123456789abcdefABCDEF")
+		default:
+			appendChars(token)
+		}
+	}
+
+	return chars.String()
+}
+
+func generatePassword(length int, chars string) (string, error) {
+	if length <= 0 {
+		length = 20
+	}
+	if chars == "" {
+		chars = passwordLookupCharset("ascii_letters,digits")
+	}
+
+	buf := make([]byte, length)
+	if _, err := rand.Read(buf); err != nil {
+		return "", coreerr.E("Executor.lookupPassword", "generate password", err)
+	}
+
+	output := make([]byte, length)
+	for i, b := range buf {
+		output[i] = chars[int(b)%len(chars)]
+	}
+
+	return string(output), nil
 }
 
 // resolveLoop resolves loop items.
