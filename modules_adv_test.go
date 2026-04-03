@@ -1246,6 +1246,52 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortDrained(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`ss -Htan state established`))
 }
 
+func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInterval(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/slow-ready", []byte("ready=false\n"))
+
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		mock.mu.Lock()
+		mock.files["/tmp/slow-ready"] = []byte("ready=true\n")
+		mock.mu.Unlock()
+	}()
+
+	start := time.Now()
+	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
+		"path":         "/tmp/slow-ready",
+		"search_regex": "ready=true",
+		"sleep":        2,
+		"timeout":      3,
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.GreaterOrEqual(t, elapsed, 2*time.Second)
+}
+
+func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInPortLoop(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`timeout 5 bash -c 'until nc -z 127.0.0.1 8080; do sleep 3; done'`, "", "", 0)
+
+	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
+		"host":    "127.0.0.1",
+		"port":    8080,
+		"state":   "started",
+		"timeout": 5,
+		"sleep":   3,
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`sleep 3`))
+}
+
 func TestModulesAdv_ModuleWaitFor_Good_AcceptsStringNumericArgs(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`timeout 0 bash -c 'until ! nc -z 127.0.0.1 8080; do sleep 1; done'`, "", "", 0)

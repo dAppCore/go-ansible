@@ -2888,7 +2888,12 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 	searchRegex := getStringArg(args, "search_regex", "")
 	timeoutMsg := getStringArg(args, "msg", "wait_for timed out")
 	delay := getIntArg(args, "delay", 0)
+	sleep := getIntArg(args, "sleep", 1)
 	timeout := getIntArg(args, "timeout", 300)
+	pollInterval := time.Duration(sleep) * time.Second
+	if pollInterval <= 0 {
+		pollInterval = 250 * time.Millisecond
+	}
 	var compiledRegex *regexp.Regexp
 	if searchRegex != "" {
 		var err error
@@ -2910,7 +2915,7 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 
 	if path != "" {
 		deadline := time.NewTimer(time.Duration(timeout) * time.Second)
-		ticker := time.NewTicker(250 * time.Millisecond)
+		ticker := time.NewTicker(pollInterval)
 		defer deadline.Stop()
 		defer ticker.Stop()
 
@@ -2958,24 +2963,24 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 	if port > 0 {
 		switch state {
 		case "started", "present":
-			cmd := sprintf("timeout %d bash -c 'until nc -z %s %d; do sleep 1; done'",
-				timeout, host, port)
+			cmd := sprintf("timeout %d bash -c 'until nc -z %s %d; do sleep %d; done'",
+				timeout, host, port, sleep)
 			stdout, stderr, rc, err := client.Run(ctx, cmd)
 			if err != nil || rc != 0 {
 				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 			}
 			return &TaskResult{Changed: false}, nil
 		case "stopped", "absent":
-			cmd := sprintf("timeout %d bash -c 'until ! nc -z %s %d; do sleep 1; done'",
-				timeout, host, port)
+			cmd := sprintf("timeout %d bash -c 'until ! nc -z %s %d; do sleep %d; done'",
+				timeout, host, port, sleep)
 			stdout, stderr, rc, err := client.Run(ctx, cmd)
 			if err != nil || rc != 0 {
 				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 			}
 			return &TaskResult{Changed: false}, nil
 		case "drained":
-			cmd := sprintf("timeout %d bash -c 'until ! ss -Htan state established \"( sport = :%d or dport = :%d )\" | grep -q .; do sleep 1; done'",
-				timeout, port, port)
+			cmd := sprintf("timeout %d bash -c 'until ! ss -Htan state established \"( sport = :%d or dport = :%d )\" | grep -q .; do sleep %d; done'",
+				timeout, port, port, sleep)
 			stdout, stderr, rc, err := client.Run(ctx, cmd)
 			if err != nil || rc != 0 {
 				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
