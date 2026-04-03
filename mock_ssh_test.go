@@ -1152,7 +1152,11 @@ func moduleBlockinfileWithClient(_ *Executor, client sshFileRunner, args map[str
 			replaceAll(endMarker, "/", "\\/"),
 			path)
 		_, _, _, _ = client.Run(context.Background(), cmd)
-		return &TaskResult{Changed: true}, nil
+		result := &TaskResult{Changed: true}
+		if backupPath != "" {
+			result.Data = map[string]any{"backup_file": backupPath}
+		}
+		return result, nil
 	}
 
 	// Create file if needed (best-effort)

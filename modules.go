@@ -3565,8 +3565,22 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClie
 			replaceAll(beginMarker, "/", "\\/"),
 			replaceAll(endMarker, "/", "\\/"),
 			path)
-		_, _, _, _ = client.Run(ctx, cmd)
-		return &TaskResult{Changed: true}, nil
+		stdout, stderr, rc, err := client.Run(ctx, cmd)
+		if err != nil || rc != 0 {
+			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		}
+
+		result := &TaskResult{Changed: true}
+		if backupPath != "" {
+			result.Data = map[string]any{"backup_file": backupPath}
+		}
+		if e.Diff {
+			if after, ok := remoteFileText(ctx, client, path); ok && before != after {
+				result.Data = ensureTaskResultData(result.Data)
+				result.Data["diff"] = fileDiffData(path, before, after)
+			}
+		}
+		return result, nil
 	}
 
 	// Create file if needed (best-effort)

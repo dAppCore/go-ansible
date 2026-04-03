@@ -1045,6 +1045,29 @@ func TestModulesFile_ModuleBlockinfile_Good_RemoveBlock(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`sed -i '/.*BEGIN ANSIBLE MANAGED BLOCK/,/.*END ANSIBLE MANAGED BLOCK/d'`))
 }
 
+func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithBackup(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/config", []byte("before\n# BEGIN ANSIBLE MANAGED BLOCK\nmanaged\n# END ANSIBLE MANAGED BLOCK\nafter\n"))
+
+	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
+		"path":   "/etc/config",
+		"state":  "absent",
+		"backup": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/config.")
+
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("before\n# BEGIN ANSIBLE MANAGED BLOCK\nmanaged\n# END ANSIBLE MANAGED BLOCK\nafter\n"), backupContent)
+}
+
 func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithCustomMarkerBeginAndEnd(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
