@@ -1388,6 +1388,7 @@ func (e *Executor) moduleSystemd(ctx context.Context, client sshExecutorClient, 
 func (e *Executor) moduleUser(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
 	name := getStringArg(args, "name", "")
 	state := getStringArg(args, "state", "present")
+	appendGroups := getBoolArg(args, "append", false)
 
 	if name == "" {
 		return nil, coreerr.E("Executor.moduleUser", "name required", nil)
@@ -1400,38 +1401,50 @@ func (e *Executor) moduleUser(ctx context.Context, client sshExecutorClient, arg
 	}
 
 	// Build useradd/usermod command
-	var opts []string
+	var addOpts []string
+	var modOpts []string
 
 	if uid := getStringArg(args, "uid", ""); uid != "" {
-		opts = append(opts, "-u", uid)
+		addOpts = append(addOpts, "-u", uid)
+		modOpts = append(modOpts, "-u", uid)
 	}
 	if group := getStringArg(args, "group", ""); group != "" {
-		opts = append(opts, "-g", group)
+		addOpts = append(addOpts, "-g", group)
+		modOpts = append(modOpts, "-g", group)
 	}
 	if groups := normalizeStringArgs(args["groups"]); len(groups) > 0 {
-		opts = append(opts, "-G", join(",", groups))
+		addOpts = append(addOpts, "-G", join(",", groups))
+		if appendGroups {
+			modOpts = append(modOpts, "-a")
+		}
+		modOpts = append(modOpts, "-G", join(",", groups))
 	}
 	if home := getStringArg(args, "home", ""); home != "" {
-		opts = append(opts, "-d", home)
+		addOpts = append(addOpts, "-d", home)
+		modOpts = append(modOpts, "-d", home)
 	}
 	if shell := getStringArg(args, "shell", ""); shell != "" {
-		opts = append(opts, "-s", shell)
+		addOpts = append(addOpts, "-s", shell)
+		modOpts = append(modOpts, "-s", shell)
 	}
 	if getBoolArg(args, "system", false) {
-		opts = append(opts, "-r")
+		addOpts = append(addOpts, "-r")
+		modOpts = append(modOpts, "-r")
 	}
 	if getBoolArg(args, "create_home", true) {
-		opts = append(opts, "-m")
+		addOpts = append(addOpts, "-m")
+		modOpts = append(modOpts, "-m")
 	}
 
 	// Try usermod first, then useradd
-	optsStr := join(" ", opts)
+	addOptsStr := join(" ", addOpts)
+	modOptsStr := join(" ", modOpts)
 	var cmd string
-	if optsStr == "" {
+	if addOptsStr == "" {
 		cmd = sprintf("id %s >/dev/null 2>&1 || useradd %s", name, name)
 	} else {
 		cmd = sprintf("id %s >/dev/null 2>&1 && usermod %s %s || useradd %s %s",
-			name, optsStr, name, optsStr, name)
+			name, modOptsStr, name, addOptsStr, name)
 	}
 
 	stdout, stderr, rc, err := client.Run(ctx, cmd)

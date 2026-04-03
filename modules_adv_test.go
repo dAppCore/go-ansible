@@ -77,6 +77,24 @@ func TestModulesAdv_ModuleUser_Good_GroupListInput(t *testing.T) {
 	assert.True(t, mock.containsSubstring("-G docker,sudo"))
 }
 
+func TestModulesAdv_ModuleUser_Good_AppendSupplementaryGroups(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`id deploy >/dev/null 2>&1 && usermod -a -G docker,sudo deploy \|\| useradd -G docker,sudo deploy`, "", "", 0)
+
+	result, err := e.moduleUser(context.Background(), mock, map[string]any{
+		"name":        "deploy",
+		"groups":      []any{"docker", "sudo"},
+		"append":      true,
+		"create_home": false,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`usermod -a -G docker,sudo deploy`))
+	assert.True(t, mock.hasExecuted(`useradd -G docker,sudo deploy`))
+}
+
 func TestModulesAdv_ModuleUser_Good_RemoveUser(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`userdel -r deploy`, "", "", 0)
