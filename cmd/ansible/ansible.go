@@ -253,6 +253,22 @@ func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbook
 	}, nil
 }
 
+func diffOutputLines(diff map[string]any) []string {
+	lines := []string{"diff:"}
+
+	if path, ok := diff["path"].(string); ok && path != "" {
+		lines = append(lines, sprintf("path: %s", path))
+	}
+	if before, ok := diff["before"].(string); ok && before != "" {
+		lines = append(lines, sprintf("- %s", before))
+	}
+	if after, ok := diff["after"].(string); ok && after != "" {
+		lines = append(lines, sprintf("+ %s", after))
+	}
+
+	return lines
+}
+
 func runPlaybookCommand(opts core.Options) core.Result {
 	settings, err := buildPlaybookCommandSettings(opts, os.Args[1:])
 	if err != nil {
@@ -348,12 +364,8 @@ func runPlaybookCommand(opts core.Options) core.Result {
 
 		if executor.Diff {
 			if diff, ok := result.Data["diff"].(map[string]any); ok {
-				print("diff:")
-				if before, ok := diff["before"].(string); ok && before != "" {
-					print("- %s", before)
-				}
-				if after, ok := diff["after"].(string); ok && after != "" {
-					print("+ %s", after)
+				for _, line := range diffOutputLines(diff) {
+					print("%s", line)
 				}
 			}
 		}

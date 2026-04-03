@@ -194,6 +194,21 @@ func TestBuildPlaybookCommandSettings_Bad_MissingPlaybook(t *testing.T) {
 	assert.Contains(t, err.Error(), "usage: ansible <playbook>")
 }
 
+func TestDiffOutputLines_Good_IncludesPathAndBeforeAfter(t *testing.T) {
+	lines := diffOutputLines(map[string]any{
+		"path":   "/etc/nginx/conf.d/app.conf",
+		"before": "server_name=old.example.com;",
+		"after":  "server_name=web01.example.com;",
+	})
+
+	assert.Equal(t, []string{
+		"diff:",
+		"path: /etc/nginx/conf.d/app.conf",
+		"- server_name=old.example.com;",
+		"+ server_name=web01.example.com;",
+	}, lines)
+}
+
 func TestTestKeyFile_Good_PrefersExplicitKey(t *testing.T) {
 	opts := core.NewOptions(
 		core.Option{Key: "key", Value: "/tmp/id_ed25519"},
