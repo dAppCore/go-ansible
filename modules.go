@@ -1402,6 +1402,7 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 	}
 
 	force := getBoolArg(args, "force", true)
+	useProxy := getBoolArg(args, "use_proxy", true)
 	checksumSpec := corexTrimSpace(getStringArg(args, "checksum", ""))
 
 	if !force {
@@ -1416,6 +1417,9 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 
 	// Stream to stdout so we can validate checksums before writing the file.
 	cmd := sprintf("curl -fsSL %q || wget -q -O - %q", url, url)
+	if !useProxy {
+		cmd = sprintf("curl --noproxy %s -fsSL %q || wget --no-proxy -q -O - %q", shellQuote("*"), url, url)
+	}
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
@@ -2031,6 +2035,7 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	urlUsername := getStringArg(args, "url_username", "")
 	urlPassword := getStringArg(args, "url_password", "")
 	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
+	useProxy := getBoolArg(args, "use_proxy", true)
 	unixSocket := getStringArg(args, "unix_socket", "")
 	followRedirects := lower(getStringArg(args, "follow_redirects", "safe"))
 	src := getStringArg(args, "src", "")
@@ -2056,6 +2061,9 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 
 	if unixSocket != "" {
 		curlOpts = append(curlOpts, "--unix-socket", shellQuote(unixSocket))
+	}
+	if !useProxy {
+		curlOpts = append(curlOpts, "--noproxy", shellQuote("*"))
 	}
 
 	// Headers

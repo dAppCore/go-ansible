@@ -2010,6 +2010,7 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	urlUsername := getStringArg(args, "url_username", "")
 	urlPassword := getStringArg(args, "url_password", "")
 	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
+	useProxy := getBoolArg(args, "use_proxy", true)
 	unixSocket := getStringArg(args, "unix_socket", "")
 	followRedirects := lower(getStringArg(args, "follow_redirects", "safe"))
 	src := getStringArg(args, "src", "")
@@ -2033,6 +2034,9 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 
 	if unixSocket != "" {
 		curlOpts = append(curlOpts, "--unix-socket", shellQuote(unixSocket))
+	}
+	if !useProxy {
+		curlOpts = append(curlOpts, "--noproxy", shellQuote("*"))
 	}
 
 	// Headers
@@ -2090,6 +2094,9 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	curlOpts = append(curlOpts, "-w", "\\n%{http_code}")
 
 	cmd := sprintf("curl %s %q", joinStrings(curlOpts, " "), url)
+	if !useProxy {
+		cmd = sprintf("curl %s %q || wget --no-proxy -q -O - %q", joinStrings(curlOpts, " "), url, url)
+	}
 	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
 	if err != nil {
 		return &TaskResult{Failed: true, Msg: err.Error()}, nil

@@ -1689,6 +1689,21 @@ func TestModulesAdv_ModuleURI_Good_UsesUnixSocket(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`--unix-socket '/var/run/docker.sock'`))
 }
 
+func TestModulesAdv_ModuleURI_Good_DisablesProxyUsage(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*https://example.com/api/health`, "OK\n200", "", 0)
+
+	result, err := moduleURIWithClient(e, mock, map[string]any{
+		"url":       "https://example.com/api/health",
+		"use_proxy": false,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, 200, result.RC)
+	assert.True(t, mock.hasExecuted(`--noproxy`))
+}
+
 func TestModulesAdv_ModuleURI_Good_UsesSourceFileBody(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	require.NoError(t, mock.Upload(context.Background(), newReader("alpha=1&beta=2"), "/tmp/request-body.txt", 0644))

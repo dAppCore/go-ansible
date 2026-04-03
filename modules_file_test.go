@@ -996,6 +996,23 @@ func TestModulesFile_ModuleBlockinfile_Good_CustomMarkers(t *testing.T) {
 	assert.True(t, mock.hasExecutedMethod("RunScript", "# END managed by devops"))
 }
 
+func TestModulesFile_ModuleBlockinfile_Good_CustomMarkerBeginAndEnd(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleBlockinfile(context.Background(), mock, map[string]any{
+		"path":         "/etc/app.conf",
+		"block":        "setting=value",
+		"marker":       "# {mark} managed by app",
+		"marker_begin": "START",
+		"marker_end":   "STOP",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecutedMethod("RunScript", "# START managed by app"))
+	assert.True(t, mock.hasExecutedMethod("RunScript", "# STOP managed by app"))
+}
+
 func TestModulesFile_ModuleBlockinfile_Good_NewlinePadding(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -1026,6 +1043,22 @@ func TestModulesFile_ModuleBlockinfile_Good_RemoveBlock(t *testing.T) {
 
 	// Should use sed to remove the block between markers
 	assert.True(t, mock.hasExecuted(`sed -i '/.*BEGIN ANSIBLE MANAGED BLOCK/,/.*END ANSIBLE MANAGED BLOCK/d'`))
+}
+
+func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithCustomMarkerBeginAndEnd(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleBlockinfile(context.Background(), mock, map[string]any{
+		"path":         "/etc/app.conf",
+		"state":        "absent",
+		"marker":       "# {mark} managed by app",
+		"marker_begin": "START",
+		"marker_end":   "STOP",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`sed -i '/.*START managed by app/,/.*STOP managed by app/d'`))
 }
 
 func TestModulesFile_ModuleBlockinfile_Good_CreateFile(t *testing.T) {
@@ -1690,6 +1723,22 @@ func TestModulesFile_ModuleGetURL_Good_ForceFalseSkipsExistingDestination(t *tes
 	assert.Equal(t, "skipped existing destination: /tmp/app.tgz", result.Msg)
 	assert.Equal(t, 0, mock.commandCount())
 	assert.Equal(t, 0, mock.uploadCount())
+}
+
+func TestModulesFile_ModuleGetURL_Good_DisablesProxyUsage(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, "downloaded artifact", "", 0)
+
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":       "https://downloads.example.com/app.tgz",
+		"dest":      "/tmp/app.tgz",
+		"use_proxy": false,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`--noproxy`))
+	assert.True(t, mock.hasExecuted(`wget --no-proxy`))
 }
 
 func TestModulesFile_ModuleGetURL_Bad_ChecksumMismatch(t *testing.T) {
