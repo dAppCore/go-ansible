@@ -1432,13 +1432,18 @@ func moduleUserWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 	name := getStringArg(args, "name", "")
 	state := getStringArg(args, "state", "present")
 	appendGroups := getBoolArg(args, "append", false)
+	local := getBoolArg(args, "local", false)
 
 	if name == "" {
 		return nil, mockError("moduleUserWithClient", "user: name required")
 	}
 
 	if state == "absent" {
-		cmd := sprintf("userdel -r %s 2>/dev/null || true", name)
+		delCmd := "userdel"
+		if local {
+			delCmd = "luserdel"
+		}
+		cmd := sprintf("%s -r %s 2>/dev/null || true", delCmd, name)
 		_, _, _, _ = client.Run(context.Background(), cmd)
 		return &TaskResult{Changed: true}, nil
 	}
@@ -1482,12 +1487,18 @@ func moduleUserWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 	// Try usermod first, then useradd
 	addOptsStr := joinStrings(addOpts, " ")
 	modOptsStr := joinStrings(modOpts, " ")
+	addCmd := "useradd"
+	modCmd := "usermod"
+	if local {
+		addCmd = "luseradd"
+		modCmd = "lusermod"
+	}
 	var cmd string
 	if addOptsStr == "" {
-		cmd = sprintf("id %s >/dev/null 2>&1 || useradd %s", name, name)
+		cmd = sprintf("id %s >/dev/null 2>&1 || %s %s", name, addCmd, name)
 	} else {
-		cmd = sprintf("id %s >/dev/null 2>&1 && usermod %s %s || useradd %s %s",
-			name, modOptsStr, name, addOptsStr, name)
+		cmd = sprintf("id %s >/dev/null 2>&1 && %s %s %s || %s %s %s",
+			name, modCmd, modOptsStr, name, addCmd, addOptsStr, name)
 	}
 
 	stdout, stderr, rc, err := client.Run(context.Background(), cmd)

@@ -148,6 +148,43 @@ func TestModulesAdv_ModuleUser_Good_NoOptsUsesSimpleForm(t *testing.T) {
 	assert.False(t, result.Failed)
 }
 
+func TestModulesAdv_ModuleUser_Good_LocalModeUsesLocalCommands(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`id localuser >/dev/null 2>&1 && lusermod`, "", "", 0)
+
+	result, err := moduleUserWithClient(e, mock, map[string]any{
+		"name":   "localuser",
+		"local":  true,
+		"shell":  "/bin/zsh",
+		"home":   "/var/lib/localuser",
+		"append": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.containsSubstring("lusermod"))
+	assert.True(t, mock.containsSubstring("luseradd"))
+	assert.True(t, mock.containsSubstring("-s /bin/zsh"))
+	assert.True(t, mock.containsSubstring("-d /var/lib/localuser"))
+}
+
+func TestModulesAdv_ModuleUser_Good_LocalModeRemovesLocalUser(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`luserdel -r localuser`, "", "", 0)
+
+	result, err := moduleUserWithClient(e, mock, map[string]any{
+		"name":  "localuser",
+		"local": true,
+		"state": "absent",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`luserdel -r localuser`))
+}
+
 func TestModulesAdv_ModuleUser_Bad_MissingName(t *testing.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
