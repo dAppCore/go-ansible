@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -1452,6 +1453,15 @@ func verifyGetURLChecksum(content []byte, checksumSpec string) error {
 		actual = hex.EncodeToString(sum[:])
 	case "sha1":
 		sum := sha1.Sum(content)
+		actual = hex.EncodeToString(sum[:])
+	case "sha224":
+		sum := sha256.Sum224(content)
+		actual = hex.EncodeToString(sum[:])
+	case "sha384":
+		sum := sha512.Sum384(content)
+		actual = hex.EncodeToString(sum[:])
+	case "sha512":
+		sum := sha512.Sum512(content)
 		actual = hex.EncodeToString(sum[:])
 	default:
 		return coreerr.E("Executor.moduleGetURL", "unsupported checksum algorithm: "+algorithm, nil)

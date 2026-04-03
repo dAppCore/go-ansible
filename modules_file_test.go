@@ -3,6 +3,7 @@ package ansible
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"io"
 	"io/fs"
@@ -1625,6 +1626,28 @@ func TestModulesFile_ModuleGetURL_Good_Checksum(t *testing.T) {
 	assert.Equal(t, "/tmp/app.tgz", up.Remote)
 	assert.Equal(t, []byte(payload), up.Content)
 	assert.Equal(t, fs.FileMode(0600), up.Mode)
+}
+
+func TestModulesFile_ModuleGetURL_Good_Sha512Checksum(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	payload := "downloaded artifact"
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, payload, "", 0)
+
+	sum := sha512.Sum512([]byte(payload))
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":      "https://downloads.example.com/app.tgz",
+		"dest":     "/tmp/app.tgz",
+		"checksum": "sha512:" + hex.EncodeToString(sum[:]),
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, 1, mock.uploadCount())
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Equal(t, "/tmp/app.tgz", up.Remote)
+	assert.Equal(t, []byte(payload), up.Content)
 }
 
 func TestModulesFile_ModuleGetURL_Bad_ChecksumMismatch(t *testing.T) {
