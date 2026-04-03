@@ -3329,6 +3329,7 @@ func (e *Executor) moduleReboot(ctx context.Context, client sshExecutorClient, a
 	postRebootDelay := getIntArg(args, "post_reboot_delay", 0)
 	rebootTimeout := getIntArg(args, "reboot_timeout", 600)
 	testCommand := getStringArg(args, "test_command", "whoami")
+	rebootCommand := getStringArg(args, "reboot_command", "")
 
 	msg := getStringArg(args, "msg", "Reboot initiated by Ansible")
 	runReboot := func(cmd string) (*TaskResult, error) {
@@ -3343,7 +3344,17 @@ func (e *Executor) moduleReboot(ctx context.Context, client sshExecutorClient, a
 		return nil, nil
 	}
 
-	if preRebootDelay > 0 {
+	if rebootCommand != "" {
+		if preRebootDelay > 0 {
+			if result, err := runReboot(sprintf("sleep %d && %s", preRebootDelay, rebootCommand)); err != nil || result != nil {
+				return result, err
+			}
+		} else {
+			if result, err := runReboot(rebootCommand); err != nil || result != nil {
+				return result, err
+			}
+		}
+	} else if preRebootDelay > 0 {
 		cmd := sprintf("sleep %d && shutdown -r now '%s' &", preRebootDelay, msg)
 		if result, err := runReboot(cmd); err != nil || result != nil {
 			return result, err

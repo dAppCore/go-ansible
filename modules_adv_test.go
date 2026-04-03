@@ -2040,6 +2040,25 @@ func TestModulesAdv_ModuleReboot_Good_WaitsForTestCommand(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`whoami`))
 }
 
+func TestModulesAdv_ModuleReboot_Good_CustomRebootCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`sleep 1 && /sbin/reboot`, "", "", 0)
+	mock.expectCommand(`whoami`, "root\n", "", 0)
+
+	result, err := e.moduleReboot(context.Background(), mock, map[string]any{
+		"reboot_command":   "/sbin/reboot",
+		"pre_reboot_delay": 1,
+		"reboot_timeout":   5,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "Reboot initiated", result.Msg)
+	assert.Equal(t, 2, mock.commandCount())
+	assert.True(t, mock.hasExecuted(`sleep 1 && /sbin/reboot`))
+	assert.True(t, mock.hasExecuted(`whoami`))
+}
+
 func TestModulesAdv_ModuleReboot_Bad_TimesOutWaitingForTestCommand(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`shutdown -r now 'Reboot initiated by Ansible' &`, "", "", 0)
