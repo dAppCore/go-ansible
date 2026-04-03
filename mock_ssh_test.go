@@ -860,7 +860,7 @@ func moduleFileWithClient(_ *Executor, client sshFileRunner, args map[string]any
 	return &TaskResult{Changed: true}, nil
 }
 
-func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
+func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
 	path := getStringArg(args, "path", "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
@@ -868,6 +868,8 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 	if path == "" {
 		return nil, mockError("moduleLineinfileWithClient", "lineinfile: path required")
 	}
+
+	before, _ := mockRemoteFileText(client, path)
 
 	line := getStringArg(args, "line", "")
 	regexpArg := getStringArg(args, "regexp", "")
@@ -927,7 +929,19 @@ func moduleLineinfileWithClient(_ *Executor, client sshRunner, args map[string]a
 		}
 	}
 
-	return &TaskResult{Changed: true}, nil
+	result := &TaskResult{Changed: true}
+	if after, ok := mockRemoteFileText(client, path); ok && before != after {
+		if result.Data == nil {
+			result.Data = make(map[string]any)
+		}
+		result.Data["diff"] = map[string]any{
+			"path":   path,
+			"before": before,
+			"after":  after,
+		}
+	}
+
+	return result, nil
 }
 
 func moduleBlockinfileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
@@ -938,6 +952,8 @@ func moduleBlockinfileWithClient(_ *Executor, client sshFileRunner, args map[str
 	if path == "" {
 		return nil, mockError("moduleBlockinfileWithClient", "blockinfile: path required")
 	}
+
+	before, _ := mockRemoteFileText(client, path)
 
 	block := getStringArg(args, "block", "")
 	marker := getStringArg(args, "marker", "# {mark} ANSIBLE MANAGED BLOCK")
@@ -1002,6 +1018,16 @@ BLOCK_EOF
 	result := &TaskResult{Changed: true}
 	if backupPath != "" {
 		result.Data = map[string]any{"backup_file": backupPath}
+	}
+	if after, ok := mockRemoteFileText(client, path); ok && before != after {
+		if result.Data == nil {
+			result.Data = make(map[string]any)
+		}
+		result.Data["diff"] = map[string]any{
+			"path":   path,
+			"before": before,
+			"after":  after,
+		}
 	}
 
 	return result, nil

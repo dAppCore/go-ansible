@@ -2,13 +2,142 @@ package ansible
 
 import (
 	"context"
+	"io"
 	"io/fs"
 	"regexp"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type diffFileClient struct {
+	mu    sync.Mutex
+	files map[string]string
+}
+
+func newDiffFileClient(initial map[string]string) *diffFileClient {
+	files := make(map[string]string, len(initial))
+	for path, content := range initial {
+		files[path] = content
+	}
+	return &diffFileClient{files: files}
+}
+
+func (c *diffFileClient) Run(_ context.Context, cmd string) (string, string, int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if strings.Contains(cmd, `|| echo `) && strings.Contains(cmd, `grep -qxF `) {
+		re := regexp.MustCompile(`grep -qxF "([^"]*)" "([^"]*)" \|\| echo "([^"]*)" >> "([^"]*)"`)
+		match := re.FindStringSubmatch(cmd)
+		if len(match) == 5 {
+			line := match[3]
+			path := match[4]
+			if c.files[path] == "" {
+				c.files[path] = line + "\n"
+			} else if !strings.Contains(c.files[path], line+"\n") && c.files[path] != line {
+				if !strings.HasSuffix(c.files[path], "\n") {
+					c.files[path] += "\n"
+				}
+				c.files[path] += line + "\n"
+			}
+		}
+	}
+
+	if strings.Contains(cmd, `sed -i '/`) && strings.Contains(cmd, `/d' `) {
+		re := regexp.MustCompile(`sed -i '/([^']*)/d' "([^"]*)"`)
+		match := re.FindStringSubmatch(cmd)
+		if len(match) == 3 {
+			pattern := match[1]
+			path := match[2]
+			lines := strings.Split(c.files[path], "\n")
+			out := make([]string, 0, len(lines))
+			for _, line := range lines {
+				if line == "" {
+					continue
+				}
+				if strings.Contains(line, pattern) {
+					continue
+				}
+				out = append(out, line)
+			}
+			if len(out) > 0 {
+				c.files[path] = strings.Join(out, "\n") + "\n"
+			} else {
+				c.files[path] = ""
+			}
+		}
+	}
+
+	return "", "", 0, nil
+}
+
+func (c *diffFileClient) RunScript(_ context.Context, script string) (string, string, int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	re := regexp.MustCompile("(?s)cat >> \"([^\"]+)\" << 'BLOCK_EOF'\\n(.*)\\nBLOCK_EOF")
+	match := re.FindStringSubmatch(script)
+	if len(match) == 3 {
+		path := match[1]
+		block := match[2]
+		c.files[path] = block + "\n"
+	}
+
+	return "", "", 0, nil
+}
+
+func (c *diffFileClient) Upload(_ context.Context, local io.Reader, remote string, _ fs.FileMode) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	content, err := io.ReadAll(local)
+	if err != nil {
+		return err
+	}
+	c.files[remote] = string(content)
+	return nil
+}
+
+func (c *diffFileClient) Download(_ context.Context, remote string) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	content, ok := c.files[remote]
+	if !ok {
+		return nil, mockError("diffFileClient.Download", "file not found: "+remote)
+	}
+	return []byte(content), nil
+}
+
+func (c *diffFileClient) Stat(_ context.Context, path string) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, ok := c.files[path]; ok {
+		return map[string]any{"exists": true}, nil
+	}
+	return map[string]any{"exists": false}, nil
+}
+
+func (c *diffFileClient) FileExists(_ context.Context, path string) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	_, ok := c.files[path]
+	return ok, nil
+}
+
+func (c *diffFileClient) BecomeState() (bool, string, string) {
+	return false, "", ""
+}
+
+func (c *diffFileClient) SetBecome(bool, string, string) {}
+
+func (c *diffFileClient) Close() error { return nil }
 
 // ============================================================
 // Step 1.2: copy / template / file / lineinfile / blockinfile / stat module tests
@@ -636,6 +765,30 @@ func TestModulesFile_ModuleLineinfile_Good_ExactLineAlreadyPresentIsNoOp(t *test
 	assert.Equal(t, 0, mock.commandCount())
 }
 
+func TestModulesFile_ModuleLineinfile_Good_DiffData(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Diff = true
+
+	client := newDiffFileClient(map[string]string{
+		"/etc/example.conf": "setting=old\n",
+	})
+
+	result, err := e.moduleLineinfile(context.Background(), client, map[string]any{
+		"path": "/etc/example.conf",
+		"line": "setting=new",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	diff, ok := result.Data["diff"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "/etc/example.conf", diff["path"])
+	assert.Equal(t, "setting=old\n", diff["before"])
+	assert.Contains(t, diff["after"], "setting=new")
+}
+
 // --- blockinfile module ---
 
 func TestModulesFile_ModuleBlockinfile_Good_InsertBlock(t *testing.T) {
@@ -742,6 +895,30 @@ func TestModulesFile_ModuleBlockinfile_Good_BackupExistingDest(t *testing.T) {
 	backupContent, err := mock.Download(context.Background(), backupPath)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("old block contents"), backupContent)
+}
+
+func TestModulesFile_ModuleBlockinfile_Good_DiffData(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Diff = true
+
+	client := newDiffFileClient(map[string]string{
+		"/etc/config": "old block contents\n",
+	})
+
+	result, err := e.moduleBlockinfile(context.Background(), client, map[string]any{
+		"path":  "/etc/config",
+		"block": "new block contents",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	diff, ok := result.Data["diff"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "/etc/config", diff["path"])
+	assert.Equal(t, "old block contents\n", diff["before"])
+	assert.Contains(t, diff["after"], "new block contents")
 }
 
 func TestModulesFile_ModuleBlockinfile_Bad_MissingPath(t *testing.T) {

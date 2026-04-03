@@ -741,6 +741,8 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 		return nil, coreerr.E("Executor.moduleLineinfile", "path required", nil)
 	}
 
+	before, hasBefore := remoteFileText(ctx, client, path)
+
 	line := getStringArg(args, "line", "")
 	regexp := getStringArg(args, "regexp", "")
 	state := getStringArg(args, "state", "present")
@@ -751,7 +753,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	firstMatch := getBoolArg(args, "firstmatch", false)
 
 	if state != "absent" && line != "" && regexp == "" && insertBefore == "" && insertAfter == "" {
-		if content, ok := remoteFileText(ctx, client, path); ok && fileContainsExactLine(content, line) {
+		if hasBefore && fileContainsExactLine(before, line) {
 			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
 		}
 	}
@@ -817,7 +819,14 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 		}
 	}
 
-	return &TaskResult{Changed: true}, nil
+	result := &TaskResult{Changed: true}
+	if e.Diff {
+		if after, ok := remoteFileText(ctx, client, path); ok && before != after {
+			result.Data = map[string]any{"diff": fileDiffData(path, before, after)}
+		}
+	}
+
+	return result, nil
 }
 
 func fileContainsExactLine(content, line string) bool {
@@ -2614,6 +2623,8 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClie
 		return nil, coreerr.E("Executor.moduleBlockinfile", "path required", nil)
 	}
 
+	before, _ := remoteFileText(ctx, client, path)
+
 	block := getStringArg(args, "block", "")
 	marker := getStringArg(args, "marker", "# {mark} ANSIBLE MANAGED BLOCK")
 	state := getStringArg(args, "state", "present")
@@ -2675,6 +2686,14 @@ BLOCK_EOF
 	result := &TaskResult{Changed: true}
 	if backupPath != "" {
 		result.Data = map[string]any{"backup_file": backupPath}
+	}
+	if e.Diff {
+		if after, ok := remoteFileText(ctx, client, path); ok && before != after {
+			if result.Data == nil {
+				result.Data = make(map[string]any)
+			}
+			result.Data["diff"] = fileDiffData(path, before, after)
+		}
 	}
 
 	return result, nil
