@@ -947,6 +947,19 @@ func TestExecutorExtra_HandleLookup_Good_PasswordLookupCreatesFile(t *testing.T)
 	assert.Len(t, content, 12)
 }
 
+func TestExecutorExtra_HandleLookup_Good_PasswordLookupHonoursSeed(t *testing.T) {
+	dir := t.TempDir()
+	e := NewExecutor(dir)
+
+	first := e.handleLookup("lookup('password', '/dev/null length=16 chars=ascii_lowercase seed=inventory_hostname')", "host1", nil)
+	second := e.handleLookup("lookup('password', '/dev/null length=16 chars=ascii_lowercase seed=inventory_hostname')", "host1", nil)
+	other := e.handleLookup("lookup('password', '/dev/null length=16 chars=ascii_lowercase seed=inventory_hostname')", "host2", nil)
+
+	assert.Len(t, first, 16)
+	assert.Equal(t, first, second)
+	assert.NotEqual(t, first, other)
+}
+
 func TestExecutorExtra_HandleLookup_Good_FirstFoundLookupReturnsFirstExistingPath(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "defaults", "common.yml"), []byte("common: true\n"), 0644))

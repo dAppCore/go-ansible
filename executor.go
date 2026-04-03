@@ -3,11 +3,14 @@ package ansible
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"io"
 	"io/fs"
 	"maps"
+	mathrand "math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -3628,7 +3631,7 @@ func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool)
 			return value, true
 		}
 	case "password":
-		if value, ok := e.lookupPassword(arg); ok {
+		if value, ok := e.lookupPassword(arg, host, task); ok {
 			return value, true
 		}
 	case "first_found":
@@ -3746,18 +3749,22 @@ func firstFoundTerms(value any) ([]string, []string) {
 	}
 }
 
-func (e *Executor) lookupPassword(arg string) (string, bool) {
+func (e *Executor) lookupPassword(arg string, host string, task *Task) (string, bool) {
 	spec := parsePasswordLookupSpec(arg)
+	spec.path = e.resolveLookupPasswordValue(spec.path, host, task)
+	spec.seed = e.resolveLookupPasswordValue(spec.seed, host, task)
 	if spec.path == "" {
 		return "", false
 	}
 
 	resolvedPath := e.resolveLocalPath(spec.path)
-	if data, err := coreio.Local.Read(resolvedPath); err == nil {
-		return strings.TrimRight(data, "\r\n"), true
+	if resolvedPath != "/dev/null" {
+		if data, err := coreio.Local.Read(resolvedPath); err == nil {
+			return strings.TrimRight(data, "\r\n"), true
+		}
 	}
 
-	password, err := generatePassword(spec.length, spec.chars)
+	password, err := generatePassword(spec.length, spec.chars, spec.seed)
 	if err != nil {
 		return "", false
 	}
@@ -3774,10 +3781,28 @@ func (e *Executor) lookupPassword(arg string) (string, bool) {
 	return password, true
 }
 
+func (e *Executor) resolveLookupPasswordValue(value string, host string, task *Task) string {
+	value = corexTrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	if resolved, ok := e.lookupConditionValue(value, host, task, nil); ok {
+		return sprintf("%v", resolved)
+	}
+
+	if strings.Contains(value, "{{") {
+		return e.templateString(value, host, task)
+	}
+
+	return value
+}
+
 type passwordLookupSpec struct {
 	path   string
 	length int
 	chars  string
+	seed   string
 }
 
 func parsePasswordLookupSpec(arg string) passwordLookupSpec {
@@ -3799,6 +3824,8 @@ func parsePasswordLookupSpec(arg string) passwordLookupSpec {
 				if chars := passwordLookupCharset(value); chars != "" {
 					spec.chars = chars
 				}
+			case "seed":
+				spec.seed = value
 			}
 			continue
 		}
@@ -3848,12 +3875,23 @@ func passwordLookupCharset(value string) string {
 	return chars.String()
 }
 
-func generatePassword(length int, chars string) (string, error) {
+func generatePassword(length int, chars, seed string) (string, error) {
 	if length <= 0 {
 		length = 20
 	}
 	if chars == "" {
 		chars = passwordLookupCharset("ascii_letters,digits")
+	}
+
+	if seed != "" {
+		sum := sha256.Sum256([]byte(seed))
+		seedValue := int64(binary.LittleEndian.Uint64(sum[:8]))
+		r := mathrand.New(mathrand.NewSource(seedValue))
+		buf := make([]byte, length)
+		for i := range buf {
+			buf[i] = chars[r.Intn(len(chars))]
+		}
+		return string(buf), nil
 	}
 
 	buf := make([]byte, length)
