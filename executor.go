@@ -442,6 +442,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 	e.vars["ansible_play_name"] = play.Name
 	e.vars["ansible_play_hosts_all"] = append([]string(nil), hosts...)
 	e.vars["ansible_play_hosts"] = append([]string(nil), hosts...)
+	e.vars["ansible_limit"] = e.Limit
 
 	// Merge play vars
 	if err := e.loadPlayVarsFiles(play); err != nil {

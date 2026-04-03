@@ -814,6 +814,43 @@ func TestExecutorExtra_RunPlay_Good_ExposesPlayMagicVars(t *testing.T) {
 	assert.Equal(t, "Inspect play magic vars|[host1 host2]|[host1 host2]|[host2]", e.results["host2"]["magic_vars"].Msg)
 }
 
+func TestExecutorExtra_RunPlay_Good_ExposesLimitMagicVar(t *testing.T) {
+	gatherFacts := false
+	e := NewExecutor(t.TempDir())
+	e.Limit = "host1"
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+				"host2": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	play := &Play{
+		Name:        "Inspect limit magic var",
+		Hosts:       "all",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:   "Inspect limit magic var",
+				Module: "debug",
+				Args: map[string]any{
+					"msg": "{{ ansible_limit }}",
+				},
+				Register: "limit_var",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["host1"]["limit_var"])
+	assert.Equal(t, "host1", e.results["host1"]["limit_var"].Msg)
+	assert.Nil(t, e.results["host2"])
+}
+
 // ============================================================
 // Tests for handleLookup (0% coverage)
 // ============================================================
