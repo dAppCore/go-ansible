@@ -74,6 +74,33 @@ func TestExecutor_SetInventoryDirect_Good(t *testing.T) {
 	assert.Equal(t, inv, e.inventory)
 }
 
+func TestExecutor_Run_Good_UsesCachedClient(t *testing.T) {
+	dir := t.TempDir()
+	playbookPath := filepath.Join(dir, "site.yml")
+	require.NoError(t, writeTestFile(playbookPath, []byte(`---
+- hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: run shell command
+      shell: echo ok
+      register: shell_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	mock := NewMockSSHClient()
+	mock.expectCommand(`^echo ok$`, "ok\n", "", 0)
+	e.clients["localhost"] = mock
+
+	require.NoError(t, e.Run(context.Background(), playbookPath))
+
+	require.NotNil(t, e.results["localhost"]["shell_result"])
+	assert.Equal(t, "ok\n", e.results["localhost"]["shell_result"].Stdout)
+	assert.True(t, e.results["localhost"]["shell_result"].Changed)
+	assert.Equal(t, 1, len(mock.executed))
+	assert.Equal(t, "RunScript", mock.executed[0].Method)
+	assert.Equal(t, "echo ok", mock.executed[0].Cmd)
+}
+
 // --- getHosts ---
 
 func TestExecutor_GetHosts_Good_WithInventory(t *testing.T) {
