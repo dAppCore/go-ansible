@@ -44,6 +44,27 @@ type Play struct {
 	MaxFailPercent int               `yaml:"max_fail_percentage,omitempty"`
 }
 
+// UnmarshalYAML handles play-level aliases such as ansible.builtin.import_playbook.
+func (p *Play) UnmarshalYAML(node *yaml.Node) error {
+	type rawPlay Play
+	var raw rawPlay
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	*p = Play(raw)
+
+	var fields map[string]any
+	if err := node.Decode(&fields); err != nil {
+		return err
+	}
+
+	if value, ok := directiveValue(fields, "import_playbook"); ok && p.ImportPlaybook == "" {
+		p.ImportPlaybook = sprintf("%v", value)
+	}
+
+	return nil
+}
+
 // RoleRef represents a role reference in a play.
 //
 // Example:
@@ -88,6 +109,20 @@ func (r *RoleRef) UnmarshalYAML(unmarshal func(any) error) error {
 		r.Role = r.Name
 	}
 	return nil
+}
+
+func directiveValue(fields map[string]any, name string) (any, bool) {
+	if fields == nil {
+		return nil, false
+	}
+
+	for _, key := range []string{name, "ansible.builtin." + name, "ansible.legacy." + name} {
+		if value, ok := fields[key]; ok {
+			return value, true
+		}
+	}
+
+	return nil, false
 }
 
 // Task represents an Ansible task.

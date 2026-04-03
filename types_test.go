@@ -605,6 +605,18 @@ include_tasks: other-tasks.yml
 	assert.Equal(t, "other-tasks.yml", task.IncludeTasks)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_IncludeTasksFQCN(t *testing.T) {
+	input := `
+name: Include tasks
+ansible.builtin.include_tasks: other-tasks.yml
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.Equal(t, "other-tasks.yml", task.IncludeTasks)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_IncludeTasksApply(t *testing.T) {
 	input := `
 name: Include tasks
@@ -681,10 +693,39 @@ include_role: common
 	assert.Equal(t, "common", task.IncludeRole.Role)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_IncludeRoleFQCN(t *testing.T) {
+	input := `
+name: Include role
+ansible.builtin.include_role:
+  name: common
+  tasks_from: setup.yml
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.IncludeRole)
+	assert.Equal(t, "common", task.IncludeRole.Role)
+	assert.Equal(t, "setup.yml", task.IncludeRole.TasksFrom)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_ImportRoleStringForm(t *testing.T) {
 	input := `
 name: Import role
 import_role: common
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.ImportRole)
+	assert.Equal(t, "common", task.ImportRole.Role)
+}
+
+func TestTypes_Task_UnmarshalYAML_Good_ImportRoleFQCN(t *testing.T) {
+	input := `
+name: Import role
+ansible.builtin.import_role: common
 `
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)

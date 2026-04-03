@@ -427,9 +427,34 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"retries": true, "delay": true, "until": true,
 		"action": true, "local_action": true,
 		"include_tasks": true, "import_tasks": true,
+		"ansible.builtin.include_tasks": true, "ansible.legacy.include_tasks": true,
+		"ansible.builtin.import_tasks": true, "ansible.legacy.import_tasks": true,
 		"apply":        true,
 		"include_role": true, "import_role": true, "public": true,
+		"ansible.builtin.include_role": true, "ansible.legacy.include_role": true,
+		"ansible.builtin.import_role": true, "ansible.legacy.import_role": true,
 		"with_items": true, "with_dict": true, "with_indexed_items": true, "with_nested": true, "with_together": true, "with_subelements": true, "with_file": true, "with_fileglob": true, "with_sequence": true,
+	}
+
+	if value, ok := directiveValue(m, "include_tasks"); ok && t.IncludeTasks == "" {
+		t.IncludeTasks = sprintf("%v", value)
+	}
+	if value, ok := directiveValue(m, "import_tasks"); ok && t.ImportTasks == "" {
+		t.ImportTasks = sprintf("%v", value)
+	}
+	if value, ok := directiveValue(m, "include_role"); ok && t.IncludeRole == nil {
+		var ref RoleRef
+		if err := decodeYAMLValue(value, &ref); err != nil {
+			return err
+		}
+		t.IncludeRole = &ref
+	}
+	if value, ok := directiveValue(m, "import_role"); ok && t.ImportRole == nil {
+		var ref RoleRef
+		if err := decodeYAMLValue(value, &ref); err != nil {
+			return err
+		}
+		t.ImportRole = &ref
 	}
 
 	for key, val := range m {
@@ -559,6 +584,14 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	return nil
+}
+
+func decodeYAMLValue(value any, out any) error {
+	data, err := yaml.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return yaml.Unmarshal(data, out)
 }
 
 // parseActionSpec converts action/local_action values into a module name and
