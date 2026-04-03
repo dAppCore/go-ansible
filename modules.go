@@ -2398,14 +2398,16 @@ func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, a
 	value := getStringArg(args, "value", "")
 	state := getStringArg(args, "state", "present")
 	reload := getBoolArg(args, "reload", false)
+	sysctlFile := getStringArg(args, "sysctl_file", "/etc/sysctl.conf")
+	escapedName := regexp.QuoteMeta(name)
 
 	if name == "" {
 		return nil, coreerr.E("Executor.moduleSysctl", "name required", nil)
 	}
 
 	if state == "absent" {
-		// Remove from sysctl.conf
-		cmd := sprintf("sed -i '/%s/d' /etc/sysctl.conf", name)
+		// Remove from the configured sysctl file.
+		cmd := sprintf("sed -i '/%s/d' %q", escapedName, sysctlFile)
 		stdout, stderr, rc, err := client.Run(ctx, cmd)
 		if err != nil || rc != 0 {
 			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
@@ -2429,8 +2431,8 @@ func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, a
 
 	// Persist if requested (best-effort)
 	if getBoolArg(args, "sysctl_set", true) {
-		cmd = sprintf("grep -q '^%s' /etc/sysctl.conf && sed -i 's/^%s.*/%s=%s/' /etc/sysctl.conf || echo '%s=%s' >> /etc/sysctl.conf",
-			name, name, name, value, name, value)
+		cmd = sprintf("grep -q '^%s' %q && sed -i 's/^%s.*/%s=%s/' %q || echo '%s=%s' >> %q",
+			escapedName, sysctlFile, escapedName, name, value, sysctlFile, name, value, sysctlFile)
 		stdout, stderr, rc, err := client.Run(ctx, cmd)
 		if err != nil || rc != 0 {
 			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil

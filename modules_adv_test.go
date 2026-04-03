@@ -1245,6 +1245,22 @@ func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`sysctl -p`))
 }
 
+func TestModulesAdv_ModuleSysctl_Good_UsesCustomSysctlFile(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`sed -i '/net\\.ipv4\\.ip_forward/d' .*custom\.conf`, "", "", 0)
+
+	result, err := e.moduleSysctl(context.Background(), mock, map[string]any{
+		"name":        "net.ipv4.ip_forward",
+		"state":       "absent",
+		"sysctl_file": "/etc/sysctl.d/custom.conf",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`sed -i '/net\\.ipv4\\.ip_forward/d' .*custom\.conf`))
+}
+
 // --- uri module ---
 
 func TestModulesAdv_ModuleURI_Good_GetRequestDefault(t *testing.T) {
