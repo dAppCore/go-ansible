@@ -1403,6 +1403,49 @@ func TestExecutorExtra_RunIncludeRole_Good_PublicVarsPersist(t *testing.T) {
 	assert.Equal(t, "hello from public role", e.results["localhost"]["after_public_role"].Msg)
 }
 
+func TestExecutorExtra_RunPlay_Good_ModuleDefaultsApplyToTasks(t *testing.T) {
+	dir := t.TempDir()
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	mock := newTrackingMockClient()
+	e.clients["localhost"] = mock
+	mock.expectCommand(`cd "/tmp/module-defaults" && pwd`, "/tmp/module-defaults\n", "", 0)
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Module defaults",
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		ModuleDefaults: map[string]map[string]any{
+			"command": {
+				"chdir": "/tmp/module-defaults",
+			},
+		},
+		Tasks: []Task{
+			{
+				Name:     "Run command with defaults",
+				Module:   "command",
+				Args:     map[string]any{"cmd": "pwd"},
+				Register: "command_result",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["localhost"]["command_result"])
+	assert.Equal(t, "/tmp/module-defaults\n", e.results["localhost"]["command_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`cd "/tmp/module-defaults" && pwd`))
+}
+
 func TestExecutorExtra_GetHostsIter_Good(t *testing.T) {
 	inv := &Inventory{
 		All: &InventoryGroup{

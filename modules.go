@@ -67,8 +67,10 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		}
 	}
 
-	// Template the args
-	args := e.templateArgs(task.Args, host, task)
+	// Merge play-level module defaults before templating so defaults and task
+	// arguments can both resolve host-scoped variables.
+	args := mergeModuleDefaults(task.Args, e.resolveModuleDefaults(play, module))
+	args = e.templateArgs(args, host, task)
 
 	switch module {
 	// Command execution
@@ -197,6 +199,56 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		}
 		return nil, coreerr.E("Executor.executeModule", "unsupported module: "+module, nil)
 	}
+}
+
+func (e *Executor) resolveModuleDefaults(play *Play, module string) map[string]any {
+	if play == nil || len(play.ModuleDefaults) == 0 || module == "" {
+		return nil
+	}
+
+	canonical := NormalizeModule(module)
+
+	merged := make(map[string]any)
+	seen := false
+	keys := make([]string, 0, len(play.ModuleDefaults))
+	for key := range play.ModuleDefaults {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		if NormalizeModule(key) != canonical {
+			continue
+		}
+		defaults := play.ModuleDefaults[key]
+		if len(defaults) == 0 {
+			continue
+		}
+		for k, v := range defaults {
+			merged[k] = v
+		}
+		seen = true
+	}
+
+	if !seen {
+		return nil
+	}
+	return merged
+}
+
+func mergeModuleDefaults(args, defaults map[string]any) map[string]any {
+	if len(args) == 0 && len(defaults) == 0 {
+		return nil
+	}
+
+	merged := make(map[string]any, len(args)+len(defaults))
+	for k, v := range defaults {
+		merged[k] = v
+	}
+	for k, v := range args {
+		merged[k] = v
+	}
+	return merged
 }
 
 func (e *Executor) resolveBecomePassword(host string) string {

@@ -22,26 +22,27 @@ type Playbook struct {
 //
 //	play := Play{Name: "Configure web", Hosts: "webservers", Become: true}
 type Play struct {
-	Name           string            `yaml:"name"`
-	Hosts          string            `yaml:"hosts"`
-	ImportPlaybook string            `yaml:"import_playbook,omitempty"`
-	Connection     string            `yaml:"connection,omitempty"`
-	Become         bool              `yaml:"become,omitempty"`
-	BecomeUser     string            `yaml:"become_user,omitempty"`
-	GatherFacts    *bool             `yaml:"gather_facts,omitempty"`
-	ForceHandlers  bool              `yaml:"force_handlers,omitempty"`
-	AnyErrorsFatal bool              `yaml:"any_errors_fatal,omitempty"`
-	Vars           map[string]any    `yaml:"vars,omitempty"`
-	VarsFiles      any               `yaml:"vars_files,omitempty"` // string or []string
-	PreTasks       []Task            `yaml:"pre_tasks,omitempty"`
-	Tasks          []Task            `yaml:"tasks,omitempty"`
-	PostTasks      []Task            `yaml:"post_tasks,omitempty"`
-	Roles          []RoleRef         `yaml:"roles,omitempty"`
-	Handlers       []Task            `yaml:"handlers,omitempty"`
-	Tags           []string          `yaml:"tags,omitempty"`
-	Environment    map[string]string `yaml:"environment,omitempty"`
-	Serial         any               `yaml:"serial,omitempty"` // int or string
-	MaxFailPercent int               `yaml:"max_fail_percentage,omitempty"`
+	Name           string                    `yaml:"name"`
+	Hosts          string                    `yaml:"hosts"`
+	ImportPlaybook string                    `yaml:"import_playbook,omitempty"`
+	Connection     string                    `yaml:"connection,omitempty"`
+	Become         bool                      `yaml:"become,omitempty"`
+	BecomeUser     string                    `yaml:"become_user,omitempty"`
+	GatherFacts    *bool                     `yaml:"gather_facts,omitempty"`
+	ForceHandlers  bool                      `yaml:"force_handlers,omitempty"`
+	AnyErrorsFatal bool                      `yaml:"any_errors_fatal,omitempty"`
+	Vars           map[string]any            `yaml:"vars,omitempty"`
+	VarsFiles      any                       `yaml:"vars_files,omitempty"` // string or []string
+	ModuleDefaults map[string]map[string]any `yaml:"module_defaults,omitempty"`
+	PreTasks       []Task                    `yaml:"pre_tasks,omitempty"`
+	Tasks          []Task                    `yaml:"tasks,omitempty"`
+	PostTasks      []Task                    `yaml:"post_tasks,omitempty"`
+	Roles          []RoleRef                 `yaml:"roles,omitempty"`
+	Handlers       []Task                    `yaml:"handlers,omitempty"`
+	Tags           []string                  `yaml:"tags,omitempty"`
+	Environment    map[string]string         `yaml:"environment,omitempty"`
+	Serial         any                       `yaml:"serial,omitempty"` // int or string
+	MaxFailPercent int                       `yaml:"max_fail_percentage,omitempty"`
 }
 
 // UnmarshalYAML handles play-level aliases such as ansible.builtin.import_playbook.
