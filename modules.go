@@ -2506,6 +2506,7 @@ func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecut
 	timeout := getIntArg(args, "timeout", 300)
 	delay := getIntArg(args, "delay", 0)
 	sleep := getIntArg(args, "sleep", 1)
+	connectTimeout := getIntArg(args, "connect_timeout", 5)
 	timeoutMsg := getStringArg(args, "msg", "wait_for_connection timed out")
 
 	if delay > 0 {
@@ -2519,7 +2520,14 @@ func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecut
 	}
 
 	runCheck := func() (*TaskResult, bool) {
-		stdout, stderr, rc, err := client.Run(ctx, "true")
+		runCtx := ctx
+		if connectTimeout > 0 {
+			var cancel context.CancelFunc
+			runCtx, cancel = context.WithTimeout(ctx, time.Duration(connectTimeout)*time.Second)
+			defer cancel()
+		}
+
+		stdout, stderr, rc, err := client.Run(runCtx, "true")
 		if err == nil && rc == 0 {
 			return &TaskResult{Changed: false}, true
 		}

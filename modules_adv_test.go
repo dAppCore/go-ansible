@@ -1266,6 +1266,17 @@ func TestModulesAdv_ModuleWaitFor_Good_AcceptsStringNumericArgs(t *testing.T) {
 
 // --- wait_for_connection module ---
 
+type deadlineAwareMockClient struct {
+	*MockSSHClient
+}
+
+func (c *deadlineAwareMockClient) Run(ctx context.Context, cmd string) (string, string, int, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return "", "", 1, context.DeadlineExceeded
+	}
+	return c.MockSSHClient.Run(ctx, cmd)
+}
+
 func TestModulesAdv_ModuleWaitForConnection_Good_ReturnsWhenHostIsReachable(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`^true$`, "", "", 0)
@@ -1282,6 +1293,22 @@ func TestModulesAdv_ModuleWaitForConnection_Good_ReturnsWhenHostIsReachable(t *t
 	assert.False(t, result.Failed)
 	assert.False(t, result.Changed)
 	assert.True(t, mock.hasExecuted(`^true$`))
+}
+
+func TestModulesAdv_ModuleWaitForConnection_Good_UsesConnectTimeout(t *testing.T) {
+	e := NewExecutor("/tmp")
+	client := &deadlineAwareMockClient{MockSSHClient: NewMockSSHClient()}
+
+	result, err := e.moduleWaitForConnection(context.Background(), client, map[string]any{
+		"timeout":         0,
+		"connect_timeout": 1,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.True(t, client.hasExecuted(`^true$`))
 }
 
 func TestModulesAdv_ModuleWaitForConnection_Bad_ImmediateFailure(t *testing.T) {
