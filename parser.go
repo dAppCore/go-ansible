@@ -929,6 +929,8 @@ func NormalizeModule(name string) string {
 //
 // Example:
 //
+//	parser := NewParser("/workspace/inventory")
+//	inventory, _ := parser.ParseInventory("/workspace/inventory/hosts.yml")
 //	hosts := GetHosts(inventory, "webservers")
 func GetHosts(inventory *Inventory, pattern string) []string {
 	if pattern == "all" {
@@ -1099,6 +1101,8 @@ func subtractHosts(base, extra []string) []string {
 //
 // Example:
 //
+//	parser := NewParser("/workspace/inventory")
+//	inventory, _ := parser.ParseInventory("/workspace/inventory/hosts.yml")
 //	hostsSeq := GetHostsIter(inventory, "all")
 func GetHostsIter(inventory *Inventory, pattern string) iter.Seq[string] {
 	hosts := GetHosts(inventory, pattern)
@@ -1147,6 +1151,8 @@ func collectAllHosts(group *InventoryGroup, seen map[string]bool, hosts *[]strin
 //
 // Example:
 //
+//	parser := NewParser("/workspace/inventory")
+//	inventory, _ := parser.ParseInventory("/workspace/inventory/hosts.yml")
 //	hostsSeq := AllHostsIter(inventory.All)
 func AllHostsIter(group *InventoryGroup) iter.Seq[string] {
 	return func(yield func(string) bool) {
@@ -1200,6 +1206,8 @@ func hasHost(group *InventoryGroup, name string) bool {
 //
 // Example:
 //
+//	parser := NewParser("/workspace/inventory")
+//	inventory, _ := parser.ParseInventory("/workspace/inventory/hosts.yml")
 //	hostVars := GetHostVars(inventory, "web1")
 func GetHostVars(inventory *Inventory, hostname string) map[string]any {
 	vars := make(map[string]any)

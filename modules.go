@@ -1543,41 +1543,41 @@ func (e *Executor) moduleDnf(ctx context.Context, client sshExecutorClient, args
 	return e.moduleRPM(ctx, client, args, "dnf")
 }
 
-func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args map[string]any, manager string) (*TaskResult, error) {
+func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args map[string]any, packageManager string) (*TaskResult, error) {
 	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
 
-	if updateCache && manager != "rpm" {
-		_, _, _, _ = client.Run(ctx, sprintf("%s makecache -y", manager))
+	if updateCache && packageManager != "rpm" {
+		_, _, _, _ = client.Run(ctx, sprintf("%s makecache -y", packageManager))
 	}
 
 	var cmd string
 	switch state {
 	case "present", "installed":
 		if len(names) > 0 {
-			if manager == "rpm" {
+			if packageManager == "rpm" {
 				cmd = sprintf("rpm -ivh %s", join(" ", names))
 			} else {
-				cmd = sprintf("%s install -y -q %s", manager, join(" ", names))
+				cmd = sprintf("%s install -y -q %s", packageManager, join(" ", names))
 			}
 		}
 	case "absent", "removed":
 		if len(names) > 0 {
-			if manager == "rpm" {
+			if packageManager == "rpm" {
 				cmd = sprintf("rpm -e %s", join(" ", names))
 			} else {
-				cmd = sprintf("%s remove -y -q %s", manager, join(" ", names))
+				cmd = sprintf("%s remove -y -q %s", packageManager, join(" ", names))
 			}
 		}
 	case "latest":
 		if len(names) > 0 {
-			if manager == "rpm" {
+			if packageManager == "rpm" {
 				cmd = sprintf("rpm -Uvh %s", join(" ", names))
-			} else if manager == "dnf" {
-				cmd = sprintf("%s upgrade -y -q %s", manager, join(" ", names))
+			} else if packageManager == "dnf" {
+				cmd = sprintf("%s upgrade -y -q %s", packageManager, join(" ", names))
 			} else {
-				cmd = sprintf("%s update -y -q %s", manager, join(" ", names))
+				cmd = sprintf("%s update -y -q %s", packageManager, join(" ", names))
 			}
 		}
 	}
