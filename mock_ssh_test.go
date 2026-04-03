@@ -526,6 +526,7 @@ type sshRunner interface {
 	Run(ctx context.Context, cmd string) (string, string, int, error)
 	RunScript(ctx context.Context, script string) (string, string, int, error)
 	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
+	Download(ctx context.Context, remote string) ([]byte, error)
 }
 
 type sshFileTransferRunner interface {
@@ -2011,6 +2012,7 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
 	unixSocket := getStringArg(args, "unix_socket", "")
 	followRedirects := lower(getStringArg(args, "follow_redirects", "safe"))
+	src := getStringArg(args, "src", "")
 
 	if url == "" {
 		return nil, mockError("moduleURIWithClient", "uri: url required")
@@ -2047,7 +2049,13 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	curlOpts = appendURIFollowRedirects(curlOpts, method, followRedirects)
 
 	// Body
-	if body := args["body"]; body != nil {
+	if src != "" {
+		bodyBytes, err := client.Download(context.Background(), src)
+		if err != nil {
+			return nil, mockWrap("moduleURIWithClient", "download src", err)
+		}
+		curlOpts = append(curlOpts, "-d", sprintf("%q", string(bodyBytes)))
+	} else if body := args["body"]; body != nil {
 		bodyText, err := renderURIBody(body, bodyFormat)
 		if err != nil {
 			return nil, mockWrap("moduleURIWithClient", "render body", err)

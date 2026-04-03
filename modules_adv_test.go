@@ -1689,6 +1689,26 @@ func TestModulesAdv_ModuleURI_Good_UsesUnixSocket(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`--unix-socket '/var/run/docker.sock'`))
 }
 
+func TestModulesAdv_ModuleURI_Good_UsesSourceFileBody(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	require.NoError(t, mock.Upload(context.Background(), newReader("alpha=1&beta=2"), "/tmp/request-body.txt", 0644))
+	mock.expectCommand(`curl.*form\.example\.com`, "created\n201", "", 0)
+
+	result, err := moduleURIWithClient(e, mock, map[string]any{
+		"url":         "https://form.example.com/submit",
+		"method":      "POST",
+		"src":         "/tmp/request-body.txt",
+		"body_format": "json",
+		"status_code": 201,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, 201, result.RC)
+	assert.True(t, mock.containsSubstring(`-d "alpha=1&beta=2"`))
+	assert.False(t, mock.containsSubstring("Content-Type: application/json"))
+}
+
 func TestModulesAdv_ModuleURI_Good_FormURLEncodedBody(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*form\.example\.com`, "created\n201", "", 0)

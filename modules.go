@@ -2022,6 +2022,7 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
 	unixSocket := getStringArg(args, "unix_socket", "")
 	followRedirects := lower(getStringArg(args, "follow_redirects", "safe"))
+	src := getStringArg(args, "src", "")
 
 	if url == "" {
 		return nil, coreerr.E("Executor.moduleURI", "url required", nil)
@@ -2060,7 +2061,13 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	curlOpts = appendURIFollowRedirects(curlOpts, method, followRedirects)
 
 	// Body
-	if body := args["body"]; body != nil {
+	if src != "" {
+		bodyBytes, err := client.Download(ctx, src)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleURI", "download src", err)
+		}
+		curlOpts = append(curlOpts, "-d", sprintf("%q", string(bodyBytes)))
+	} else if body := args["body"]; body != nil {
 		bodyText, err := renderURIBody(body, bodyFormat)
 		if err != nil {
 			return nil, coreerr.E("Executor.moduleURI", "render body", err)
