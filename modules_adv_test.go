@@ -1674,6 +1674,21 @@ func TestModulesAdv_ModuleURI_Good_UsesBasicAuthFlags(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`--basic`))
 }
 
+func TestModulesAdv_ModuleURI_Good_UsesUnixSocket(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*http://localhost/_ping`, "OK\n200", "", 0)
+
+	result, err := e.moduleURI(context.Background(), mock, map[string]any{
+		"url":         "http://localhost/_ping",
+		"unix_socket": "/var/run/docker.sock",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, 200, result.RC)
+	assert.True(t, mock.hasExecuted(`--unix-socket '/var/run/docker.sock'`))
+}
+
 func TestModulesAdv_ModuleURI_Good_FormURLEncodedBody(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*form\.example\.com`, "created\n201", "", 0)

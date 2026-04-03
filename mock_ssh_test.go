@@ -2009,6 +2009,7 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	urlUsername := getStringArg(args, "url_username", "")
 	urlPassword := getStringArg(args, "url_password", "")
 	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
+	unixSocket := getStringArg(args, "unix_socket", "")
 	followRedirects := lower(getStringArg(args, "follow_redirects", "safe"))
 
 	if url == "" {
@@ -2026,6 +2027,10 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 		}
 	} else if forceBasicAuth {
 		curlOpts = append(curlOpts, "--basic")
+	}
+
+	if unixSocket != "" {
+		curlOpts = append(curlOpts, "--unix-socket", shellQuote(unixSocket))
 	}
 
 	// Headers
