@@ -42,6 +42,21 @@ func TestExtraVars_Good_UsesShortAlias(t *testing.T) {
 	}, vars)
 }
 
+func TestExtraVars_Good_TrimsWhitespaceAroundPairs(t *testing.T) {
+	opts := core.NewOptions(
+		core.Option{Key: "extra-vars", Value: " version = 1.2.3 , env = prod , empty = "},
+	)
+
+	vars, err := extraVars(opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]any{
+		"version": "1.2.3",
+		"env":     "prod",
+		"empty":   "",
+	}, vars)
+}
+
 func TestExtraVars_Good_IgnoresMalformedPairs(t *testing.T) {
 	opts := core.NewOptions(
 		core.Option{Key: "extra-vars", Value: "missing_equals,keep=this"},
@@ -55,6 +70,10 @@ func TestExtraVars_Good_IgnoresMalformedPairs(t *testing.T) {
 		"keep":     "this",
 		"also_bad": "",
 	}, vars)
+}
+
+func TestSplitCommaSeparatedOption_Good_TrimsWhitespace(t *testing.T) {
+	assert.Equal(t, []string{"deploy", "setup", "smoke"}, splitCommaSeparatedOption(" deploy, setup ,smoke "))
 }
 
 func TestExtraVars_Good_SupportsStructuredYAMLAndJSON(t *testing.T) {

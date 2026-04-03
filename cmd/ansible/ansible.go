@@ -31,7 +31,13 @@ func splitCommaSeparatedOption(value string) []string {
 	if value == "" {
 		return nil
 	}
-	return split(value, ",")
+	var out []string
+	for _, item := range split(value, ",") {
+		if trimmed := trimSpace(item); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // positionalArgs extracts all positional arguments from Options.
@@ -185,6 +191,11 @@ func parseKeyValueExtraVars(value string) map[string]any {
 	vars := make(map[string]any)
 
 	for _, pair := range split(value, ",") {
+		pair = trimSpace(pair)
+		if pair == "" {
+			continue
+		}
+
 		parts := splitN(pair, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -195,7 +206,7 @@ func parseKeyValueExtraVars(value string) map[string]any {
 			continue
 		}
 
-		vars[key] = parts[1]
+		vars[key] = trimSpace(parts[1])
 	}
 
 	return vars
