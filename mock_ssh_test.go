@@ -1956,24 +1956,36 @@ func moduleUFWWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 func moduleDockerComposeWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
 	projectSrc := getStringArg(args, "project_src", "")
 	state := getStringArg(args, "state", "present")
+	projectName := getStringArg(args, "project_name", "")
+	files := normalizeStringArgs(args["files"])
 
 	if projectSrc == "" {
 		return nil, mockError("moduleDockerComposeWithClient", "docker_compose: project_src required")
 	}
 
-	var cmd string
+	var cmdParts []string
+	cmdParts = append(cmdParts, "cd", shellQuote(projectSrc), "&&", "docker", "compose")
+	if projectName != "" {
+		cmdParts = append(cmdParts, "-p", shellQuote(projectName))
+	}
+	for _, file := range files {
+		cmdParts = append(cmdParts, "-f", shellQuote(file))
+	}
+
 	switch state {
 	case "present":
-		cmd = sprintf("cd %q && docker compose up -d", projectSrc)
+		cmdParts = append(cmdParts, "up", "-d")
 	case "absent":
-		cmd = sprintf("cd %q && docker compose down", projectSrc)
+		cmdParts = append(cmdParts, "down")
 	case "stopped":
-		cmd = sprintf("cd %q && docker compose stop", projectSrc)
+		cmdParts = append(cmdParts, "stop")
 	case "restarted":
-		cmd = sprintf("cd %q && docker compose restart", projectSrc)
+		cmdParts = append(cmdParts, "restart")
 	default:
-		cmd = sprintf("cd %q && docker compose up -d", projectSrc)
+		cmdParts = append(cmdParts, "up", "-d")
 	}
+
+	cmd := join(" ", cmdParts)
 
 	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
 	if err != nil || rc != 0 {

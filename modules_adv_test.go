@@ -1793,6 +1793,22 @@ func TestModulesAdv_ModuleDockerCompose_Good_DefaultStateIsPresent(t *testing.T)
 	assert.True(t, mock.hasExecuted(`docker compose up -d`))
 }
 
+func TestModulesAdv_ModuleDockerCompose_Good_ProjectNameAndFiles(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d`, "Starting\n", "", 0)
+
+	result, err := moduleDockerComposeWithClient(e, mock, map[string]any{
+		"project_src":  "/opt/app",
+		"project_name": "demo-app",
+		"files":        []any{"docker-compose.yml", "docker-compose.prod.yml"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.containsSubstring("docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d"))
+}
+
 func TestModulesAdv_ModuleDockerCompose_Production_Good_AlreadyUpToDate(t *testing.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
@@ -1807,6 +1823,23 @@ func TestModulesAdv_ModuleDockerCompose_Production_Good_AlreadyUpToDate(t *testi
 	assert.False(t, result.Changed)
 	assert.False(t, result.Failed)
 	assert.Equal(t, "Container myapp-web-1  Up to date\n", result.Stdout)
+}
+
+func TestModulesAdv_ModuleDockerCompose_Production_Good_ProjectNameAndFiles(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	mock.expectCommand(`docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d`, "Starting\n", "", 0)
+
+	result, err := e.moduleDockerCompose(context.Background(), mock, map[string]any{
+		"project_src":  "/opt/app",
+		"project_name": "demo-app",
+		"files":        []any{"docker-compose.yml", "docker-compose.prod.yml"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d`))
 }
 
 // --- Cross-module dispatch tests for advanced modules ---
