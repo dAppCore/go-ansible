@@ -67,6 +67,7 @@ type Executor struct {
 	inventoryPath      string
 	vars               map[string]any
 	hostVars           map[string]map[string]any
+	hostFacts          map[string]map[string]any
 	facts              map[string]*Facts
 	results            map[string]map[string]*TaskResult // host -> register_name -> result
 	handlers           map[string][]Task
@@ -102,6 +103,7 @@ func NewExecutor(basePath string) *Executor {
 		parser:             NewParser(basePath),
 		vars:               make(map[string]any),
 		hostVars:           make(map[string]map[string]any),
+		hostFacts:          make(map[string]map[string]any),
 		facts:              make(map[string]*Facts),
 		results:            make(map[string]map[string]*TaskResult),
 		handlers:           make(map[string][]Task),
@@ -172,6 +174,26 @@ func (e *Executor) setHostVars(host string, values map[string]any) {
 	}
 }
 
+func (e *Executor) setHostFacts(host string, values map[string]any) {
+	if host == "" || len(values) == 0 {
+		return
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.hostFacts == nil {
+		e.hostFacts = make(map[string]map[string]any)
+	}
+	if e.hostFacts[host] == nil {
+		e.hostFacts[host] = make(map[string]any)
+	}
+
+	for key, value := range values {
+		e.hostFacts[host][key] = value
+	}
+}
+
 func (e *Executor) hostScopedVars(host string) map[string]any {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -190,6 +212,30 @@ func (e *Executor) hostScopedVars(host string) map[string]any {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func (e *Executor) hostFactsMap(host string) map[string]any {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var merged map[string]any
+	if facts := e.facts[host]; facts != nil {
+		merged = factsToMap(facts)
+	}
+
+	if values := e.hostFacts[host]; len(values) > 0 {
+		if merged == nil {
+			merged = make(map[string]any, len(values))
+		}
+		for key, value := range values {
+			merged[key] = value
+		}
+	}
+
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 func inventoryHostnameShort(host string) string {
@@ -223,8 +269,8 @@ func (e *Executor) hostMagicVars(host string) map[string]any {
 		}
 	}
 	if e != nil {
-		if facts, ok := e.facts[host]; ok {
-			values["ansible_facts"] = factsToMap(facts)
+		if facts := e.hostFactsMap(host); len(facts) > 0 {
+			values["ansible_facts"] = facts
 		}
 	}
 
@@ -3092,6 +3138,9 @@ func (e *Executor) resolveExprBase(expr string, host string, task *Task) string 
 	// Check facts
 	if facts, ok := e.facts[host]; ok {
 		if expr == "ansible_facts" {
+			if merged := e.hostFactsMap(host); len(merged) > 0 {
+				return sprintf("%v", merged)
+			}
 			return sprintf("%v", factsToMap(facts))
 		}
 		switch expr {
@@ -3262,8 +3311,8 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 	}
 
 	if name == "ansible_facts" {
-		if facts, ok := e.facts[host]; ok {
-			return factsToMap(facts), true
+		if facts := e.hostFactsMap(host); len(facts) > 0 {
+			return facts, true
 		}
 	}
 
@@ -3273,8 +3322,8 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 		path := parts[1]
 
 		if base == "ansible_facts" {
-			if facts, ok := e.facts[host]; ok {
-				if nested, ok := lookupNestedValue(factsToMap(facts), path); ok {
+			if facts := e.hostFactsMap(host); len(facts) > 0 {
+				if nested, ok := lookupNestedValue(facts, path); ok {
 					return nested, true
 				}
 			}
@@ -3771,6 +3820,7 @@ func (e *Executor) clearFacts(hosts []string) {
 
 	for _, host := range hosts {
 		delete(e.facts, host)
+		delete(e.hostFacts, host)
 	}
 }
 

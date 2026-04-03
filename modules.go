@@ -1705,6 +1705,7 @@ func (e *Executor) moduleSetFact(host string, args map[string]any) (*TaskResult,
 		values[k] = v
 	}
 	e.setHostVars(host, values)
+	e.setHostFacts(host, values)
 	return &TaskResult{
 		Changed: true,
 		Data:    map[string]any{"ansible_facts": values},

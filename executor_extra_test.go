@@ -234,6 +234,31 @@ func TestExecutorExtra_ModuleSetFact_Good_HostScopedLookup(t *testing.T) {
 	assert.Equal(t, "{{ build_id }}", e.templateString("{{ build_id }}", "host2", nil))
 }
 
+func TestExecutorExtra_ModuleSetFact_Good_ExposesAnsibleFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleSetFact("host1", map[string]any{
+		"app_version": "2.0.0",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "2.0.0", e.templateString("{{ ansible_facts.app_version }}", "host1", nil))
+	assert.True(t, e.evalCondition("ansible_facts.app_version == '2.0.0'", "host1"))
+}
+
+func TestExecutorExtra_ClearFacts_Good_RemovesSetFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleSetFact("host1", map[string]any{
+		"app_version": "2.0.0",
+	})
+	require.NoError(t, err)
+
+	e.clearFacts([]string{"host1"})
+
+	assert.Equal(t, "{{ ansible_facts.app_version }}", e.templateString("{{ ansible_facts.app_version }}", "host1", nil))
+}
+
 // --- moduleAddHost ---
 
 func TestExecutorExtra_ModuleAddHost_Good_AddsHostAndGroups(t *testing.T) {
