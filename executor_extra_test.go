@@ -488,6 +488,57 @@ func TestExecutorExtra_HandleMetaAction_Good_ResetConnection(t *testing.T) {
 	assert.True(t, mock.closed)
 }
 
+func TestExecutorExtra_RunBlock_Bad_RescueFailurePropagates(t *testing.T) {
+	e, _ := newTestExecutorWithMock("host1")
+
+	task := &Task{
+		Block: []Task{
+			{
+				Name:   "primary failure",
+				Module: "fail",
+				Args:   map[string]any{"msg": "block failed"},
+			},
+		},
+		Rescue: []Task{
+			{
+				Name:   "rescue failure",
+				Module: "fail",
+				Args:   map[string]any{"msg": "rescue failed"},
+			},
+		},
+	}
+
+	err := e.runBlock(context.Background(), []string{"host1"}, task, &Play{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rescue failed")
+}
+
+func TestExecutorExtra_RunBlock_Good_RescueSuccessClearsBlockFailure(t *testing.T) {
+	e, _ := newTestExecutorWithMock("host1")
+
+	task := &Task{
+		Block: []Task{
+			{
+				Name:   "primary failure",
+				Module: "fail",
+				Args:   map[string]any{"msg": "block failed"},
+			},
+		},
+		Rescue: []Task{
+			{
+				Name:   "rescue success",
+				Module: "debug",
+				Args:   map[string]any{"msg": "recovered"},
+			},
+		},
+	}
+
+	err := e.runBlock(context.Background(), []string{"host1"}, task, &Play{})
+
+	require.NoError(t, err)
+}
+
 func TestExecutorExtra_RunTaskOnHosts_Good_EndHostSkipsFutureTasks(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{

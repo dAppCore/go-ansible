@@ -1947,6 +1947,7 @@ func isCheckModeSafeTask(task *Task) bool {
 // runBlock handles block/rescue/always.
 func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, play *Play) error {
 	var blockErr error
+	var rescueErr error
 
 	// Try block
 	for _, t := range task.Block {
@@ -1960,7 +1961,7 @@ func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, pla
 	if blockErr != nil && len(task.Rescue) > 0 {
 		for _, t := range task.Rescue {
 			if err := e.runTaskOnHosts(ctx, hosts, &t, play); err != nil {
-				// Rescue also failed
+				rescueErr = err
 				break
 			}
 		}
@@ -1977,6 +1978,10 @@ func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, pla
 
 	if blockErr != nil && len(task.Rescue) == 0 {
 		return blockErr
+	}
+
+	if rescueErr != nil {
+		return rescueErr
 	}
 
 	return nil
