@@ -1401,7 +1401,18 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 		return nil, coreerr.E("Executor.moduleGetURL", "url and dest required", nil)
 	}
 
+	force := getBoolArg(args, "force", true)
 	checksumSpec := corexTrimSpace(getStringArg(args, "checksum", ""))
+
+	if !force {
+		exists, err := client.FileExists(ctx, dest)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
+		}
+	}
 
 	// Stream to stdout so we can validate checksums before writing the file.
 	cmd := sprintf("curl -fsSL %q || wget -q -O - %q", url, url)

@@ -1675,6 +1675,23 @@ func TestModulesFile_ModuleGetURL_Good_ChecksumFileURL(t *testing.T) {
 	assert.Equal(t, []byte(payload), up.Content)
 }
 
+func TestModulesFile_ModuleGetURL_Good_ForceFalseSkipsExistingDestination(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/app.tgz", []byte("existing artifact"))
+
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":   "https://downloads.example.com/app.tgz",
+		"dest":  "/tmp/app.tgz",
+		"force": false,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, "skipped existing destination: /tmp/app.tgz", result.Msg)
+	assert.Equal(t, 0, mock.commandCount())
+	assert.Equal(t, 0, mock.uploadCount())
+}
+
 func TestModulesFile_ModuleGetURL_Bad_ChecksumMismatch(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, "downloaded artifact", "", 0)
