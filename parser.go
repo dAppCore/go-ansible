@@ -560,6 +560,16 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	// Preserve with_together so the executor can zip legacy loop inputs at runtime.
+	if together, ok := m["with_together"]; ok && t.WithTogether == nil {
+		t.WithTogether = together
+	}
+
+	// Preserve with_subelements so the executor can expand parent/child pairs at runtime.
+	if subelements, ok := m["with_subelements"]; ok && t.WithSubelements == nil {
+		t.WithSubelements = subelements
+	}
+
+	// Expand with_together immediately so existing loop code sees the legacy shape.
 	if t.WithTogether != nil && t.Loop == nil {
 		t.Loop = expandTogetherLoop(t.WithTogether)
 	}
