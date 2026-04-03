@@ -426,6 +426,8 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"block": true, "rescue": true, "always": true, "notify": true, "listen": true,
 		"retries": true, "delay": true, "until": true,
 		"action": true, "local_action": true,
+		"ansible.builtin.action": true, "ansible.legacy.action": true,
+		"ansible.builtin.local_action": true, "ansible.legacy.local_action": true,
 		"include_tasks": true, "import_tasks": true,
 		"ansible.builtin.include_tasks": true, "ansible.legacy.include_tasks": true,
 		"ansible.builtin.import_tasks": true, "ansible.legacy.import_tasks": true,
@@ -576,7 +578,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 
 	// Support legacy action/local_action shorthands.
 	if t.Module == "" {
-		if localAction, ok := m["local_action"]; ok {
+		if localAction, ok := directiveValue(m, "local_action"); ok {
 			if module, args := parseActionSpec(localAction); module != "" {
 				t.Module = module
 				t.Args = args
@@ -585,7 +587,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		}
 	}
 	if t.Module == "" {
-		if action, ok := m["action"]; ok {
+		if action, ok := directiveValue(m, "action"); ok {
 			if module, args := parseActionSpec(action); module != "" {
 				t.Module = module
 				t.Args = args

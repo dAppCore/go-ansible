@@ -320,6 +320,20 @@ action: command echo hello world
 	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_ActionAliasFQCN(t *testing.T) {
+	input := `
+name: Legacy action
+ansible.builtin.action: command echo hello world
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.Equal(t, "command", task.Module)
+	require.NotNil(t, task.Args)
+	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_ActionAliasKeyValue(t *testing.T) {
 	input := `
 name: Legacy action with args
@@ -340,6 +354,21 @@ func TestTypes_Task_UnmarshalYAML_Good_LocalAction(t *testing.T) {
 	input := `
 name: Legacy local action
 local_action: shell echo local
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.Equal(t, "shell", task.Module)
+	assert.Equal(t, "localhost", task.Delegate)
+	require.NotNil(t, task.Args)
+	assert.Equal(t, "echo local", task.Args["_raw_params"])
+}
+
+func TestTypes_Task_UnmarshalYAML_Good_LocalActionFQCN(t *testing.T) {
+	input := `
+name: Legacy local action
+ansible.legacy.local_action: shell echo local
 `
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
