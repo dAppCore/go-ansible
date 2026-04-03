@@ -1032,6 +1032,21 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		e.mu.Unlock()
 	}()
 
+	savedCheckMode := e.CheckMode
+	savedDiff := e.Diff
+	if task != nil {
+		if task.CheckMode != nil {
+			e.CheckMode = *task.CheckMode
+		}
+		if task.Diff != nil {
+			e.Diff = *task.Diff
+		}
+	}
+	defer func() {
+		e.CheckMode = savedCheckMode
+		e.Diff = savedDiff
+	}()
+
 	if e.OnTaskStart != nil {
 		e.OnTaskStart(host, task)
 	}

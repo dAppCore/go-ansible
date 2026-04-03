@@ -448,6 +448,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"loop_control": true, "vars": true, "environment": true,
 		"changed_when": true, "failed_when": true, "ignore_errors": true,
 		"no_log": true, "become": true, "become_user": true,
+		"check_mode": true, "diff": true,
 		"delegate_to": true, "delegate_facts": true, "run_once": true, "tags": true,
 		"block": true, "rescue": true, "always": true, "notify": true, "listen": true,
 		"module_defaults": true,

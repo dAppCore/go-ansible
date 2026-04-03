@@ -156,6 +156,23 @@ when: some_var is defined
 	assert.NotNil(t, task.When)
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_WithCheckModeAndDiff(t *testing.T) {
+	input := `
+name: Force a dry run
+shell: echo hello
+check_mode: false
+diff: true
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	require.NotNil(t, task.CheckMode)
+	require.NotNil(t, task.Diff)
+	assert.False(t, *task.CheckMode)
+	assert.True(t, *task.Diff)
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_WithLoop(t *testing.T) {
 	input := `
 name: Install packages

@@ -137,6 +137,8 @@ type Task struct {
 	Args          map[string]any    `yaml:"-"` // Module arguments
 	Register      string            `yaml:"register,omitempty"`
 	When          any               `yaml:"when,omitempty"` // string or []string
+	CheckMode     *bool             `yaml:"check_mode,omitempty"`
+	Diff          *bool             `yaml:"diff,omitempty"`
 	Loop          any               `yaml:"loop,omitempty"` // string or []any
 	LoopControl   *LoopControl      `yaml:"loop_control,omitempty"`
 	Vars          map[string]any    `yaml:"vars,omitempty"`

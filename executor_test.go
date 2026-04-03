@@ -32,6 +32,10 @@ func (c *trackingMockClient) SetBecome(become bool, user, password string) {
 	c.MockSSHClient.SetBecome(become, user, password)
 }
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 // --- NewExecutor ---
 
 func TestExecutor_NewExecutor_Good(t *testing.T) {
@@ -1843,6 +1847,61 @@ func TestExecutor_RunTaskOnHost_Good_CheckModeSkipsMutatingTask(t *testing.T) {
 	assert.Equal(t, "Skipped in check mode", ended.Msg)
 	require.NotNil(t, e.results["host1"]["shell_result"])
 	assert.True(t, e.results["host1"]["shell_result"].Skipped)
+}
+
+func TestExecutor_RunTaskOnHost_Good_TaskCheckModeOverridesExecutorCheckMode(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.CheckMode = true
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:      "Run despite global check mode",
+		Module:    "shell",
+		Args:      map[string]any{"_raw_params": "echo hello"},
+		CheckMode: boolPtr(false),
+		Register:  "shell_result",
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["shell_result"])
+	assert.False(t, e.results["host1"]["shell_result"].Skipped)
+	assert.True(t, e.results["host1"]["shell_result"].Changed)
+}
+
+func TestExecutor_RunTaskOnHost_Good_TaskDiffOverridesExecutorDiff(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:     "Inspect task diff mode",
+		Module:   "debug",
+		Args:     map[string]any{"msg": "{{ ansible_diff_mode }}"},
+		Diff:     boolPtr(true),
+		Register: "diff_result",
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"])
+	require.NotNil(t, e.results["host1"]["diff_result"])
+	assert.Equal(t, "true", e.results["host1"]["diff_result"].Msg)
 }
 
 // --- no_log ---
