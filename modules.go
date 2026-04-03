@@ -2774,7 +2774,14 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 		msg += ": " + join(", ", sources)
 	}
 
-	return &TaskResult{Changed: true, Msg: msg}, nil
+	result := &TaskResult{Changed: true, Msg: msg}
+	if len(sources) > 0 {
+		result.Data = map[string]any{
+			"ansible_included_var_files": append([]string(nil), sources...),
+		}
+	}
+
+	return result, nil
 }
 
 func normalizeIncludeVarsExtensions(values []string) []string {

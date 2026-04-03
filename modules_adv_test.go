@@ -1089,6 +1089,9 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *testing.T) {
 	assert.True(t, result.Changed)
 	assert.False(t, result.Failed)
 	assert.Contains(t, result.Msg, varsPath)
+	require.NotNil(t, result.Data)
+	require.Contains(t, result.Data, "ansible_included_var_files")
+	assert.Equal(t, []string{varsPath}, result.Data["ansible_included_var_files"])
 	assert.Equal(t, "demo", e.vars["app_name"])
 	assert.Equal(t, 8080, e.vars["app_port"])
 
@@ -1153,6 +1156,11 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *testing.T) 
 	assert.False(t, result.Failed)
 	assert.Contains(t, result.Msg, joinPath(dir, "01-base.yml"))
 	assert.Contains(t, result.Msg, joinPath(dir, "02-override.yaml"))
+	require.NotNil(t, result.Data)
+	assert.Equal(t, []string{
+		joinPath(dir, "01-base.yml"),
+		joinPath(dir, "02-override.yaml"),
+	}, result.Data["ansible_included_var_files"])
 	assert.Equal(t, "demo", e.vars["app_name"])
 	assert.Equal(t, 8080, e.vars["app_port"])
 
