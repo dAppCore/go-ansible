@@ -3612,6 +3612,10 @@ func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool)
 		if data, err := coreio.Local.Read(e.resolveLocalPath(arg)); err == nil {
 			return data, true
 		}
+	case "template":
+		if data, err := e.TemplateFile(arg, host, task); err == nil {
+			return data, true
+		}
 	case "fileglob":
 		if matches, err := e.resolveFileGlob(arg); err == nil && len(matches) > 0 {
 			return matches, true

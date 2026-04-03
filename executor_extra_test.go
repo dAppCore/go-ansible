@@ -879,6 +879,18 @@ func TestExecutorExtra_HandleLookup_Good_FileLookupResolvesBasePath(t *testing.T
 	assert.Equal(t, "from base path", result)
 }
 
+func TestExecutorExtra_HandleLookup_Good_TemplateLookupResolvesBasePathAndVars(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "templates", "message.j2"), []byte("Hello {{ name }}"), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("name", "world")
+
+	result := e.handleLookup("lookup('template', 'templates/message.j2')", "host1", nil)
+
+	assert.Equal(t, "Hello world", result)
+}
+
 func TestExecutorExtra_HandleLookup_Good_VarsLookup(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetVar("lookup_value", "resolved from vars")
