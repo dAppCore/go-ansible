@@ -1650,6 +1650,31 @@ func TestModulesFile_ModuleGetURL_Good_Sha512Checksum(t *testing.T) {
 	assert.Equal(t, []byte(payload), up.Content)
 }
 
+func TestModulesFile_ModuleGetURL_Good_ChecksumFileURL(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	payload := "downloaded artifact"
+	sum := sha256.Sum256([]byte(payload))
+	checksumURL := "https://downloads.example.com/app.tgz.sha256"
+
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz\.sha256(?:["\s]|$)`, hex.EncodeToString(sum[:])+"  app.tgz\n", "", 0)
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz(?:["\s]|$)`, payload, "", 0)
+
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":      "https://downloads.example.com/app.tgz",
+		"dest":     "/tmp/app.tgz",
+		"checksum": "sha256:" + checksumURL,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, 1, mock.uploadCount())
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Equal(t, "/tmp/app.tgz", up.Remote)
+	assert.Equal(t, []byte(payload), up.Content)
+}
+
 func TestModulesFile_ModuleGetURL_Bad_ChecksumMismatch(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, "downloaded artifact", "", 0)
