@@ -34,3 +34,19 @@ func TestSSH_NewSSHClient_Good_Defaults(t *testing.T) {
 	assert.Equal(t, "root", client.user)
 	assert.Equal(t, 30*time.Second, client.timeout)
 }
+
+func TestSSH_SetBecome_Good_DisablesAndClearsState(t *testing.T) {
+	client := &SSHClient{}
+
+	client.SetBecome(true, "admin", "secret")
+	become, user, password := client.BecomeState()
+	assert.True(t, become)
+	assert.Equal(t, "admin", user)
+	assert.Equal(t, "secret", password)
+
+	client.SetBecome(false, "", "")
+	become, user, password = client.BecomeState()
+	assert.False(t, become)
+	assert.Empty(t, user)
+	assert.Empty(t, password)
+}

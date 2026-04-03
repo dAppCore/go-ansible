@@ -35,6 +35,11 @@ func (c *localClient) SetBecome(become bool, user, password string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.become = become
+	if !become {
+		c.becomeUser = ""
+		c.becomePass = ""
+		return
+	}
 	if user != "" {
 		c.becomeUser = user
 	}

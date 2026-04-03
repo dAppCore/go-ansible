@@ -741,9 +741,8 @@ func TestModulesInfra_Become_Good_DisableAfterEnable(t *testing.T) {
 
 	client.SetBecome(false, "", "")
 	assert.False(t, client.become)
-	// becomeUser and becomePass are only updated if non-empty
-	assert.Equal(t, "root", client.becomeUser)
-	assert.Equal(t, "secret", client.becomePass)
+	assert.Empty(t, client.becomeUser)
+	assert.Empty(t, client.becomePass)
 }
 
 func TestModulesInfra_Become_Good_MockBecomeTracking(t *testing.T) {

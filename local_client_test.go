@@ -78,3 +78,19 @@ func TestExecutor_GatherFacts_Good_LocalConnection(t *testing.T) {
 	assert.NotEmpty(t, facts.Hostname)
 	assert.NotEmpty(t, facts.Kernel)
 }
+
+func TestLocalClient_Good_SetBecomeResetsStateWhenDisabled(t *testing.T) {
+	client := newLocalClient()
+
+	client.SetBecome(true, "admin", "secret")
+	become, user, password := client.BecomeState()
+	assert.True(t, become)
+	assert.Equal(t, "admin", user)
+	assert.Equal(t, "secret", password)
+
+	client.SetBecome(false, "", "")
+	become, user, password = client.BecomeState()
+	assert.False(t, become)
+	assert.Empty(t, user)
+	assert.Empty(t, password)
+}

@@ -258,6 +258,11 @@ func (m *MockSSHClient) SetBecome(become bool, user, password string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.become = become
+	if !become {
+		m.becomeUser = ""
+		m.becomePass = ""
+		return
+	}
 	if user != "" {
 		m.becomeUser = user
 	}
