@@ -202,6 +202,29 @@ func TestBuildPlaybookCommandSettings_Good_AppliesFlags(t *testing.T) {
 	assert.Equal(t, map[string]any{"version": "1.2.3"}, settings.extraVars)
 }
 
+func TestBuildPlaybookCommandSettings_Good_MergesRepeatedListFlags(t *testing.T) {
+	dir := t.TempDir()
+	playbookPath := filepath.Join(dir, "site.yml")
+	require.NoError(t, os.WriteFile(playbookPath, []byte("- hosts: all\n  tasks: []\n"), 0644))
+
+	opts := core.NewOptions(
+		core.Option{Key: "_arg", Value: playbookPath},
+		core.Option{Key: "limit", Value: "web1"},
+		core.Option{Key: "limit", Value: []string{"web2"}},
+		core.Option{Key: "tags", Value: "deploy,setup"},
+		core.Option{Key: "tags", Value: []string{"smoke"}},
+		core.Option{Key: "skip-tags", Value: "slow"},
+		core.Option{Key: "skip-tags", Value: []string{"flaky,experimental"}},
+	)
+
+	settings, err := buildPlaybookCommandSettings(opts, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "web1,web2", settings.limit)
+	assert.Equal(t, []string{"deploy", "setup", "smoke"}, settings.tags)
+	assert.Equal(t, []string{"slow", "flaky", "experimental"}, settings.skipTags)
+}
+
 func TestBuildPlaybookCommandSettings_Bad_MissingPlaybook(t *testing.T) {
 	_, err := buildPlaybookCommandSettings(core.NewOptions(), nil)
 

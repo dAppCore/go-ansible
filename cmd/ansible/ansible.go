@@ -73,6 +73,56 @@ func firstBoolOption(opts core.Options, keys ...string) bool {
 	return false
 }
 
+// collectStringOptionValues returns every string value for any of the provided
+// keys, preserving the original option order.
+func collectStringOptionValues(opts core.Options, keys ...string) []string {
+	var out []string
+
+	for _, o := range opts.Items() {
+		matched := false
+		for _, key := range keys {
+			if o.Key == key {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+
+		switch v := o.Value.(type) {
+		case string:
+			out = append(out, v)
+		case []string:
+			out = append(out, v...)
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					out = append(out, s)
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+// joinedStringOption joins every non-empty string value for the provided keys.
+func joinedStringOption(opts core.Options, keys ...string) string {
+	values := collectStringOptionValues(opts, keys...)
+	if len(values) == 0 {
+		return ""
+	}
+
+	var filtered []string
+	for _, value := range values {
+		if trimmed := trimSpace(value); trimmed != "" {
+			filtered = append(filtered, trimmed)
+		}
+	}
+	return strings.Join(filtered, ",")
+}
+
 // verbosityLevel resolves the effective verbosity from parsed options and the
 // raw command line arguments. The core CLI parser does not preserve repeated
 // `-v` tokens, so we count them from os.Args as a fallback.
@@ -261,9 +311,9 @@ func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbook
 	return playbookCommandSettings{
 		playbookPath: playbookPath,
 		basePath:     pathDir(playbookPath),
-		limit:        firstStringOption(opts, "limit", "l"),
-		tags:         splitCommaSeparatedOption(firstStringOption(opts, "tags", "t")),
-		skipTags:     splitCommaSeparatedOption(firstStringOption(opts, "skip-tags")),
+		limit:        joinedStringOption(opts, "limit", "l"),
+		tags:         splitCommaSeparatedOption(joinedStringOption(opts, "tags", "t")),
+		skipTags:     splitCommaSeparatedOption(joinedStringOption(opts, "skip-tags")),
 		extraVars:    vars,
 		verbose:      verbosityLevel(opts, rawArgs),
 		checkMode:    opts.Bool("check"),
