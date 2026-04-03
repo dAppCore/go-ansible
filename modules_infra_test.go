@@ -1071,6 +1071,45 @@ func TestModulesInfra_ModuleSetup_Good_FilteredFacts(t *testing.T) {
 	assert.Equal(t, "debian", e.facts["host1"].Distribution)
 }
 
+func TestModulesInfra_ModuleSetup_Good_VirtualSubset(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	mock.expectCommand(`hostname -f`, "web1.example.com\n", "", 0)
+	mock.expectCommand(`hostname -s`, "web1\n", "", 0)
+	mock.expectCommand(`cat /etc/os-release`, "ID=debian\nVERSION_ID=12\n", "", 0)
+	mock.expectCommand(`uname -m`, "x86_64\n", "", 0)
+	mock.expectCommand(`uname -r`, "6.1.0\n", "", 0)
+	mock.expectCommand(`nproc`, "8\n", "", 0)
+	mock.expectCommand(`free -m`, "16384\n", "", 0)
+	mock.expectCommand(`hostname -I`, "10.0.0.11\n", "", 0)
+	mock.expectCommand(`systemd-detect-virt`, "docker\n", "", 0)
+
+	task := &Task{
+		Module: "setup",
+		Args: map[string]any{
+			"gather_subset": "!all,!min,virtual",
+		},
+	}
+	result, err := executeModuleWithMock(e, mock, "host1", task)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Changed)
+
+	facts, ok := result.Data["ansible_facts"].(map[string]any)
+	require.True(t, ok)
+	assert.Len(t, facts, 2)
+	assert.Equal(t, "guest", facts["ansible_virtualization_role"])
+	assert.Equal(t, "docker", facts["ansible_virtualization_type"])
+	assert.NotContains(t, facts, "ansible_hostname")
+
+	require.NotNil(t, e.facts["host1"])
+	assert.Equal(t, "guest", e.facts["host1"].VirtualizationRole)
+	assert.Equal(t, "docker", e.facts["host1"].VirtualizationType)
+	assert.Equal(t, "guest", e.templateString("{{ ansible_virtualization_role }}", "host1", nil))
+	assert.Equal(t, "docker", e.templateString("{{ ansible_virtualization_type }}", "host1", nil))
+}
+
 func TestModulesInfra_ModuleSetup_Good_GatherSubset(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 

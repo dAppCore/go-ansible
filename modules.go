@@ -3885,13 +3885,16 @@ func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFacts
 		defer cancel()
 	}
 
-	facts, err := e.collectFacts(ctx, client)
+	gatherSubset := normalizeStringList(args["gather_subset"])
+	includeVirtual := containsString(gatherSubset, "all") || containsString(gatherSubset, "virtual")
+
+	facts, err := e.collectFacts(ctx, client, includeVirtual)
 	if err != nil {
 		return &TaskResult{Failed: true, Msg: err.Error()}, nil
 	}
 
 	factMap := factsToMap(facts)
-	factMap = applyGatherSubsetFilter(factMap, normalizeStringList(args["gather_subset"]))
+	factMap = applyGatherSubsetFilter(factMap, gatherSubset)
 	filteredFactMap := filterFactsMap(factMap, normalizeStringList(args["filter"]))
 	filteredFacts := factsFromMap(filteredFactMap)
 
@@ -3904,6 +3907,15 @@ func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFacts
 		Msg:     "facts gathered",
 		Data:    map[string]any{"ansible_facts": filteredFactMap},
 	}, nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if lower(corexTrimSpace(value)) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func applyGatherSubsetFilter(facts map[string]any, subsets []string) map[string]any {
@@ -4049,13 +4061,16 @@ func gatherSubsetKeys(subset string) []string {
 			"ansible_distribution_version",
 		}
 	case "virtual":
-		return nil
+		return []string{
+			"ansible_virtualization_role",
+			"ansible_virtualization_type",
+		}
 	default:
 		return nil
 	}
 }
 
-func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner) (*Facts, error) {
+func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner, includeVirtual bool) (*Facts, error) {
 	facts := &Facts{}
 	read := func(cmd string) (string, error) {
 		stdout, _, _, err := client.Run(ctx, cmd)
@@ -4154,6 +4169,21 @@ func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner) (*Fa
 		facts.IPv4 = corexTrimSpace(stdout)
 	}
 
+	if includeVirtual {
+		stdout, err = read("systemd-detect-virt 2>/dev/null")
+		if err != nil {
+			return nil, err
+		}
+		virtType := corexTrimSpace(stdout)
+		if virtType == "" || virtType == "none" {
+			facts.VirtualizationRole = "host"
+			facts.VirtualizationType = "none"
+		} else {
+			facts.VirtualizationRole = "guest"
+			facts.VirtualizationType = virtType
+		}
+	}
+
 	return facts, nil
 }
 
@@ -4170,6 +4200,8 @@ func factsToMap(facts *Facts) map[string]any {
 		"ansible_distribution_version": facts.Version,
 		"ansible_architecture":         facts.Architecture,
 		"ansible_kernel":               facts.Kernel,
+		"ansible_virtualization_role":  facts.VirtualizationRole,
+		"ansible_virtualization_type":  facts.VirtualizationType,
 		"ansible_memtotal_mb":          facts.Memory,
 		"ansible_processor_vcpus":      facts.CPUs,
 		"ansible_default_ipv4_address": facts.IPv4,
@@ -4224,6 +4256,12 @@ func factsFromMap(values map[string]any) *Facts {
 	}
 	if v, ok := values["ansible_kernel"].(string); ok {
 		facts.Kernel = v
+	}
+	if v, ok := values["ansible_virtualization_role"].(string); ok {
+		facts.VirtualizationRole = v
+	}
+	if v, ok := values["ansible_virtualization_type"].(string); ok {
+		facts.VirtualizationType = v
 	}
 	if v, ok := values["ansible_memtotal_mb"].(int64); ok {
 		facts.Memory = v

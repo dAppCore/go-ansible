@@ -2498,7 +2498,7 @@ func (e *Executor) gatherFacts(ctx context.Context, host string, play *Play) err
 		return err
 	}
 
-	facts, err := e.collectFacts(ctx, client)
+	facts, err := e.collectFacts(ctx, client, false)
 	if err != nil {
 		return err
 	}
@@ -2922,6 +2922,10 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 			return facts.Architecture, true
 		case "ansible_kernel":
 			return facts.Kernel, true
+		case "ansible_virtualization_role":
+			return facts.VirtualizationRole, true
+		case "ansible_virtualization_type":
+			return facts.VirtualizationType, true
 		}
 	}
 
@@ -3215,6 +3219,10 @@ func (e *Executor) resolveExprBase(expr string, host string, task *Task) string 
 			return facts.Architecture
 		case "ansible_kernel":
 			return facts.Kernel
+		case "ansible_virtualization_role":
+			return facts.VirtualizationRole
+		case "ansible_virtualization_type":
+			return facts.VirtualizationType
 		}
 	}
 

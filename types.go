@@ -369,16 +369,18 @@ type Host struct {
 //
 //	facts := Facts{Hostname: "web1", Distribution: "Ubuntu", Kernel: "Linux"}
 type Facts struct {
-	Hostname     string `json:"ansible_hostname"`
-	FQDN         string `json:"ansible_fqdn"`
-	OS           string `json:"ansible_os_family"`
-	Distribution string `json:"ansible_distribution"`
-	Version      string `json:"ansible_distribution_version"`
-	Architecture string `json:"ansible_architecture"`
-	Kernel       string `json:"ansible_kernel"`
-	Memory       int64  `json:"ansible_memtotal_mb"`
-	CPUs         int    `json:"ansible_processor_vcpus"`
-	IPv4         string `json:"ansible_default_ipv4_address"`
+	Hostname           string `json:"ansible_hostname"`
+	FQDN               string `json:"ansible_fqdn"`
+	OS                 string `json:"ansible_os_family"`
+	Distribution       string `json:"ansible_distribution"`
+	Version            string `json:"ansible_distribution_version"`
+	Architecture       string `json:"ansible_architecture"`
+	Kernel             string `json:"ansible_kernel"`
+	VirtualizationRole string `json:"ansible_virtualization_role"`
+	VirtualizationType string `json:"ansible_virtualization_type"`
+	Memory             int64  `json:"ansible_memtotal_mb"`
+	CPUs               int    `json:"ansible_processor_vcpus"`
+	IPv4               string `json:"ansible_default_ipv4_address"`
 }
 
 // KnownModules lists the Ansible module names recognized by the parser.

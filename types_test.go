@@ -911,22 +911,26 @@ all:
 
 func TestTypes_Facts_Good_Struct(t *testing.T) {
 	facts := Facts{
-		Hostname:     "web1",
-		FQDN:         "web1.example.com",
-		OS:           "Debian",
-		Distribution: "ubuntu",
-		Version:      "24.04",
-		Architecture: "x86_64",
-		Kernel:       "6.8.0",
-		Memory:       16384,
-		CPUs:         4,
-		IPv4:         "10.0.0.1",
+		Hostname:           "web1",
+		FQDN:               "web1.example.com",
+		OS:                 "Debian",
+		Distribution:       "ubuntu",
+		Version:            "24.04",
+		Architecture:       "x86_64",
+		Kernel:             "6.8.0",
+		VirtualizationRole: "guest",
+		VirtualizationType: "docker",
+		Memory:             16384,
+		CPUs:               4,
+		IPv4:               "10.0.0.1",
 	}
 
 	assert.Equal(t, "web1", facts.Hostname)
 	assert.Equal(t, "web1.example.com", facts.FQDN)
 	assert.Equal(t, "ubuntu", facts.Distribution)
 	assert.Equal(t, "x86_64", facts.Architecture)
+	assert.Equal(t, "guest", facts.VirtualizationRole)
+	assert.Equal(t, "docker", facts.VirtualizationType)
 	assert.Equal(t, int64(16384), facts.Memory)
 	assert.Equal(t, 4, facts.CPUs)
 }
