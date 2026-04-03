@@ -491,6 +491,10 @@ var KnownModules = []string{
 
 // ModuleAliases maps accepted short-form module names to their canonical
 // fully-qualified collection names.
+//
+// Example:
+//
+//	module := ModuleAliases["ansible.builtin.authorized_key"]
 var ModuleAliases = map[string]string{
 	"authorized_key":                    "ansible.posix.authorized_key",
 	"ansible.builtin.authorized_key":    "ansible.posix.authorized_key",

@@ -213,6 +213,10 @@ func (c *SSHClient) Close() error {
 }
 
 // BecomeState returns the current privilege escalation settings.
+//
+// Example:
+//
+//	become, user, password := client.BecomeState()
 func (c *SSHClient) BecomeState() (bool, string, string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
