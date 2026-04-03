@@ -775,6 +775,44 @@ func TestExecutorExtra_SplitSerialHosts_Good_ListRepeatsLastValue(t *testing.T) 
 	assert.Equal(t, []string{"host5"}, batches[3])
 }
 
+func TestExecutorExtra_RunPlay_Good_ExposesPlayMagicVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	gatherFacts := false
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+				"host2": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	play := &Play{
+		Hosts:       "all",
+		Serial:      1,
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:   "Inspect play magic vars",
+				Module: "debug",
+				Args: map[string]any{
+					"msg": "{{ ansible_play_hosts_all }}|{{ ansible_play_hosts }}|{{ ansible_play_batch }}",
+				},
+				Register: "magic_vars",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["host1"]["magic_vars"])
+	assert.Equal(t, "[host1 host2]|[host1 host2]|[host1]", e.results["host1"]["magic_vars"].Msg)
+	require.NotNil(t, e.results["host2"]["magic_vars"])
+	assert.Equal(t, "[host1 host2]|[host1 host2]|[host2]", e.results["host2"]["magic_vars"].Msg)
+}
+
 // ============================================================
 // Tests for handleLookup (0% coverage)
 // ============================================================

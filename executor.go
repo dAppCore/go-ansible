@@ -439,6 +439,8 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		return nil // No hosts matched
 	}
 	e.endedHosts = make(map[string]bool)
+	e.vars["ansible_play_hosts_all"] = append([]string(nil), hosts...)
+	e.vars["ansible_play_hosts"] = append([]string(nil), hosts...)
 
 	// Merge play vars
 	if err := e.loadPlayVarsFiles(play); err != nil {
@@ -457,6 +459,8 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		if len(batch) == 0 {
 			continue
 		}
+		e.vars["ansible_play_hosts"] = append([]string(nil), e.filterActiveHosts(hosts)...)
+		e.vars["ansible_play_batch"] = append([]string(nil), batch...)
 		e.batchFailedHosts = make(map[string]bool)
 		runSection := func(fn func() error) error {
 			if err := fn(); err != nil {
