@@ -504,6 +504,35 @@ func TestModulesAdv_ModuleCron_Good_SpecialTime(t *testing.T) {
 	assert.True(t, mock.containsSubstring(`@daily /usr/local/bin/backup.sh # daily-backup`))
 }
 
+func TestModulesAdv_ModuleCron_Good_BackupCreatesBackupFile(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	mock.expectCommand(`crontab -u root`, "", "", 0)
+	mock.expectCommand(`crontab -u root -l`, "0 0 * * * /usr/local/bin/backup.sh # daily-backup\n", "", 0)
+
+	result, err := e.moduleCron(context.Background(), mock, map[string]any{
+		"name":   "daily-backup",
+		"job":    "/usr/local/bin/backup.sh",
+		"minute": "0",
+		"hour":   "1",
+		"backup": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/tmp/ansible-cron-root-daily-backup.")
+	assert.Equal(t, 1, mock.uploadCount())
+	lastUpload := mock.lastUpload()
+	require.NotNil(t, lastUpload)
+	assert.Equal(t, backupPath, lastUpload.Remote)
+	assert.Equal(t, []byte("0 0 * * * /usr/local/bin/backup.sh # daily-backup\n"), lastUpload.Content)
+	assert.True(t, mock.containsSubstring("crontab -u root -l"))
+	assert.True(t, mock.containsSubstring("crontab -u root"))
+}
+
 func TestModulesAdv_ModuleCron_Good_DisabledJobCommentsEntry(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`crontab -u root`, "", "", 0)

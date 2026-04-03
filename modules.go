@@ -303,6 +303,63 @@ func backupRemoteFile(ctx context.Context, client sshExecutorClient, path string
 	return backupPath, true, nil
 }
 
+func backupCronTab(ctx context.Context, client sshExecutorClient, user, name string) (string, error) {
+	stdout, _, rc, err := client.Run(ctx, sprintf("crontab -u %s -l 2>/dev/null", user))
+	if err != nil {
+		return "", coreerr.E("Executor.moduleCron", "backup crontab", err)
+	}
+	if rc != 0 || strings.TrimSpace(stdout) == "" {
+		return "", nil
+	}
+
+	backupName := user
+	if backupName == "" {
+		backupName = "root"
+	}
+	if name != "" {
+		backupName += "-" + name
+	}
+	backupName = sanitizeBackupToken(backupName)
+
+	backupPath := path.Join("/tmp", sprintf("ansible-cron-%s.%s.bak", backupName, time.Now().UTC().Format("20060102T150405Z")))
+	if err := client.Upload(ctx, bytes.NewReader([]byte(stdout)), backupPath, 0600); err != nil {
+		return "", coreerr.E("Executor.moduleCron", "backup crontab", err)
+	}
+
+	return backupPath, nil
+}
+
+func sanitizeBackupToken(value string) string {
+	if value == "" {
+		return "default"
+	}
+
+	var b strings.Builder
+	b.Grow(len(value))
+	lastDash := false
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+
+	token := strings.Trim(b.String(), "-")
+	if token == "" {
+		return "default"
+	}
+	return token
+}
+
 // templateArgs templates all string values in args.
 func (e *Executor) templateArgs(args map[string]any, host string, task *Task) map[string]any {
 	// Set inventory_hostname for templating
@@ -2843,12 +2900,22 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 	user := getStringArg(args, "user", "root")
 	disabled := getBoolArg(args, "disabled", false)
 	specialTime := getStringArg(args, "special_time", "")
+	backup := getBoolArg(args, "backup", false)
 
 	minute := getStringArg(args, "minute", "*")
 	hour := getStringArg(args, "hour", "*")
 	day := getStringArg(args, "day", "*")
 	month := getStringArg(args, "month", "*")
 	weekday := getStringArg(args, "weekday", "*")
+
+	var backupPath string
+	if backup {
+		var err error
+		backupPath, err = backupCronTab(ctx, client, user, name)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if state == "absent" {
 		if name != "" {
@@ -2857,7 +2924,11 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 				user, name, job, user)
 			_, _, _, _ = client.Run(ctx, cmd)
 		}
-		return &TaskResult{Changed: true}, nil
+		result := &TaskResult{Changed: true}
+		if backupPath != "" {
+			result.Data = map[string]any{"backup_file": backupPath}
+		}
+		return result, nil
 	}
 
 	// Build cron entry
@@ -2878,7 +2949,11 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 	}
 
-	return &TaskResult{Changed: true}, nil
+	result := &TaskResult{Changed: true}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
+	return result, nil
 }
 
 func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {

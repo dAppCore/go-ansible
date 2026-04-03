@@ -8,6 +8,7 @@ import (
 	"path"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -521,6 +522,7 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 type sshRunner interface {
 	Run(ctx context.Context, cmd string) (string, string, int, error)
 	RunScript(ctx context.Context, script string) (string, string, int, error)
+	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
 }
 
 type sshFileTransferRunner interface {
@@ -1618,12 +1620,35 @@ func moduleCronWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 	user := getStringArg(args, "user", "root")
 	disabled := getBoolArg(args, "disabled", false)
 	specialTime := getStringArg(args, "special_time", "")
+	backup := getBoolArg(args, "backup", false)
 
 	minute := getStringArg(args, "minute", "*")
 	hour := getStringArg(args, "hour", "*")
 	day := getStringArg(args, "day", "*")
 	month := getStringArg(args, "month", "*")
 	weekday := getStringArg(args, "weekday", "*")
+
+	var backupPath string
+	if backup {
+		stdout, _, rc, err := client.Run(context.Background(), sprintf("crontab -u %s -l 2>/dev/null", user))
+		if err != nil {
+			return nil, err
+		}
+		if rc == 0 && strings.TrimSpace(stdout) != "" {
+			backupName := user
+			if backupName == "" {
+				backupName = "root"
+			}
+			if name != "" {
+				backupName += "-" + name
+			}
+			backupName = sanitizeBackupToken(backupName)
+			backupPath = path.Join("/tmp", sprintf("ansible-cron-%s.%s.bak", backupName, time.Now().UTC().Format("20060102T150405Z")))
+			if err := client.Upload(context.Background(), bytes.NewReader([]byte(stdout)), backupPath, 0600); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	if state == "absent" {
 		if name != "" {
@@ -1632,7 +1657,11 @@ func moduleCronWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 				user, name, job, user)
 			_, _, _, _ = client.Run(context.Background(), cmd)
 		}
-		return &TaskResult{Changed: true}, nil
+		result := &TaskResult{Changed: true}
+		if backupPath != "" {
+			result.Data = map[string]any{"backup_file": backupPath}
+		}
+		return result, nil
 	}
 
 	// Build cron entry
@@ -1653,7 +1682,11 @@ func moduleCronWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 	}
 
-	return &TaskResult{Changed: true}, nil
+	result := &TaskResult{Changed: true}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
+	return result, nil
 }
 
 // --- Authorized key module shim ---
