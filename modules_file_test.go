@@ -419,6 +419,32 @@ func TestModulesFile_ModuleFile_Good_StateLink(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`ln -sf "/opt/node/bin/node" "/usr/local/bin/node"`))
 }
 
+func TestModulesFile_ModuleFile_Good_StateHard(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleFileWithClient(e, mock, map[string]any{
+		"path":  "/usr/local/bin/node",
+		"state": "hard",
+		"src":   "/opt/node/bin/node",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`ln -f "/opt/node/bin/node" "/usr/local/bin/node"`))
+}
+
+func TestModulesFile_ModuleFile_Bad_StateHardMissingSrc(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	_, err := moduleFileWithClient(e, mock, map[string]any{
+		"path":  "/usr/local/bin/node",
+		"state": "hard",
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "src required for hard state")
+}
+
 func TestModulesFile_ModuleFile_Bad_LinkMissingSrc(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 

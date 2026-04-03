@@ -842,6 +842,17 @@ func moduleFileWithClient(_ *Executor, client sshFileRunner, args map[string]any
 			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
 		}
 
+	case "hard":
+		src := getStringArg(args, "src", "")
+		if src == "" {
+			return nil, mockError("moduleFileWithClient", "file: src required for hard state")
+		}
+		cmd := sprintf("ln -f %q %q", src, path)
+		_, stderr, rc, err := client.Run(context.Background(), cmd)
+		if err != nil || rc != 0 {
+			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
+		}
+
 	case "file":
 		// Ensure file exists and set permissions
 		if mode := getStringArg(args, "mode", ""); mode != "" {
