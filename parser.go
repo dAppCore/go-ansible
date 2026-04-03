@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"unicode"
 
 	coreio "dappco.re/go/core/io"
 	coreerr "dappco.re/go/core/log"
@@ -671,26 +670,38 @@ func parseActionSpecString(raw string) (string, map[string]any) {
 	}
 
 	args := make(map[string]any)
-	allKeyValues := true
-	for _, part := range parts[start:] {
+	freeFormStart := len(parts)
+	for i, part := range parts[start:] {
 		key, value, ok := strings.Cut(part, "=")
 		if !ok || key == "" {
-			allKeyValues = false
+			freeFormStart = start + i
 			break
 		}
 		args[key] = value
 	}
 
-	if allKeyValues && len(args) > 0 {
-		return module, args
-	}
-
-	sepIndex := strings.IndexFunc(raw, unicode.IsSpace)
-	if sepIndex < 0 || sepIndex >= len(raw)-1 {
+	if freeFormStart == len(parts) {
+		if len(args) > 0 {
+			return module, args
+		}
 		return module, nil
 	}
 
-	return module, map[string]any{"_raw_params": strings.TrimSpace(raw[sepIndex:])}
+	if freeFormStart < len(parts) {
+		rawParams := strings.Join(parts[freeFormStart:], " ")
+		if rawParams != "" {
+			if len(args) == 0 {
+				return module, map[string]any{"_raw_params": rawParams}
+			}
+			args["_raw_params"] = rawParams
+		}
+	}
+
+	if len(args) == 0 {
+		return module, nil
+	}
+
+	return module, args
 }
 
 // expandNestedLoop converts with_nested input into a loop of cartesian

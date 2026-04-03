@@ -350,6 +350,21 @@ action: module=copy src=/tmp/source dest=/tmp/dest mode=0644
 	assert.Equal(t, "0644", task.Args["mode"])
 }
 
+func TestTypes_Task_UnmarshalYAML_Good_ActionAliasMixedArgs(t *testing.T) {
+	input := `
+name: Legacy action with mixed args
+action: command chdir=/tmp echo hello world
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.Equal(t, "command", task.Module)
+	require.NotNil(t, task.Args)
+	assert.Equal(t, "/tmp", task.Args["chdir"])
+	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
+}
+
 func TestTypes_Task_UnmarshalYAML_Good_LocalAction(t *testing.T) {
 	input := `
 name: Legacy local action
@@ -393,6 +408,22 @@ local_action: module=command chdir=/tmp
 	assert.Equal(t, "localhost", task.Delegate)
 	require.NotNil(t, task.Args)
 	assert.Equal(t, "/tmp", task.Args["chdir"])
+}
+
+func TestTypes_Task_UnmarshalYAML_Good_LocalActionMixedArgs(t *testing.T) {
+	input := `
+name: Legacy local action with mixed args
+local_action: command chdir=/var/tmp echo local
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.Equal(t, "command", task.Module)
+	assert.Equal(t, "localhost", task.Delegate)
+	require.NotNil(t, task.Args)
+	assert.Equal(t, "/var/tmp", task.Args["chdir"])
+	assert.Equal(t, "echo local", task.Args["_raw_params"])
 }
 
 func TestTypes_Task_UnmarshalYAML_Good_WithNested(t *testing.T) {
