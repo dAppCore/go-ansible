@@ -1629,6 +1629,22 @@ func TestModulesAdv_ModuleUFW_Good_LimitRule(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`ufw limit 22/tcp`))
 }
 
+func TestModulesAdv_ModuleUFW_Good_DeleteRule(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`ufw delete allow 443/tcp`, "Rule deleted", "", 0)
+
+	result, err := moduleUFWWithClient(e, mock, map[string]any{
+		"rule":   "allow",
+		"port":   "443",
+		"delete": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`ufw delete allow 443/tcp`))
+}
+
 func TestModulesAdv_ModuleUFW_Good_LoggingMode(t *testing.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()

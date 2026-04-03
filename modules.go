@@ -3385,6 +3385,7 @@ func (e *Executor) moduleUFW(ctx context.Context, client sshExecutorClient, args
 	proto := getStringArg(args, "proto", "tcp")
 	state := getStringArg(args, "state", "")
 	logging := getStringArg(args, "logging", "")
+	deleteRule := getBoolArg(args, "delete", false)
 
 	var cmd string
 
@@ -3430,6 +3431,9 @@ func (e *Executor) moduleUFW(ctx context.Context, client sshExecutorClient, args
 			cmd = sprintf("ufw reject %s/%s", port, proto)
 		case "limit":
 			cmd = sprintf("ufw limit %s/%s", port, proto)
+		}
+		if deleteRule && cmd != "" {
+			cmd = "ufw delete " + corexTrimPrefix(cmd, "ufw ")
 		}
 
 		stdout, stderr, rc, err := client.Run(ctx, cmd)
