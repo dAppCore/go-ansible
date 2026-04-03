@@ -36,6 +36,11 @@ type commandRunner interface {
 func (e *Executor) executeModule(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play) (*TaskResult, error) {
 	originalModule := task.Module
 	module := NormalizeModule(originalModule)
+	executionHost := e.resolveDelegateHost(host, task)
+	factsHost := host
+	if task.DelegateFacts && task.Delegate != "" {
+		factsHost = executionHost
+	}
 
 	// Apply task-level become overrides, including an explicit disable.
 	if task.Become != nil {
@@ -138,7 +143,7 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 	case "ansible.builtin.ping":
 		return e.modulePing(ctx, client, args)
 	case "ansible.builtin.set_fact":
-		return e.moduleSetFact(host, args)
+		return e.moduleSetFact(factsHost, args)
 	case "ansible.builtin.add_host":
 		return e.moduleAddHost(args)
 	case "ansible.builtin.group_by":
@@ -168,7 +173,7 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 	case "ansible.builtin.meta":
 		return e.moduleMeta(args)
 	case "ansible.builtin.setup":
-		return e.moduleSetup(ctx, host, client, args)
+		return e.moduleSetup(ctx, factsHost, client, args)
 	case "ansible.builtin.reboot":
 		return e.moduleReboot(ctx, client, args)
 

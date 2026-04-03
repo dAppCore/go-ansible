@@ -194,6 +194,19 @@ func (e *Executor) setHostFacts(host string, values map[string]any) {
 	}
 }
 
+func (e *Executor) resolveDelegateHost(host string, task *Task) string {
+	if task == nil || task.Delegate == "" {
+		return host
+	}
+
+	resolved := e.templateString(task.Delegate, host, task)
+	if resolved == "" {
+		return host
+	}
+
+	return resolved
+}
+
 func (e *Executor) hostScopedVars(host string) map[string]any {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -1056,13 +1069,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	}
 
 	// Get SSH client
-	executionHost := host
-	if task.Delegate != "" {
-		executionHost = e.templateString(task.Delegate, host, task)
-		if executionHost == "" {
-			executionHost = host
-		}
-	}
+	executionHost := e.resolveDelegateHost(host, task)
 
 	client, err := e.getClient(executionHost, play)
 	if err != nil {
@@ -2030,6 +2037,9 @@ func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, pla
 		if task.Delegate != "" && child.Delegate == "" {
 			child.Delegate = task.Delegate
 		}
+		if task.DelegateFacts {
+			child.DelegateFacts = true
+		}
 		if task.RunOnce {
 			child.RunOnce = true
 		}
@@ -2283,6 +2293,9 @@ func (e *Executor) applyRoleTaskDefaults(task *Task, apply *TaskApply) {
 	}
 	if apply.Delegate != "" && task.Delegate == "" {
 		task.Delegate = apply.Delegate
+	}
+	if apply.DelegateFacts {
+		task.DelegateFacts = true
 	}
 	if apply.RunOnce && !task.RunOnce {
 		task.RunOnce = true

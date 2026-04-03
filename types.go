@@ -131,32 +131,33 @@ func directiveValue(fields map[string]any, name string) (any, bool) {
 //
 //	task := Task{Name: "Install nginx", Module: "apt", Args: map[string]any{"name": "nginx"}}
 type Task struct {
-	Name         string            `yaml:"name,omitempty"`
-	Module       string            `yaml:"-"` // Derived from the module key
-	Args         map[string]any    `yaml:"-"` // Module arguments
-	Register     string            `yaml:"register,omitempty"`
-	When         any               `yaml:"when,omitempty"` // string or []string
-	Loop         any               `yaml:"loop,omitempty"` // string or []any
-	LoopControl  *LoopControl      `yaml:"loop_control,omitempty"`
-	Vars         map[string]any    `yaml:"vars,omitempty"`
-	Environment  map[string]string `yaml:"environment,omitempty"`
-	ChangedWhen  any               `yaml:"changed_when,omitempty"`
-	FailedWhen   any               `yaml:"failed_when,omitempty"`
-	IgnoreErrors bool              `yaml:"ignore_errors,omitempty"`
-	NoLog        bool              `yaml:"no_log,omitempty"`
-	Become       *bool             `yaml:"become,omitempty"`
-	BecomeUser   string            `yaml:"become_user,omitempty"`
-	Delegate     string            `yaml:"delegate_to,omitempty"`
-	RunOnce      bool              `yaml:"run_once,omitempty"`
-	Tags         []string          `yaml:"tags,omitempty"`
-	Block        []Task            `yaml:"block,omitempty"`
-	Rescue       []Task            `yaml:"rescue,omitempty"`
-	Always       []Task            `yaml:"always,omitempty"`
-	Notify       any               `yaml:"notify,omitempty"` // string or []string
-	Listen       any               `yaml:"listen,omitempty"` // string or []string
-	Retries      int               `yaml:"retries,omitempty"`
-	Delay        int               `yaml:"delay,omitempty"`
-	Until        string            `yaml:"until,omitempty"`
+	Name          string            `yaml:"name,omitempty"`
+	Module        string            `yaml:"-"` // Derived from the module key
+	Args          map[string]any    `yaml:"-"` // Module arguments
+	Register      string            `yaml:"register,omitempty"`
+	When          any               `yaml:"when,omitempty"` // string or []string
+	Loop          any               `yaml:"loop,omitempty"` // string or []any
+	LoopControl   *LoopControl      `yaml:"loop_control,omitempty"`
+	Vars          map[string]any    `yaml:"vars,omitempty"`
+	Environment   map[string]string `yaml:"environment,omitempty"`
+	ChangedWhen   any               `yaml:"changed_when,omitempty"`
+	FailedWhen    any               `yaml:"failed_when,omitempty"`
+	IgnoreErrors  bool              `yaml:"ignore_errors,omitempty"`
+	NoLog         bool              `yaml:"no_log,omitempty"`
+	Become        *bool             `yaml:"become,omitempty"`
+	BecomeUser    string            `yaml:"become_user,omitempty"`
+	Delegate      string            `yaml:"delegate_to,omitempty"`
+	DelegateFacts bool              `yaml:"delegate_facts,omitempty"`
+	RunOnce       bool              `yaml:"run_once,omitempty"`
+	Tags          []string          `yaml:"tags,omitempty"`
+	Block         []Task            `yaml:"block,omitempty"`
+	Rescue        []Task            `yaml:"rescue,omitempty"`
+	Always        []Task            `yaml:"always,omitempty"`
+	Notify        any               `yaml:"notify,omitempty"` // string or []string
+	Listen        any               `yaml:"listen,omitempty"` // string or []string
+	Retries       int               `yaml:"retries,omitempty"`
+	Delay         int               `yaml:"delay,omitempty"`
+	Until         string            `yaml:"until,omitempty"`
 
 	// Include/import directives
 	IncludeTasks    string     `yaml:"include_tasks,omitempty"`
@@ -193,16 +194,17 @@ type LoopControl struct {
 //
 //	apply := TaskApply{Tags: []string{"deploy"}}
 type TaskApply struct {
-	Tags         []string          `yaml:"tags,omitempty"`
-	Vars         map[string]any    `yaml:"vars,omitempty"`
-	Environment  map[string]string `yaml:"environment,omitempty"`
-	When         any               `yaml:"when,omitempty"`
-	Become       *bool             `yaml:"become,omitempty"`
-	BecomeUser   string            `yaml:"become_user,omitempty"`
-	Delegate     string            `yaml:"delegate_to,omitempty"`
-	RunOnce      bool              `yaml:"run_once,omitempty"`
-	NoLog        bool              `yaml:"no_log,omitempty"`
-	IgnoreErrors bool              `yaml:"ignore_errors,omitempty"`
+	Tags          []string          `yaml:"tags,omitempty"`
+	Vars          map[string]any    `yaml:"vars,omitempty"`
+	Environment   map[string]string `yaml:"environment,omitempty"`
+	When          any               `yaml:"when,omitempty"`
+	Become        *bool             `yaml:"become,omitempty"`
+	BecomeUser    string            `yaml:"become_user,omitempty"`
+	Delegate      string            `yaml:"delegate_to,omitempty"`
+	DelegateFacts bool              `yaml:"delegate_facts,omitempty"`
+	RunOnce       bool              `yaml:"run_once,omitempty"`
+	NoLog         bool              `yaml:"no_log,omitempty"`
+	IgnoreErrors  bool              `yaml:"ignore_errors,omitempty"`
 }
 
 // TaskResult holds the result of executing a task.

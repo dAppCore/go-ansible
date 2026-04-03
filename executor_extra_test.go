@@ -118,6 +118,26 @@ func TestExecutorExtra_ModuleSetFact_Good_ReturnsStructuredFacts(t *testing.T) {
 	assert.False(t, cached)
 }
 
+func TestExecutorExtra_ExecuteModule_Good_DelegateFactsStoresOnDelegateHost(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+
+	task := &Task{
+		Module:        "set_fact",
+		Args:          map[string]any{"app_version": "2.0.0"},
+		Delegate:      "delegate1",
+		DelegateFacts: true,
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "2.0.0", e.hostScopedVars("delegate1")["app_version"])
+	assert.Nil(t, e.hostScopedVars("host1"))
+	assert.Equal(t, "2.0.0", e.hostFactsMap("delegate1")["app_version"])
+	assert.Nil(t, e.hostFactsMap("host1"))
+}
+
 func TestExecutorExtra_ExecuteModule_Good_LegacyNamespaceCommand(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand("echo hello", "hello\n", "", 0)

@@ -686,6 +686,7 @@ apply:
     - deploy
   become: true
   become_user: root
+  delegate_facts: true
   environment:
     APP_ENV: production
 `
@@ -698,7 +699,22 @@ apply:
 	require.NotNil(t, task.Apply.Become)
 	assert.True(t, *task.Apply.Become)
 	assert.Equal(t, "root", task.Apply.BecomeUser)
+	assert.True(t, task.Apply.DelegateFacts)
 	assert.Equal(t, "production", task.Apply.Environment["APP_ENV"])
+}
+
+func TestTypes_Task_UnmarshalYAML_Good_DelegateFacts(t *testing.T) {
+	input := `
+name: Gather delegated facts
+delegate_to: delegate1
+delegate_facts: true
+setup:
+`
+	var task Task
+	err := yaml.Unmarshal([]byte(input), &task)
+
+	require.NoError(t, err)
+	assert.True(t, task.DelegateFacts)
 }
 
 func TestTypes_Task_UnmarshalYAML_Good_IncludeRole(t *testing.T) {
