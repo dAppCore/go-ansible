@@ -185,6 +185,43 @@ func TestParser_ParsePlaybook_Good_FQCNImportPlaybook(t *testing.T) {
 	assert.Equal(t, "all", plays[0].Hosts)
 }
 
+func TestParser_ParsePlaybook_Good_NestedImportPlaybookDirScope(t *testing.T) {
+	dir := t.TempDir()
+	mainPath := joinPath(dir, "site.yml")
+	outerDir := joinPath(dir, "plays")
+	outerPath := joinPath(outerDir, "outer.yml")
+	innerDir := joinPath(outerDir, "nested")
+	innerPath := joinPath(innerDir, "inner.yml")
+
+	yamlMain := `---
+- import_playbook: plays/outer.yml
+`
+	yamlOuter := `---
+- import_playbook: "{{ playbook_dir }}/nested/inner.yml"
+`
+	yamlInner := `---
+- name: Inner play
+  hosts: all
+  tasks:
+    - name: Say inner
+      debug:
+        msg: "inner"
+`
+	require.NoError(t, os.MkdirAll(innerDir, 0755))
+	require.NoError(t, writeTestFile(mainPath, []byte(yamlMain), 0644))
+	require.NoError(t, writeTestFile(outerPath, []byte(yamlOuter), 0644))
+	require.NoError(t, writeTestFile(innerPath, []byte(yamlInner), 0644))
+
+	p := NewParser(dir)
+	plays, err := p.ParsePlaybook("site.yml")
+
+	require.NoError(t, err)
+	require.Len(t, plays, 1)
+	assert.Equal(t, "Inner play", plays[0].Name)
+	require.NotNil(t, plays[0].Vars)
+	assert.Equal(t, dir, plays[0].Vars["playbook_dir"])
+}
+
 func TestParser_ParsePlaybook_Good_WithVars(t *testing.T) {
 	dir := t.TempDir()
 	path := joinPath(dir, "playbook.yml")

@@ -86,9 +86,26 @@ func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error
 			if importPath != "" && !pathIsAbs(importPath) {
 				importPath = joinPath(pathDir(path), importPath)
 			}
-			imported, err := p.parsePlaybook(importPath, seen)
+			savedPlaybookDir, hadPlaybookDir := p.vars["playbook_dir"]
+			p.vars["playbook_dir"] = pathDir(importPath)
+			imported, err := func() ([]Play, error) {
+				defer func() {
+					if hadPlaybookDir {
+						p.vars["playbook_dir"] = savedPlaybookDir
+					} else {
+						delete(p.vars, "playbook_dir")
+					}
+				}()
+				return p.parsePlaybook(importPath, seen)
+			}()
 			if err != nil {
 				return nil, coreerr.E("Parser.ParsePlaybook", sprintf("expand import_playbook %d", i), err)
+			}
+			for i := range imported {
+				if imported[i].Vars == nil {
+					imported[i].Vars = make(map[string]any)
+				}
+				imported[i].Vars["playbook_dir"] = savedPlaybookDir
 			}
 			expanded = append(expanded, imported...)
 			continue
