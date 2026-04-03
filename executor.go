@@ -3630,10 +3630,81 @@ func (e *Executor) resolveLoopExpression(loop string, host string, task *Task) (
 		return nil, false
 	}
 
-	if value, ok := e.lookupConditionValue(expr, host, task, nil); ok {
+	parts := splitTemplatePipeline(expr)
+	if len(parts) == 0 {
+		return nil, false
+	}
+
+	if value, ok := e.resolveLoopExpressionValue(parts, host, task); ok {
 		if items, ok := anySliceFromValue(value); ok {
 			return items, true
 		}
+	}
+
+	return nil, false
+}
+
+func (e *Executor) resolveLoopExpressionValue(parts []string, host string, task *Task) (any, bool) {
+	if len(parts) == 0 {
+		return nil, false
+	}
+
+	baseExpr := corexTrimSpace(parts[0])
+	value, ok := e.lookupExprValue(baseExpr, host, task)
+	if !ok || isEmptyLoopValue(value) {
+		if fallback, found := resolveDefaultLoopValue(parts[1:]); found {
+			return fallback, true
+		}
+		if ok {
+			return value, true
+		}
+		return nil, false
+	}
+
+	return value, true
+}
+
+func isEmptyLoopValue(value any) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		return corexTrimSpace(v) == ""
+	case []any:
+		return len(v) == 0
+	case []string:
+		return len(v) == 0
+	}
+
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() {
+		return true
+	}
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Map:
+		return rv.Len() == 0
+	}
+
+	return false
+}
+
+func resolveDefaultLoopValue(filters []string) (any, bool) {
+	for _, filter := range filters {
+		filter = corexTrimSpace(filter)
+		if !corexHasPrefix(filter, "default(") || !corexHasSuffix(filter, ")") {
+			continue
+		}
+
+		raw := strings.TrimSpace(filter[len("default(") : len(filter)-1])
+		if raw == "" {
+			return []any{}, true
+		}
+
+		var value any
+		if err := yaml.Unmarshal([]byte(raw), &value); err != nil {
+			return trimCutset(raw, "'\""), true
+		}
+		return value, true
 	}
 
 	return nil, false

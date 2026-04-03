@@ -1442,6 +1442,30 @@ func TestExecutor_RunTaskOnHost_Good_LoopControlExtendedExposesNeighbourItems(t 
 	assert.Equal(t, "prev=one next=NONE all=[one two]", result.Results[1].Msg)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopTemplateDefaultExpandsItems(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Loop default fallback",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop:     "{{ missing_items | default(['alpha', 'beta']) }}",
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "alpha", result.Results[0].Msg)
+	assert.Equal(t, "beta", result.Results[1].Msg)
+}
+
 func TestExecutor_RunTaskOnHost_Good_LoopFromWithDictItems(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.clients["host1"] = NewMockSSHClient()
