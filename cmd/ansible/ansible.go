@@ -15,6 +15,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type playbookCommandSettings struct {
+	playbookPath string
+	basePath     string
+	limit        string
+	tags         []string
+	skipTags     []string
+	extraVars    map[string]any
+	verbose      int
+	checkMode    bool
+	diff         bool
+}
+
+func splitCommaSeparatedOption(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return split(value, ",")
+}
+
 // positionalArgs extracts all positional arguments from Options.
 func positionalArgs(opts core.Options) []string {
 	var out []string
@@ -190,46 +209,56 @@ func resolveTestSSHKeyFile(opts core.Options) string {
 	return opts.String("i")
 }
 
-func runPlaybookCommand(opts core.Options) core.Result {
+func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbookCommandSettings, error) {
 	positional := positionalArgs(opts)
 	if len(positional) < 1 {
-		return core.Result{Value: coreerr.E("runPlaybookCommand", "usage: ansible <playbook>", nil)}
+		return playbookCommandSettings{}, coreerr.E("buildPlaybookCommandSettings", "usage: ansible <playbook>", nil)
 	}
 	playbookPath := positional[0]
 
-	// Resolve playbook path
 	if !pathIsAbs(playbookPath) {
 		playbookPath = absPath(playbookPath)
 	}
 
 	if !coreio.Local.Exists(playbookPath) {
-		return core.Result{Value: coreerr.E("runPlaybookCommand", sprintf("playbook not found: %s", playbookPath), nil)}
+		return playbookCommandSettings{}, coreerr.E("buildPlaybookCommandSettings", sprintf("playbook not found: %s", playbookPath), nil)
 	}
 
-	// Create executor
-	basePath := pathDir(playbookPath)
-	executor := ansible.NewExecutor(basePath)
-	defer executor.Close()
-
-	// Set options
-	executor.Limit = firstStringOption(opts, "limit", "l")
-	executor.CheckMode = opts.Bool("check")
-	executor.Diff = opts.Bool("diff")
-	executor.Verbose = verbosityLevel(opts, os.Args[1:])
-
-	if tags := firstStringOption(opts, "tags", "t"); tags != "" {
-		executor.Tags = split(tags, ",")
-	}
-	if skipTags := opts.String("skip-tags"); skipTags != "" {
-		executor.SkipTags = split(skipTags, ",")
-	}
-
-	// Parse extra vars
 	vars, err := extraVars(opts)
 	if err != nil {
-		return core.Result{Value: coreerr.E("runPlaybookCommand", "parse extra vars", err)}
+		return playbookCommandSettings{}, coreerr.E("buildPlaybookCommandSettings", "parse extra vars", err)
 	}
-	for key, value := range vars {
+
+	return playbookCommandSettings{
+		playbookPath: playbookPath,
+		basePath:     pathDir(playbookPath),
+		limit:        firstStringOption(opts, "limit", "l"),
+		tags:         splitCommaSeparatedOption(firstStringOption(opts, "tags", "t")),
+		skipTags:     splitCommaSeparatedOption(firstStringOption(opts, "skip-tags")),
+		extraVars:    vars,
+		verbose:      verbosityLevel(opts, rawArgs),
+		checkMode:    opts.Bool("check"),
+		diff:         opts.Bool("diff"),
+	}, nil
+}
+
+func runPlaybookCommand(opts core.Options) core.Result {
+	settings, err := buildPlaybookCommandSettings(opts, os.Args[1:])
+	if err != nil {
+		return core.Result{Value: err}
+	}
+
+	executor := ansible.NewExecutor(settings.basePath)
+	defer executor.Close()
+
+	executor.Limit = settings.limit
+	executor.CheckMode = settings.checkMode
+	executor.Diff = settings.diff
+	executor.Verbose = settings.verbose
+	executor.Tags = settings.tags
+	executor.SkipTags = settings.skipTags
+
+	for key, value := range settings.extraVars {
 		executor.SetVar(key, value)
 	}
 
@@ -327,9 +356,9 @@ func runPlaybookCommand(opts core.Options) core.Result {
 	ctx := context.Background()
 	start := time.Now()
 
-	print("Running playbook: %s", playbookPath)
+	print("Running playbook: %s", settings.playbookPath)
 
-	if err := executor.Run(ctx, playbookPath); err != nil {
+	if err := executor.Run(ctx, settings.playbookPath); err != nil {
 		return core.Result{Value: coreerr.E("runPlaybookCommand", "playbook failed", err)}
 	}
 

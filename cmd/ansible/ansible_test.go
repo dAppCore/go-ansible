@@ -139,6 +139,42 @@ func TestVerbosityLevel_Good_PreservesExplicitNumericLevel(t *testing.T) {
 	assert.Equal(t, 2, verbosityLevel(opts, nil))
 }
 
+func TestBuildPlaybookCommandSettings_Good_AppliesFlags(t *testing.T) {
+	dir := t.TempDir()
+	playbookPath := filepath.Join(dir, "site.yml")
+	require.NoError(t, os.WriteFile(playbookPath, []byte("- hosts: all\n  tasks: []\n"), 0644))
+
+	opts := core.NewOptions(
+		core.Option{Key: "_arg", Value: playbookPath},
+		core.Option{Key: "limit", Value: "web1"},
+		core.Option{Key: "tags", Value: "deploy,setup"},
+		core.Option{Key: "skip-tags", Value: "slow"},
+		core.Option{Key: "extra-vars", Value: "version=1.2.3"},
+		core.Option{Key: "check", Value: true},
+		core.Option{Key: "diff", Value: true},
+	)
+
+	settings, err := buildPlaybookCommandSettings(opts, []string{"-vvv"})
+	require.NoError(t, err)
+
+	assert.Equal(t, playbookPath, settings.playbookPath)
+	assert.Equal(t, dir, settings.basePath)
+	assert.Equal(t, "web1", settings.limit)
+	assert.Equal(t, []string{"deploy", "setup"}, settings.tags)
+	assert.Equal(t, []string{"slow"}, settings.skipTags)
+	assert.Equal(t, 3, settings.verbose)
+	assert.True(t, settings.checkMode)
+	assert.True(t, settings.diff)
+	assert.Equal(t, map[string]any{"version": "1.2.3"}, settings.extraVars)
+}
+
+func TestBuildPlaybookCommandSettings_Bad_MissingPlaybook(t *testing.T) {
+	_, err := buildPlaybookCommandSettings(core.NewOptions(), nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "usage: ansible <playbook>")
+}
+
 func TestTestKeyFile_Good_PrefersExplicitKey(t *testing.T) {
 	opts := core.NewOptions(
 		core.Option{Key: "key", Value: "/tmp/id_ed25519"},
