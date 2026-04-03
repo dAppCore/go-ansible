@@ -495,6 +495,25 @@ func TestModulesFile_ModuleFile_Good_RecurseOwner(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`chown -R www-data "/var/www"`))
 }
 
+func TestModulesFile_ModuleFile_Good_RecurseGroupAndMode(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleFileWithClient(e, mock, map[string]any{
+		"path":    "/srv/app",
+		"state":   "directory",
+		"group":   "appgroup",
+		"mode":    "0770",
+		"recurse": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	assert.True(t, mock.hasExecuted(`chgrp appgroup "/srv/app"`))
+	assert.True(t, mock.hasExecuted(`chgrp -R appgroup "/srv/app"`))
+	assert.True(t, mock.hasExecuted(`chmod -R 0770 "/srv/app"`))
+}
+
 func TestModulesFile_ModuleFile_Bad_MissingPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 

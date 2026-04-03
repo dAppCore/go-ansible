@@ -812,6 +812,12 @@ func (e *Executor) moduleFile(ctx context.Context, client sshExecutorClient, arg
 		if owner := getStringArg(args, "owner", ""); owner != "" {
 			_, _, _, _ = client.Run(ctx, sprintf("chown -R %s %q", owner, path))
 		}
+		if group := getStringArg(args, "group", ""); group != "" {
+			_, _, _, _ = client.Run(ctx, sprintf("chgrp -R %s %q", group, path))
+		}
+		if mode := getStringArg(args, "mode", ""); mode != "" {
+			_, _, _, _ = client.Run(ctx, sprintf("chmod -R %s %q", mode, path))
+		}
 	}
 
 	return &TaskResult{Changed: true}, nil

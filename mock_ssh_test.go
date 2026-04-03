@@ -871,6 +871,12 @@ func moduleFileWithClient(_ *Executor, client sshFileRunner, args map[string]any
 		if owner := getStringArg(args, "owner", ""); owner != "" {
 			_, _, _, _ = client.Run(context.Background(), sprintf("chown -R %s %q", owner, path))
 		}
+		if group := getStringArg(args, "group", ""); group != "" {
+			_, _, _, _ = client.Run(context.Background(), sprintf("chgrp -R %s %q", group, path))
+		}
+		if mode := getStringArg(args, "mode", ""); mode != "" {
+			_, _, _, _ = client.Run(context.Background(), sprintf("chmod -R %s %q", mode, path))
+		}
 	}
 
 	return &TaskResult{Changed: true}, nil
