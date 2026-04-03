@@ -25,6 +25,7 @@ import (
 var errEndPlay = errors.New("end play")
 var errEndHost = errors.New("end host")
 var errEndBatch = errors.New("end batch")
+var errEndRole = errors.New("end role")
 var errTaskFailed = errors.New("task failed")
 
 // sshExecutorClient is the client contract used by the executor.
@@ -754,6 +755,10 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 			effectiveTask.When = mergeConditions(inheritedWhen, effectiveTask.When)
 		}
 		if err := e.runTaskOnHosts(ctx, eligibleHosts, &effectiveTask, play); err != nil {
+			if errors.Is(err, errEndRole) {
+				e.vars = oldVars
+				return nil
+			}
 			// Restore vars
 			e.vars = oldVars
 			return err
@@ -3629,6 +3634,8 @@ func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []st
 	case "reset_connection":
 		e.resetConnection(host)
 		return nil
+	case "end_role":
+		return errEndRole
 	default:
 		return nil
 	}

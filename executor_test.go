@@ -648,6 +648,49 @@ func TestExecutor_RunRole_Good_AppliesRoleTagsToTasks(t *testing.T) {
 	assert.Equal(t, "role ran", e.results["host1"]["role_result"].Msg)
 }
 
+func TestExecutor_RunRole_Good_MetaEndRoleStopsRemainingRoleTasks(t *testing.T) {
+	dir := t.TempDir()
+	roleTasks := `---
+- name: before end_role
+  debug:
+    msg: before
+  register: before_result
+- name: stop role
+  meta: end_role
+- name: after end_role
+  debug:
+    msg: after
+  register: after_result
+`
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "deploy", "tasks", "main.yml"), []byte(roleTasks), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+
+	play := &Play{Connection: "local"}
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	err := e.runRole(context.Background(), []string{"host1"}, &RoleRef{
+		Role: "deploy",
+	}, play, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"before end_role", "stop role"}, executed)
+	require.NotNil(t, e.results["host1"]["before_result"])
+	_, hasAfter := e.results["host1"]["after_result"]
+	assert.False(t, hasAfter)
+}
+
 func TestExecutor_RunRole_Good_AppliesRoleDefaultsAndVars(t *testing.T) {
 	dir := t.TempDir()
 
