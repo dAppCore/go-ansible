@@ -14,6 +14,10 @@ import (
 // localClient executes commands and file operations on the controller host.
 // It satisfies sshExecutorClient so the executor can reuse the same module
 // handlers for `connection: local` playbooks.
+//
+// Example:
+//
+//	client := newLocalClient()
 type localClient struct {
 	mu         sync.Mutex
 	become     bool
@@ -21,6 +25,11 @@ type localClient struct {
 	becomePass string
 }
 
+// newLocalClient creates a controller-side client for `connection: local`.
+//
+// Example:
+//
+//	client := newLocalClient()
 func newLocalClient() *localClient {
 	return &localClient{}
 }
