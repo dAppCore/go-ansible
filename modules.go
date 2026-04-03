@@ -1012,7 +1012,7 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 // --- Package Modules ---
 
 func (e *Executor) moduleApt(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
+	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
 
@@ -1024,13 +1024,17 @@ func (e *Executor) moduleApt(ctx context.Context, client sshExecutorClient, args
 
 	switch state {
 	case "present", "installed":
-		if name != "" {
-			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq %s", name)
+		if len(names) > 0 {
+			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq %s", join(" ", names))
 		}
 	case "absent", "removed":
-		cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq %s", name)
+		if len(names) > 0 {
+			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq %s", join(" ", names))
+		}
 	case "latest":
-		cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade %s", name)
+		if len(names) > 0 {
+			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade %s", join(" ", names))
+		}
 	}
 
 	if cmd == "" {
@@ -1137,7 +1141,7 @@ func (e *Executor) moduleDnf(ctx context.Context, client sshExecutorClient, args
 }
 
 func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args map[string]any, manager string) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
+	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
 
@@ -1148,29 +1152,29 @@ func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args
 	var cmd string
 	switch state {
 	case "present", "installed":
-		if name != "" {
+		if len(names) > 0 {
 			if manager == "rpm" {
-				cmd = sprintf("rpm -ivh %s", name)
+				cmd = sprintf("rpm -ivh %s", join(" ", names))
 			} else {
-				cmd = sprintf("%s install -y -q %s", manager, name)
+				cmd = sprintf("%s install -y -q %s", manager, join(" ", names))
 			}
 		}
 	case "absent", "removed":
-		if name != "" {
+		if len(names) > 0 {
 			if manager == "rpm" {
-				cmd = sprintf("rpm -e %s", name)
+				cmd = sprintf("rpm -e %s", join(" ", names))
 			} else {
-				cmd = sprintf("%s remove -y -q %s", manager, name)
+				cmd = sprintf("%s remove -y -q %s", manager, join(" ", names))
 			}
 		}
 	case "latest":
-		if name != "" {
+		if len(names) > 0 {
 			if manager == "rpm" {
-				cmd = sprintf("rpm -Uvh %s", name)
+				cmd = sprintf("rpm -Uvh %s", join(" ", names))
 			} else if manager == "dnf" {
-				cmd = sprintf("%s upgrade -y -q %s", manager, name)
+				cmd = sprintf("%s upgrade -y -q %s", manager, join(" ", names))
 			} else {
-				cmd = sprintf("%s update -y -q %s", manager, name)
+				cmd = sprintf("%s update -y -q %s", manager, join(" ", names))
 			}
 		}
 	}
@@ -1188,7 +1192,7 @@ func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args
 }
 
 func (e *Executor) modulePip(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
+	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	executable := getStringArg(args, "executable", "pip3")
 	virtualenv := getStringArg(args, "virtualenv", "")
@@ -1209,26 +1213,26 @@ func (e *Executor) modulePip(ctx context.Context, client sshExecutorClient, args
 		switch {
 		case requirements != "":
 			parts = append(parts, sprintf("-r %q", requirements))
-		case name != "":
-			parts = append(parts, name)
+		case len(names) > 0:
+			parts = append(parts, join(" ", names))
 		}
 		cmd = join(" ", parts)
 	case "absent", "removed":
-		if name != "" {
+		if len(names) > 0 {
 			parts := []string{executable, "uninstall", "-y"}
 			if extraArgs != "" {
 				parts = append(parts, extraArgs)
 			}
-			parts = append(parts, name)
+			parts = append(parts, join(" ", names))
 			cmd = join(" ", parts)
 		}
 	case "latest":
-		if name != "" {
+		if len(names) > 0 {
 			parts := []string{executable, "install", "--upgrade"}
 			if extraArgs != "" {
 				parts = append(parts, extraArgs)
 			}
-			parts = append(parts, name)
+			parts = append(parts, join(" ", names))
 			cmd = join(" ", parts)
 		}
 	}
@@ -1323,8 +1327,8 @@ func (e *Executor) moduleUser(ctx context.Context, client sshExecutorClient, arg
 	if group := getStringArg(args, "group", ""); group != "" {
 		opts = append(opts, "-g", group)
 	}
-	if groups := getStringArg(args, "groups", ""); groups != "" {
-		opts = append(opts, "-G", groups)
+	if groups := normalizeStringArgs(args["groups"]); len(groups) > 0 {
+		opts = append(opts, "-G", join(",", groups))
 	}
 	if home := getStringArg(args, "home", ""); home != "" {
 		opts = append(opts, "-d", home)
@@ -1990,6 +1994,48 @@ func normalizeStringList(value any) []string {
 		}
 		return []string{s}
 	}
+}
+
+// normalizeStringArgs collects one or more string values from a scalar or list
+// input without splitting comma-separated content.
+func normalizeStringArgs(value any) []string {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case string:
+		if trimmed := corexTrimSpace(v); trimmed != "" {
+			return []string{trimmed}
+		}
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if trimmed := corexTrimSpace(item); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				if trimmed := corexTrimSpace(s); trimmed != "" {
+					out = append(out, trimmed)
+				}
+				continue
+			}
+			s := corexTrimSpace(corexSprint(item))
+			if s != "" && s != "<nil>" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		s := corexTrimSpace(corexSprint(v))
+		if s != "" && s != "<nil>" {
+			return []string{s}
+		}
+	}
+	return nil
 }
 
 func ensureInventoryGroup(parent *InventoryGroup, name string) *InventoryGroup {

@@ -61,6 +61,22 @@ func TestModulesAdv_ModuleUser_Good_ModifyExistingUser(t *testing.T) {
 	assert.True(t, mock.containsSubstring("-s /bin/zsh"))
 }
 
+func TestModulesAdv_ModuleUser_Good_GroupListInput(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`id deploy >/dev/null 2>&1`, "", "no such user", 1)
+	mock.expectCommand(`useradd`, "", "", 0)
+
+	result, err := moduleUserWithClient(e, mock, map[string]any{
+		"name":   "deploy",
+		"groups": []any{"docker", "sudo"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.containsSubstring("-G docker,sudo"))
+}
+
 func TestModulesAdv_ModuleUser_Good_RemoveUser(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`userdel -r deploy`, "", "", 0)

@@ -424,6 +424,19 @@ func TestModulesSvc_ModuleApt_Good_DefaultStateIsPresent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`apt-get install -y -qq vim`))
 }
 
+func TestModulesSvc_ModuleApt_Good_InstallMultiplePackages(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`apt-get install -y -qq nginx curl`, "", "", 0)
+
+	result, err := moduleAptWithClient(e, mock, map[string]any{
+		"name": []any{"nginx", "curl"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`apt-get install -y -qq nginx curl`))
+}
+
 // --- apt_key module ---
 
 func TestModulesSvc_ModuleAptKey_Good_AddWithKeyring(t *testing.T) {
@@ -900,6 +913,19 @@ func TestModulesSvc_ModulePip_Good_DefaultStateIsPresent(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Changed)
 	assert.True(t, mock.hasExecuted(`pip3 install django`))
+}
+
+func TestModulesSvc_ModulePip_Good_InstallMultiplePackages(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`pip3 install requests flask`, "", "", 0)
+
+	result, err := modulePipWithClient(e, mock, map[string]any{
+		"name": []any{"requests", "flask"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`pip3 install requests flask`))
 }
 
 func TestModulesSvc_ModulePip_Good_CommandFailure(t *testing.T) {

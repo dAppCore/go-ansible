@@ -1161,7 +1161,7 @@ func moduleSystemdWithClient(e *Executor, client sshRunner, args map[string]any)
 // --- Package module shims ---
 
 func moduleAptWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
+	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
 
@@ -1173,13 +1173,17 @@ func moduleAptWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 
 	switch state {
 	case "present", "installed":
-		if name != "" {
-			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq %s", name)
+		if len(names) > 0 {
+			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq %s", join(" ", names))
 		}
 	case "absent", "removed":
-		cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq %s", name)
+		if len(names) > 0 {
+			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq %s", join(" ", names))
+		}
 	case "latest":
-		cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade %s", name)
+		if len(names) > 0 {
+			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade %s", join(" ", names))
+		}
 	}
 
 	if cmd == "" {
@@ -1283,7 +1287,7 @@ func moduleDnfWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 }
 
 func moduleRPMWithClient(client sshRunner, args map[string]any, manager string) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
+	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
 
@@ -1294,29 +1298,29 @@ func moduleRPMWithClient(client sshRunner, args map[string]any, manager string) 
 	var cmd string
 	switch state {
 	case "present", "installed":
-		if name != "" {
+		if len(names) > 0 {
 			if manager == "rpm" {
-				cmd = sprintf("rpm -ivh %s", name)
+				cmd = sprintf("rpm -ivh %s", join(" ", names))
 			} else {
-				cmd = sprintf("%s install -y -q %s", manager, name)
+				cmd = sprintf("%s install -y -q %s", manager, join(" ", names))
 			}
 		}
 	case "absent", "removed":
-		if name != "" {
+		if len(names) > 0 {
 			if manager == "rpm" {
-				cmd = sprintf("rpm -e %s", name)
+				cmd = sprintf("rpm -e %s", join(" ", names))
 			} else {
-				cmd = sprintf("%s remove -y -q %s", manager, name)
+				cmd = sprintf("%s remove -y -q %s", manager, join(" ", names))
 			}
 		}
 	case "latest":
-		if name != "" {
+		if len(names) > 0 {
 			if manager == "rpm" {
-				cmd = sprintf("rpm -Uvh %s", name)
+				cmd = sprintf("rpm -Uvh %s", join(" ", names))
 			} else if manager == "dnf" {
-				cmd = sprintf("%s upgrade -y -q %s", manager, name)
+				cmd = sprintf("%s upgrade -y -q %s", manager, join(" ", names))
 			} else {
-				cmd = sprintf("%s update -y -q %s", manager, name)
+				cmd = sprintf("%s update -y -q %s", manager, join(" ", names))
 			}
 		}
 	}
@@ -1334,7 +1338,7 @@ func moduleRPMWithClient(client sshRunner, args map[string]any, manager string) 
 }
 
 func modulePipWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
+	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	executable := getStringArg(args, "executable", "pip3")
 	virtualenv := getStringArg(args, "virtualenv", "")
@@ -1355,26 +1359,26 @@ func modulePipWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 		switch {
 		case requirements != "":
 			parts = append(parts, sprintf("-r %q", requirements))
-		case name != "":
-			parts = append(parts, name)
+		case len(names) > 0:
+			parts = append(parts, join(" ", names))
 		}
 		cmd = join(" ", parts)
 	case "absent", "removed":
-		if name != "" {
+		if len(names) > 0 {
 			parts := []string{executable, "uninstall", "-y"}
 			if extraArgs != "" {
 				parts = append(parts, extraArgs)
 			}
-			parts = append(parts, name)
+			parts = append(parts, join(" ", names))
 			cmd = join(" ", parts)
 		}
 	case "latest":
-		if name != "" {
+		if len(names) > 0 {
 			parts := []string{executable, "install", "--upgrade"}
 			if extraArgs != "" {
 				parts = append(parts, extraArgs)
 			}
-			parts = append(parts, name)
+			parts = append(parts, join(" ", names))
 			cmd = join(" ", parts)
 		}
 	}
@@ -1416,8 +1420,8 @@ func moduleUserWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 	if group := getStringArg(args, "group", ""); group != "" {
 		opts = append(opts, "-g", group)
 	}
-	if groups := getStringArg(args, "groups", ""); groups != "" {
-		opts = append(opts, "-G", groups)
+	if groups := normalizeStringArgs(args["groups"]); len(groups) > 0 {
+		opts = append(opts, "-G", join(",", groups))
 	}
 	if home := getStringArg(args, "home", ""); home != "" {
 		opts = append(opts, "-d", home)
