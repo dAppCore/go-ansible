@@ -888,6 +888,14 @@ func TestExecutorExtra_HandleLookup_Good_VarsLookup(t *testing.T) {
 	assert.Equal(t, "resolved from vars", result)
 }
 
+func TestExecutorExtra_HandleLookup_Good_PipeLookup(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := e.handleLookup("lookup('pipe', 'printf pipe-value')", "", nil)
+
+	assert.Equal(t, "pipe-value", result)
+}
+
 func TestExecutorExtra_HandleLookup_Bad_InvalidSyntax(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result := e.handleLookup("lookup(invalid)", "", nil)

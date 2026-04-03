@@ -3570,14 +3570,19 @@ func isUnresolvedTemplateValue(value string) bool {
 // handleLookup handles lookup() expressions.
 func (e *Executor) handleLookup(expr string, host string, task *Task) string {
 	// Parse lookup('type', 'arg')
-	re := regexp.MustCompile(`lookup\s*\(\s*['"](\w+)['"]\s*,\s*['"]([^'"]+)['"]\s*`)
+	re := regexp.MustCompile(`lookup\s*\(\s*['"](\w+)['"]\s*,\s*(.+?)\s*\)`)
 	match := re.FindStringSubmatch(expr)
 	if len(match) < 3 {
 		return ""
 	}
 
 	lookupType := match[1]
-	arg := match[2]
+	arg := strings.TrimSpace(match[2])
+	if len(arg) >= 2 {
+		if (arg[0] == '\'' && arg[len(arg)-1] == '\'') || (arg[0] == '"' && arg[len(arg)-1] == '"') {
+			arg = arg[1 : len(arg)-1]
+		}
+	}
 
 	switch lookupType {
 	case "env":
@@ -3585,6 +3590,11 @@ func (e *Executor) handleLookup(expr string, host string, task *Task) string {
 	case "file":
 		if data, err := coreio.Local.Read(e.resolveLocalPath(arg)); err == nil {
 			return data
+		}
+	case "pipe":
+		stdout, _, rc, err := runLocalShell(context.Background(), arg, "")
+		if err == nil && rc == 0 {
+			return strings.TrimRight(stdout, "\r\n")
 		}
 	case "vars":
 		if value, ok := e.lookupConditionValue(arg, host, task, nil); ok {
