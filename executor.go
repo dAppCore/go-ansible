@@ -965,7 +965,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		e.OnTaskStart(host, task)
 	}
 
-	// Initialise host results
+	// Initialise host results.
 	if e.results[host] == nil {
 		e.results[host] = make(map[string]*TaskResult)
 	}

@@ -206,10 +206,28 @@ func parseKeyValueExtraVars(value string) map[string]any {
 			continue
 		}
 
-		vars[key] = trimSpace(parts[1])
+		vars[key] = parseExtraVarsScalar(trimSpace(parts[1]))
 	}
 
 	return vars
+}
+
+func parseExtraVarsScalar(value string) any {
+	if value == "" {
+		return ""
+	}
+
+	var parsed any
+	if err := yaml.Unmarshal([]byte(value), &parsed); err == nil {
+		switch parsed.(type) {
+		case map[string]any, []any:
+			return value
+		default:
+			return parsed
+		}
+	}
+
+	return value
 }
 
 // resolveTestSSHKeyFile resolves the SSH key flag used by the ansible test subcommand.

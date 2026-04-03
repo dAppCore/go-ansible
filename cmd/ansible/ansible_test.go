@@ -24,7 +24,7 @@ func TestExtraVars_Good_RepeatableAndCommaSeparated(t *testing.T) {
 		"version": "1.2.3",
 		"env":     "prod",
 		"region":  "us-east-1",
-		"build":   "42",
+		"build":   42,
 	}, vars)
 }
 
@@ -69,6 +69,21 @@ func TestExtraVars_Good_IgnoresMalformedPairs(t *testing.T) {
 	assert.Equal(t, map[string]any{
 		"keep":     "this",
 		"also_bad": "",
+	}, vars)
+}
+
+func TestExtraVars_Good_ParsesYAMLScalarsInKeyValuePairs(t *testing.T) {
+	opts := core.NewOptions(
+		core.Option{Key: "extra-vars", Value: "enabled=true,count=42,threshold=3.5"},
+	)
+
+	vars, err := extraVars(opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]any{
+		"enabled":   true,
+		"count":     42,
+		"threshold": 3.5,
 	}, vars)
 }
 
