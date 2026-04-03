@@ -539,6 +539,53 @@ func TestExecutorExtra_RunBlock_Good_RescueSuccessClearsBlockFailure(t *testing.
 	require.NoError(t, err)
 }
 
+func TestExecutorExtra_RunBlock_Good_InheritsBlockVars(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand("echo inherited", "inherited\n", "", 0)
+
+	task := &Task{
+		Vars: map[string]any{
+			"message": "inherited",
+		},
+		Block: []Task{
+			{
+				Name:   "use inherited vars",
+				Module: "command",
+				Args: map[string]any{
+					"_raw_params": "echo {{ message }}",
+				},
+			},
+		},
+	}
+
+	err := e.runBlock(context.Background(), []string{"host1"}, task, &Play{})
+
+	require.NoError(t, err)
+	assert.True(t, mock.hasExecuted("echo inherited"))
+}
+
+func TestExecutorExtra_RunBlock_Good_InheritsBlockWhen(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	task := &Task{
+		When: "false",
+		Block: []Task{
+			{
+				Name:   "should be skipped",
+				Module: "command",
+				Args: map[string]any{
+					"_raw_params": "echo blocked",
+				},
+			},
+		},
+	}
+
+	err := e.runBlock(context.Background(), []string{"host1"}, task, &Play{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, mock.commandCount())
+}
+
 func TestExecutorExtra_RunTaskOnHosts_Good_EndHostSkipsFutureTasks(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{

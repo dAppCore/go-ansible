@@ -970,8 +970,11 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		e.results[host] = make(map[string]*TaskResult)
 	}
 
-	// Check when condition
-	if task.When != nil {
+	hasLoop := task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil || task.WithTogether != nil || task.WithSubelements != nil
+
+	// Check when condition before allocating a client for simple tasks. Loop
+	// tasks evaluate when per item.
+	if task.When != nil && !hasLoop {
 		if !e.evaluateWhen(task.When, host, task) {
 			result := &TaskResult{Skipped: true, Msg: "Skipped due to when condition"}
 			if task.Register != "" {
@@ -1012,7 +1015,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 
 	// Handle loops, including legacy with_file, with_fileglob, with_sequence,
 	// with_together, and with_subelements syntax.
-	if task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil || task.WithTogether != nil || task.WithSubelements != nil {
+	if hasLoop {
 		return e.runLoop(ctx, host, client, task, play, start)
 	}
 
@@ -1949,9 +1952,44 @@ func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, pla
 	var blockErr error
 	var rescueErr error
 
+	inherit := func(child *Task) {
+		if child == nil || task == nil {
+			return
+		}
+
+		child.Vars = mergeTaskVars(task.Vars, child.Vars)
+		child.Environment = mergeStringMap(task.Environment, child.Environment)
+		if task.When != nil {
+			child.When = mergeConditions(task.When, child.When)
+		}
+		if len(task.Tags) > 0 {
+			child.Tags = mergeStringSlices(task.Tags, child.Tags)
+		}
+		if task.Become != nil && child.Become == nil {
+			child.Become = task.Become
+		}
+		if task.BecomeUser != "" && child.BecomeUser == "" {
+			child.BecomeUser = task.BecomeUser
+		}
+		if task.Delegate != "" && child.Delegate == "" {
+			child.Delegate = task.Delegate
+		}
+		if task.RunOnce {
+			child.RunOnce = true
+		}
+		if task.NoLog {
+			child.NoLog = true
+		}
+		if task.IgnoreErrors {
+			child.IgnoreErrors = true
+		}
+	}
+
 	// Try block
 	for _, t := range task.Block {
-		if err := e.runTaskOnHosts(ctx, hosts, &t, play); err != nil {
+		effective := t
+		inherit(&effective)
+		if err := e.runTaskOnHosts(ctx, hosts, &effective, play); err != nil {
 			blockErr = err
 			break
 		}
@@ -1960,7 +1998,9 @@ func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, pla
 	// Run rescue if block failed
 	if blockErr != nil && len(task.Rescue) > 0 {
 		for _, t := range task.Rescue {
-			if err := e.runTaskOnHosts(ctx, hosts, &t, play); err != nil {
+			effective := t
+			inherit(&effective)
+			if err := e.runTaskOnHosts(ctx, hosts, &effective, play); err != nil {
 				rescueErr = err
 				break
 			}
@@ -1969,7 +2009,9 @@ func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, pla
 
 	// Always run always block
 	for _, t := range task.Always {
-		if err := e.runTaskOnHosts(ctx, hosts, &t, play); err != nil {
+		effective := t
+		inherit(&effective)
+		if err := e.runTaskOnHosts(ctx, hosts, &effective, play); err != nil {
 			if blockErr == nil {
 				blockErr = err
 			}
