@@ -92,6 +92,8 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		return e.moduleFile(ctx, client, args)
 	case "ansible.builtin.lineinfile":
 		return e.moduleLineinfile(ctx, client, args)
+	case "ansible.builtin.replace":
+		return e.moduleReplace(ctx, client, args)
 	case "ansible.builtin.stat":
 		return e.moduleStat(ctx, client, args)
 	case "ansible.builtin.slurp":
@@ -899,6 +901,68 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	}
 
 	return result, nil
+}
+
+func (e *Executor) moduleReplace(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	path := getStringArg(args, "path", "")
+	if path == "" {
+		path = getStringArg(args, "dest", "")
+	}
+	if path == "" {
+		return nil, coreerr.E("Executor.moduleReplace", "path required", nil)
+	}
+
+	pattern := getStringArg(args, "regexp", "")
+	if pattern == "" {
+		return nil, coreerr.E("Executor.moduleReplace", "regexp required", nil)
+	}
+
+	replacement := getStringArg(args, "replace", "")
+	backup := getBoolArg(args, "backup", false)
+
+	before, ok := remoteFileText(ctx, client, path)
+	if !ok {
+		return &TaskResult{Failed: true, Msg: sprintf("file not found: %s", path)}, nil
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, coreerr.E("Executor.moduleReplace", "compile regexp", err)
+	}
+
+	after := re.ReplaceAllString(before, replacement)
+	if after == before {
+		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
+	}
+
+	result := &TaskResult{Changed: true}
+	if backup {
+		backupPath, hasBefore, err := backupRemoteFile(ctx, client, path)
+		if err != nil {
+			return nil, coreerr.E("Executor.moduleReplace", "backup remote file", err)
+		}
+		if hasBefore {
+			result.Data = map[string]any{"backup_file": backupPath}
+		}
+	}
+
+	if err := client.Upload(ctx, bytes.NewReader([]byte(after)), path, 0644); err != nil {
+		return nil, coreerr.E("Executor.moduleReplace", "upload replacement", err)
+	}
+
+	if e.Diff {
+		result.Data = ensureTaskResultData(result.Data)
+		result.Data["diff"] = fileDiffData(path, before, after)
+	}
+
+	return result, nil
+}
+
+func ensureTaskResultData(data map[string]any) map[string]any {
+	if data != nil {
+		return data
+	}
+	return make(map[string]any)
 }
 
 func fileContainsExactLine(content, line string) bool {

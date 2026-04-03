@@ -789,6 +789,69 @@ func TestModulesFile_ModuleLineinfile_Good_DiffData(t *testing.T) {
 	assert.Contains(t, diff["after"], "setting=new")
 }
 
+// --- replace module ---
+
+func TestModulesFile_ModuleReplace_Good_RegexpReplacementWithBackupAndDiff(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Diff = true
+	client := newDiffFileClient(map[string]string{
+		"/etc/app.conf": "port=8080\nmode=prod\n",
+	})
+
+	result, err := e.moduleReplace(context.Background(), client, map[string]any{
+		"path":    "/etc/app.conf",
+		"regexp":  `port=(\d+)`,
+		"replace": "port=9090",
+		"backup":  true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Contains(t, result.Data, "backup_file")
+	assert.Contains(t, result.Data, "diff")
+
+	after, err := client.Download(context.Background(), "/etc/app.conf")
+	require.NoError(t, err)
+	assert.Equal(t, "port=9090\nmode=prod\n", string(after))
+
+	backupPath, _ := result.Data["backup_file"].(string)
+	require.NotEmpty(t, backupPath)
+	backup, err := client.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, "port=8080\nmode=prod\n", string(backup))
+}
+
+func TestModulesFile_ModuleReplace_Good_NoOpWhenPatternMissing(t *testing.T) {
+	e := NewExecutor("/tmp")
+	client := newDiffFileClient(map[string]string{
+		"/etc/app.conf": "port=8080\n",
+	})
+
+	result, err := e.moduleReplace(context.Background(), client, map[string]any{
+		"path":    "/etc/app.conf",
+		"regexp":  `mode=.+`,
+		"replace": "mode=prod",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Contains(t, result.Msg, "already up to date")
+}
+
+func TestModulesFile_ModuleReplace_Bad_MissingPath(t *testing.T) {
+	e := NewExecutor("/tmp")
+	client := newDiffFileClient(nil)
+
+	_, err := e.moduleReplace(context.Background(), client, map[string]any{
+		"regexp":  `mode=.+`,
+		"replace": "mode=prod",
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "path required")
+}
+
 // --- blockinfile module ---
 
 func TestModulesFile_ModuleBlockinfile_Good_InsertBlock(t *testing.T) {
