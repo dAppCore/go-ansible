@@ -253,6 +253,27 @@ func TestExecutorExtra_ModuleAddHost_Good_AddsHostAndGroups(t *testing.T) {
 	assert.Equal(t, []string{"db1"}, GetHosts(e.inventory, "production"))
 }
 
+func TestExecutorExtra_ModuleAddHost_Good_IdempotentRepeat(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleAddHost(map[string]any{
+		"name":   "cache1",
+		"groups": []any{"caches"},
+		"role":   "redis",
+	})
+	require.NoError(t, err)
+
+	result, err := e.moduleAddHost(map[string]any{
+		"name":   "cache1",
+		"groups": []any{"caches"},
+		"role":   "redis",
+	})
+	require.NoError(t, err)
+
+	assert.False(t, result.Changed)
+	assert.Equal(t, []string{"cache1"}, GetHosts(e.inventory, "caches"))
+}
+
 func TestExecutorExtra_ModuleAddHost_Good_ThroughDispatcher(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1685,14 +1686,19 @@ func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
 	}
 
 	host := findInventoryHost(e.inventory.All, name)
+	changed := false
 	if host == nil {
 		host = &Host{}
+		changed = true
 	}
 	if host.Vars == nil {
 		host.Vars = make(map[string]any)
 	}
 
 	if v := getStringArg(args, "ansible_host", ""); v != "" {
+		if host.AnsibleHost != v {
+			changed = true
+		}
 		host.AnsibleHost = v
 	}
 	switch v := args["ansible_port"].(type) {
@@ -1718,22 +1724,40 @@ func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
 		host.AnsiblePort = int(v)
 	case string:
 		if port, err := strconv.Atoi(v); err == nil {
+			if host.AnsiblePort != port {
+				changed = true
+			}
 			host.AnsiblePort = port
 		}
 	}
 	if v := getStringArg(args, "ansible_user", ""); v != "" {
+		if host.AnsibleUser != v {
+			changed = true
+		}
 		host.AnsibleUser = v
 	}
 	if v := getStringArg(args, "ansible_password", ""); v != "" {
+		if host.AnsiblePassword != v {
+			changed = true
+		}
 		host.AnsiblePassword = v
 	}
 	if v := getStringArg(args, "ansible_ssh_private_key_file", ""); v != "" {
+		if host.AnsibleSSHPrivateKeyFile != v {
+			changed = true
+		}
 		host.AnsibleSSHPrivateKeyFile = v
 	}
 	if v := getStringArg(args, "ansible_connection", ""); v != "" {
+		if host.AnsibleConnection != v {
+			changed = true
+		}
 		host.AnsibleConnection = v
 	}
 	if v := getStringArg(args, "ansible_become_password", ""); v != "" {
+		if host.AnsibleBecomePassword != v {
+			changed = true
+		}
 		host.AnsibleBecomePassword = v
 	}
 
@@ -1747,11 +1771,17 @@ func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
 		if reserved[key] {
 			continue
 		}
+		if existing, ok := host.Vars[key]; !ok || !reflect.DeepEqual(existing, val) {
+			changed = true
+		}
 		host.Vars[key] = val
 	}
 
 	if e.inventory.All.Hosts == nil {
 		e.inventory.All.Hosts = make(map[string]*Host)
+	}
+	if existing, ok := e.inventory.All.Hosts[name]; !ok || existing != host {
+		changed = true
 	}
 	e.inventory.All.Hosts[name] = host
 
@@ -1763,6 +1793,9 @@ func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
 		group := ensureInventoryGroup(e.inventory.All, groupName)
 		if group.Hosts == nil {
 			group.Hosts = make(map[string]*Host)
+		}
+		if existing, ok := group.Hosts[name]; !ok || existing != host {
+			changed = true
 		}
 		group.Hosts[name] = host
 	}
@@ -1777,7 +1810,7 @@ func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
 		data["groups"] = groups
 	}
 
-	return &TaskResult{Changed: true, Msg: msg, Data: data}, nil
+	return &TaskResult{Changed: changed, Msg: msg, Data: data}, nil
 }
 
 func (e *Executor) moduleGroupBy(host string, args map[string]any) (*TaskResult, error) {
