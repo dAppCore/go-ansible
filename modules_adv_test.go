@@ -1422,6 +1422,26 @@ func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`sysctl -p`))
 }
 
+func TestModulesAdv_ModuleSysctl_Good_IgnoreErrorsAddsSysctlFlag(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`sysctl -e -w net.ipv4.ip_forward=1`, "", "", 0)
+	mock.expectCommand(`grep -q .*net.ipv4.ip_forward`, "", "", 0)
+	mock.expectCommand(`sysctl -e -p`, "", "", 0)
+
+	result, err := e.moduleSysctl(context.Background(), mock, map[string]any{
+		"name":         "net.ipv4.ip_forward",
+		"value":        "1",
+		"reload":       true,
+		"ignoreerrors": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`sysctl -e -w net.ipv4.ip_forward=1`))
+	assert.True(t, mock.hasExecuted(`sysctl -e -p`))
+}
+
 func TestModulesAdv_ModuleSysctl_Good_UsesCustomSysctlFile(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`sed -i '/net\\.ipv4\\.ip_forward/d' .*custom\.conf`, "", "", 0)

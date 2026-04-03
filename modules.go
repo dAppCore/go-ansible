@@ -2706,8 +2706,13 @@ func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, a
 	value := getStringArg(args, "value", "")
 	state := getStringArg(args, "state", "present")
 	reload := getBoolArg(args, "reload", false)
+	ignoreErrors := getBoolArg(args, "ignoreerrors", false)
 	sysctlFile := getStringArg(args, "sysctl_file", "/etc/sysctl.conf")
 	escapedName := regexp.QuoteMeta(name)
+	sysctlFlags := ""
+	if ignoreErrors {
+		sysctlFlags = " -e"
+	}
 
 	if name == "" {
 		return nil, coreerr.E("Executor.moduleSysctl", "name required", nil)
@@ -2722,7 +2727,7 @@ func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, a
 		}
 
 		if reload {
-			stdout, stderr, rc, err = client.Run(ctx, "sysctl -p")
+			stdout, stderr, rc, err = client.Run(ctx, "sysctl"+sysctlFlags+" -p")
 			if err != nil || rc != 0 {
 				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 			}
@@ -2731,7 +2736,7 @@ func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, a
 	}
 
 	// Set value
-	cmd := sprintf("sysctl -w %s=%s", name, value)
+	cmd := sprintf("sysctl%s -w %s=%s", sysctlFlags, name, value)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
 	if err != nil || rc != 0 {
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
@@ -2748,7 +2753,7 @@ func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, a
 	}
 
 	if reload {
-		stdout, stderr, rc, err := client.Run(ctx, "sysctl -p")
+		stdout, stderr, rc, err := client.Run(ctx, "sysctl"+sysctlFlags+" -p")
 		if err != nil || rc != 0 {
 			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
 		}
