@@ -140,6 +140,41 @@ func TestModulesAdv_ModuleUser_Good_CommandFailure(t *testing.T) {
 	assert.Contains(t, result.Msg, "Permission denied")
 }
 
+// --- hostname module ---
+
+func TestModulesAdv_ModuleHostname_Good_IdempotentWhenAlreadySet(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`^hostname$`, "web01\n", "", 0)
+
+	result, err := e.moduleHostname(context.Background(), mock, map[string]any{
+		"name": "web01",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, "hostname already set", result.Msg)
+	assert.True(t, mock.hasExecuted(`^hostname$`))
+	assert.False(t, mock.hasExecuted(`hostnamectl set-hostname`))
+}
+
+func TestModulesAdv_ModuleHostname_Good_ChangesWhenDifferent(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`^hostname$`, "old-host\n", "", 0)
+	mock.expectCommand(`hostnamectl set-hostname "new-host" \|\| hostname "new-host"`, "", "", 0)
+	mock.expectCommand(`sed -i 's/127\.0\.1\.1\..*/127.0.1.1\tnew-host/' /etc/hosts`, "", "", 0)
+
+	result, err := e.moduleHostname(context.Background(), mock, map[string]any{
+		"name": "new-host",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`^hostname$`))
+	assert.True(t, mock.hasExecuted(`hostnamectl set-hostname`))
+	assert.True(t, mock.hasExecuted(`sed -i`))
+}
+
 // --- group module ---
 
 func TestModulesAdv_ModuleGroup_Good_CreateNewGroup(t *testing.T) {

@@ -2413,6 +2413,11 @@ func (e *Executor) moduleHostname(ctx context.Context, client sshExecutorClient,
 		return nil, coreerr.E("Executor.moduleHostname", "name required", nil)
 	}
 
+	currentStdout, _, currentRC, currentErr := client.Run(ctx, "hostname")
+	if currentErr == nil && currentRC == 0 && corexTrimSpace(currentStdout) == name {
+		return &TaskResult{Changed: false, Msg: "hostname already set"}, nil
+	}
+
 	// Set hostname
 	cmd := sprintf("hostnamectl set-hostname %q || hostname %q", name, name)
 	stdout, stderr, rc, err := client.Run(ctx, cmd)
