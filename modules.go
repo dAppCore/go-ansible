@@ -1673,7 +1673,10 @@ func (e *Executor) modulePing(ctx context.Context, client sshExecutorClient, arg
 		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, Stderr: stderr, RC: rc}, nil
 	}
 
-	return &TaskResult{Msg: data}, nil
+	return &TaskResult{
+		Msg:  data,
+		Data: map[string]any{"ping": data},
+	}, nil
 }
 
 func (e *Executor) moduleAssert(args map[string]any, host string) (*TaskResult, error) {
@@ -1702,7 +1705,10 @@ func (e *Executor) moduleSetFact(host string, args map[string]any) (*TaskResult,
 		values[k] = v
 	}
 	e.setHostVars(host, values)
-	return &TaskResult{Changed: true}, nil
+	return &TaskResult{
+		Changed: true,
+		Data:    map[string]any{"ansible_facts": values},
+	}, nil
 }
 
 func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
@@ -2895,6 +2901,9 @@ func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {
 	action := getStringArg(args, "_raw_params", "")
 	if action == "" {
 		action = getStringArg(args, "free_form", "")
+	}
+	if action == "" {
+		action = getStringArg(args, "action", "")
 	}
 
 	result := &TaskResult{Changed: action == "clear_facts"}

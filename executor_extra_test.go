@@ -75,6 +75,8 @@ func TestExecutorExtra_ModulePing_Good_DefaultPong(t *testing.T) {
 	assert.False(t, result.Failed)
 	assert.False(t, result.Changed)
 	assert.Equal(t, "pong", result.Msg)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "pong", result.Data["ping"])
 	assert.True(t, mock.hasExecuted(`^true$`))
 }
 
@@ -91,6 +93,29 @@ func TestExecutorExtra_ModulePing_Good_CustomData(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.Failed)
 	assert.Equal(t, "hello", result.Msg)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "hello", result.Data["ping"])
+}
+
+func TestExecutorExtra_ModuleSetFact_Good_ReturnsStructuredFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleSetFact("host1", map[string]any{
+		"app_version": "1.2.3",
+		"cacheable":   true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+	facts, ok := result.Data["ansible_facts"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "1.2.3", facts["app_version"])
+	_, cached := facts["cacheable"]
+	assert.False(t, cached)
+	assert.Equal(t, "1.2.3", e.hostScopedVars("host1")["app_version"])
+	_, cached = e.hostScopedVars("host1")["cacheable"]
+	assert.False(t, cached)
 }
 
 func TestExecutorExtra_ExecuteModule_Good_LegacyNamespaceCommand(t *testing.T) {
@@ -392,6 +417,16 @@ func TestExecutorExtra_ModuleMeta_Good(t *testing.T) {
 	assert.False(t, result.Changed)
 	require.NotNil(t, result.Data)
 	assert.Equal(t, "flush_handlers", result.Data["action"])
+}
+
+func TestExecutorExtra_ModuleMeta_Good_ExplicitActionField(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result, err := e.moduleMeta(map[string]any{"action": "refresh_inventory"})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "refresh_inventory", result.Data["action"])
 }
 
 func TestExecutorExtra_ModuleMeta_Good_ClearFacts(t *testing.T) {
