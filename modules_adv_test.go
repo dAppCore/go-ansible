@@ -1999,3 +1999,18 @@ func TestModulesAdv_ModuleReboot_Bad_TimesOutWaitingForTestCommand(t *testing.T)
 	assert.Equal(t, "host unreachable", result.Stderr)
 	assert.Equal(t, 1, result.RC)
 }
+
+func TestModulesAdv_ModuleReboot_Bad_ReportsInitialShutdownFailure(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`shutdown -r now 'Reboot initiated by Ansible' &`, "", "permission denied", 1)
+
+	result, err := e.moduleReboot(context.Background(), mock, map[string]any{})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Failed)
+	assert.Equal(t, "permission denied", result.Msg)
+	assert.Equal(t, 1, result.RC)
+	assert.Equal(t, 1, mock.commandCount())
+	assert.False(t, mock.hasExecuted(`whoami`))
+}
