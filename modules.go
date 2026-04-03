@@ -2523,6 +2523,9 @@ func containsInt(values []int, target int) bool {
 func (e *Executor) moduleHostname(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
 	name := getStringArg(args, "name", "")
 	if name == "" {
+		name = getStringArg(args, "hostname", "")
+	}
+	if name == "" {
 		return nil, coreerr.E("Executor.moduleHostname", "name required", nil)
 	}
 

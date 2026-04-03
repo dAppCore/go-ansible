@@ -191,6 +191,23 @@ func TestModulesAdv_ModuleHostname_Good_ChangesWhenDifferent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`sed -i`))
 }
 
+func TestModulesAdv_ModuleHostname_Good_HostnameAlias(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`^hostname$`, "old-host\n", "", 0)
+	mock.expectCommand(`hostnamectl set-hostname "alias-host" \|\| hostname "alias-host"`, "", "", 0)
+	mock.expectCommand(`sed -i 's/127\.0\.1\.1\..*/127.0.1.1\talias-host/' /etc/hosts`, "", "", 0)
+
+	result, err := e.moduleHostname(context.Background(), mock, map[string]any{
+		"hostname": "alias-host",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`hostnamectl set-hostname`))
+	assert.True(t, mock.hasExecuted(`sed -i`))
+}
+
 // --- group module ---
 
 func TestModulesAdv_ModuleGroup_Good_CreateNewGroup(t *testing.T) {
