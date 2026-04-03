@@ -25,6 +25,7 @@ import (
 var errEndPlay = errors.New("end play")
 var errEndHost = errors.New("end host")
 var errEndBatch = errors.New("end batch")
+var errTaskFailed = errors.New("task failed")
 
 // sshExecutorClient is the client contract used by the executor.
 type sshExecutorClient interface {
@@ -825,6 +826,17 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 			if errors.Is(err, errEndHost) {
 				continue
 			}
+			if errors.Is(err, errTaskFailed) {
+				if play != nil && play.AnyErrorsFatal {
+					return err
+				}
+				// Multi-host batches continue after a task failure unless the
+				// play has explicitly requested fail-fast semantics.
+				if len(hosts) == 1 {
+					return err
+				}
+				continue
+			}
 			if !task.IgnoreErrors {
 				return err
 			}
@@ -1090,7 +1102,7 @@ func redactTaskResult(result *TaskResult) *TaskResult {
 
 func taskFailureError(task *Task, result *TaskResult) error {
 	if task != nil && task.NoLog {
-		return coreerr.E("Executor.runTaskOnHost", "task failed", nil)
+		return coreerr.E("Executor.runTaskOnHost", "task failed", errTaskFailed)
 	}
 
 	msg := "task failed"
@@ -1098,7 +1110,7 @@ func taskFailureError(task *Task, result *TaskResult) error {
 		msg += ": " + result.Msg
 	}
 
-	return coreerr.E("Executor.runTaskOnHost", msg, nil)
+	return coreerr.E("Executor.runTaskOnHost", msg, errTaskFailed)
 }
 
 // runTaskWithRetries executes a task once or multiple times when retries,
