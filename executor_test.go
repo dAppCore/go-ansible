@@ -2478,6 +2478,15 @@ func TestExecutor_ApplyFilter_Good_RegexReplace(t *testing.T) {
 	assert.Equal(t, "123", e.applyFilter("abc123", `regex_replace("\D+", "")`))
 }
 
+func TestExecutor_TemplateString_Good_ChainedFilters(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["padded"] = "  web01  "
+
+	result := e.templateString("{{ missing_var | default('fallback') | trim }} {{ padded | trim }}", "", nil)
+
+	assert.Equal(t, "fallback web01", result)
+}
+
 // --- resolveLoop ---
 
 func TestExecutor_ResolveLoop_Good_SliceAny(t *testing.T) {

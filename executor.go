@@ -2959,11 +2959,23 @@ func (e *Executor) templateString(s string, host string, task *Task) string {
 
 // resolveExpr resolves a template expression.
 func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
-	// Handle filters
-	if contains(expr, " | ") {
-		parts := splitN(expr, " | ", 2)
-		value := e.resolveExpr(parts[0], host, task)
-		return e.applyFilter(value, parts[1])
+	parts := splitTemplatePipeline(expr)
+	if len(parts) == 0 {
+		return ""
+	}
+
+	value := e.resolveExprBase(parts[0], host, task)
+	for _, filter := range parts[1:] {
+		value = e.applyFilter(value, filter)
+	}
+	return value
+}
+
+// resolveExprBase resolves a single templating expression without applying filters.
+func (e *Executor) resolveExprBase(expr string, host string, task *Task) string {
+	expr = corexTrimSpace(expr)
+	if expr == "" {
+		return ""
 	}
 
 	// Handle lookups
@@ -3060,6 +3072,70 @@ func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
 	}
 
 	return "{{ " + expr + " }}" // Return as-is if unresolved
+}
+
+// splitTemplatePipeline splits a template expression into a base expression
+// and any chained filters, preserving quoted or parenthesised filter arguments.
+func splitTemplatePipeline(expr string) []string {
+	expr = corexTrimSpace(expr)
+	if expr == "" {
+		return nil
+	}
+
+	parts := make([]string, 0, 4)
+	var (
+		current  strings.Builder
+		depth    int
+		inSingle bool
+		inDouble bool
+		escaped  bool
+	)
+
+	flush := func() {
+		part := corexTrimSpace(current.String())
+		if part != "" {
+			parts = append(parts, part)
+		}
+		current.Reset()
+	}
+
+	for i := 0; i < len(expr); i++ {
+		ch := expr[i]
+		switch {
+		case escaped:
+			current.WriteByte(ch)
+			escaped = false
+		case ch == '\\' && (inSingle || inDouble):
+			current.WriteByte(ch)
+			escaped = true
+		case ch == '\'' && !inDouble:
+			current.WriteByte(ch)
+			inSingle = !inSingle
+		case ch == '"' && !inSingle:
+			current.WriteByte(ch)
+			inDouble = !inDouble
+		case inSingle || inDouble:
+			current.WriteByte(ch)
+		case ch == '(':
+			depth++
+			current.WriteByte(ch)
+		case ch == ')':
+			if depth > 0 {
+				depth--
+			}
+			current.WriteByte(ch)
+		case ch == '|' && depth == 0:
+			flush()
+		default:
+			current.WriteByte(ch)
+		}
+	}
+
+	flush()
+	if len(parts) == 0 {
+		return nil
+	}
+	return parts
 }
 
 // buildEnvironmentPrefix renders merged play/task environment variables as
