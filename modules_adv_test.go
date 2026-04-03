@@ -1517,6 +1517,24 @@ func TestModulesAdv_ModuleURI_Good_PostWithBodyAndHeaders(t *testing.T) {
 	assert.True(t, mock.containsSubstring("Authorization"))
 }
 
+func TestModulesAdv_ModuleURI_Good_UsesBasicAuthFlags(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*secure\.example\.com`, "OK\n200", "", 0)
+
+	result, err := moduleURIWithClient(e, mock, map[string]any{
+		"url":              "https://secure.example.com/api",
+		"url_username":     "apiuser",
+		"url_password":     "apipass",
+		"force_basic_auth": true,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, 200, result.RC)
+	assert.True(t, mock.hasExecuted(`-u .*apiuser:apipass`))
+	assert.True(t, mock.hasExecuted(`--basic`))
+}
+
 func TestModulesAdv_ModuleURI_Good_FormURLEncodedBody(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*form\.example\.com`, "created\n201", "", 0)

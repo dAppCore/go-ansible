@@ -1587,6 +1587,9 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	dest := getStringArg(args, "dest", "")
 	timeout := getIntArg(args, "timeout", 0)
 	validateCerts := getBoolArg(args, "validate_certs", true)
+	urlUsername := getStringArg(args, "url_username", "")
+	urlPassword := getStringArg(args, "url_password", "")
+	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
 
 	if url == "" {
 		return nil, coreerr.E("Executor.moduleURI", "url required", nil)
@@ -1595,6 +1598,17 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	var curlOpts []string
 	curlOpts = append(curlOpts, "-s", "-S")
 	curlOpts = append(curlOpts, "-X", method)
+
+	// Basic auth is modelled explicitly so callers do not need to embed
+	// credentials in the URL.
+	if urlUsername != "" || urlPassword != "" {
+		curlOpts = append(curlOpts, "-u", shellQuote(urlUsername+":"+urlPassword))
+		if forceBasicAuth {
+			curlOpts = append(curlOpts, "--basic")
+		}
+	} else if forceBasicAuth {
+		curlOpts = append(curlOpts, "--basic")
+	}
 
 	// Headers
 	if headers, ok := args["headers"].(map[string]any); ok {
