@@ -890,13 +890,34 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 	line := getStringArg(args, "line", "")
 	regexpArg := getStringArg(args, "regexp", "")
 	state := getStringArg(args, "state", "present")
+	backup := getBoolArg(args, "backup", false)
 	backrefs := getBoolArg(args, "backrefs", false)
 	insertBefore := getStringArg(args, "insertbefore", "")
 	insertAfter := getStringArg(args, "insertafter", "")
 	firstMatch := getBoolArg(args, "firstmatch", false)
+	var backupPath string
+	ensureBackup := func() error {
+		if !backup || backupPath != "" {
+			return nil
+		}
+
+		before, hasBefore := mockRemoteFileText(client, path)
+		if !hasBefore {
+			return nil
+		}
+
+		backupPath = sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
+		if err := client.Upload(context.Background(), bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+			return err
+		}
+		return nil
+	}
 
 	if state == "absent" {
 		if regexpArg != "" {
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
 			cmd := sprintf("sed -i '/%s/d' %q", regexpArg, path)
 			_, stderr, rc, _ := client.Run(context.Background(), cmd)
 			if rc != 0 {
@@ -917,11 +938,17 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 				}
 				sedFlags = "-E -i"
 			}
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
 			cmd := sprintf("sed %s 's/%s/%s/' %q", sedFlags, regexpArg, escapedLine, path)
 			_, _, rc, _ := client.Run(context.Background(), cmd)
 			if rc != 0 {
 				if backrefs {
 					return &TaskResult{Changed: false}, nil
+				}
+				if err := ensureBackup(); err != nil {
+					return nil, err
 				}
 				if inserted, err := mockInsertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
 					return nil, err
@@ -929,10 +956,16 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 					return &TaskResult{Changed: true}, nil
 				}
 				// Line not found, append.
+				if err := ensureBackup(); err != nil {
+					return nil, err
+				}
 				cmd = sprintf("echo %q >> %q", line, path)
 				_, _, _, _ = client.Run(context.Background(), cmd)
 			}
 		} else if line != "" {
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
 			if inserted, err := mockInsertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
 				return nil, err
 			} else if inserted {
@@ -946,6 +979,9 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 	}
 
 	result := &TaskResult{Changed: true}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
 	if after, ok := mockRemoteFileText(client, path); ok && before != after {
 		if result.Data == nil {
 			result.Data = make(map[string]any)

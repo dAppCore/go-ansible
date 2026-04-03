@@ -831,11 +831,30 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	line := getStringArg(args, "line", "")
 	regexp := getStringArg(args, "regexp", "")
 	state := getStringArg(args, "state", "present")
+	backup := getBoolArg(args, "backup", false)
 	backrefs := getBoolArg(args, "backrefs", false)
 	create := getBoolArg(args, "create", false)
 	insertBefore := getStringArg(args, "insertbefore", "")
 	insertAfter := getStringArg(args, "insertafter", "")
 	firstMatch := getBoolArg(args, "firstmatch", false)
+
+	var backupPath string
+	ensureBackup := func() error {
+		if !backup || backupPath != "" {
+			return nil
+		}
+
+		var hasCopy bool
+		var err error
+		backupPath, hasCopy, err = backupRemoteFile(ctx, client, path)
+		if err != nil {
+			return coreerr.E("Executor.moduleLineinfile", "backup remote file", err)
+		}
+		if !hasCopy {
+			backupPath = ""
+		}
+		return nil
+	}
 
 	if state != "absent" && line != "" && regexp == "" && insertBefore == "" && insertAfter == "" {
 		if hasBefore && fileContainsExactLine(before, line) {
@@ -847,6 +866,9 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 		if regexp != "" {
 			if content, ok := remoteFileText(ctx, client, path); !ok || !regexpMatchString(regexp, content) {
 				return &TaskResult{Changed: false}, nil
+			}
+			if err := ensureBackup(); err != nil {
+				return nil, err
 			}
 			cmd := sprintf("sed -i '/%s/d' %q", regexp, path)
 			_, stderr, rc, _ := client.Run(ctx, cmd)
@@ -863,7 +885,6 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 
 		// state == present
 		if regexp != "" {
-			// Replace line matching regexp.
 			escapedLine := replaceAll(line, "/", "\\/")
 			sedFlags := "-i"
 			if backrefs {
@@ -876,22 +897,38 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 				}
 				sedFlags = "-E -i"
 			}
+
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
+
 			cmd := sprintf("sed %s 's/%s/%s/' %q", sedFlags, regexp, escapedLine, path)
 			_, _, rc, _ := client.Run(ctx, cmd)
 			if rc != 0 {
 				if backrefs {
 					return &TaskResult{Changed: false}, nil
 				}
+
+				if err := ensureBackup(); err != nil {
+					return nil, err
+				}
 				if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
 					return nil, err
 				} else if inserted {
 					return &TaskResult{Changed: true}, nil
 				}
+
 				// Line not found, append.
+				if err := ensureBackup(); err != nil {
+					return nil, err
+				}
 				cmd = sprintf("echo %q >> %q", line, path)
 				_, _, _, _ = client.Run(ctx, cmd)
 			}
 		} else if line != "" {
+			if err := ensureBackup(); err != nil {
+				return nil, err
+			}
 			if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
 				return nil, err
 			} else if inserted {
@@ -905,9 +942,15 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	}
 
 	result := &TaskResult{Changed: true}
+	if backupPath != "" {
+		result.Data = map[string]any{"backup_file": backupPath}
+	}
 	if e.Diff {
 		if after, ok := remoteFileText(ctx, client, path); ok && before != after {
-			result.Data = map[string]any{"diff": fileDiffData(path, before, after)}
+			if result.Data == nil {
+				result.Data = make(map[string]any)
+			}
+			result.Data["diff"] = fileDiffData(path, before, after)
 		}
 	}
 

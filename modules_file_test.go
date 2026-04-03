@@ -791,6 +791,30 @@ func TestModulesFile_ModuleLineinfile_Good_ExactLineAlreadyPresentIsNoOp(t *test
 	assert.Equal(t, 0, mock.commandCount())
 }
 
+func TestModulesFile_ModuleLineinfile_Good_BackupExistingFile(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	path := "/etc/example.conf"
+	mock.addFile(path, []byte("setting=old\n"))
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":   path,
+		"line":   "setting=new",
+		"backup": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/example.conf.")
+
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("setting=old\n"), backupContent)
+}
+
 func TestModulesFile_ModuleLineinfile_Good_DiffData(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Diff = true
