@@ -1731,6 +1731,31 @@ func TestModulesAdv_ModuleURI_Good_FormURLEncodedBody(t *testing.T) {
 	assert.True(t, mock.containsSubstring("Content-Type: application/x-www-form-urlencoded"))
 }
 
+func TestModulesAdv_ModuleURI_Good_FormMultipartBody(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*form\.example\.com`, "created\n201", "", 0)
+
+	result, err := e.moduleURI(context.Background(), mock, map[string]any{
+		"url":         "https://form.example.com/upload",
+		"method":      "POST",
+		"body_format": "form-multipart",
+		"body": map[string]any{
+			"name":  "Alice Example",
+			"scope": []any{"read", "write"},
+		},
+		"status_code": 201,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, 201, result.RC)
+	assert.True(t, mock.containsSubstring(`-F "name=Alice Example"`))
+	assert.True(t, mock.containsSubstring(`-F "scope=read"`))
+	assert.True(t, mock.containsSubstring(`-F "scope=write"`))
+	assert.False(t, mock.containsSubstring("Content-Type: application/json"))
+	assert.False(t, mock.containsSubstring("Content-Type: application/x-www-form-urlencoded"))
+}
+
 func TestModulesAdv_ModuleURI_Good_WrongStatusCode(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "Not Found\n404", "", 0)

@@ -2073,13 +2073,22 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 			return nil, coreerr.E("Executor.moduleURI", "render body", err)
 		}
 		if bodyText != "" {
-			curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
-			if !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
-				switch bodyFormat {
-				case "json":
-					curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
-				case "form-urlencoded", "form_urlencoded", "form":
-					curlOpts = append(curlOpts, "-H", "\"Content-Type: application/x-www-form-urlencoded\"")
+			switch bodyFormat {
+			case "form-multipart", "multipart", "multipart-form":
+				multipartFields, err := renderURIBodyMultipart(body)
+				if err != nil {
+					return nil, coreerr.E("Executor.moduleURI", "render multipart body", err)
+				}
+				curlOpts = append(curlOpts, multipartFields...)
+			default:
+				curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
+				if !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
+					switch bodyFormat {
+					case "json":
+						curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
+					case "form-urlencoded", "form_urlencoded", "form":
+						curlOpts = append(curlOpts, "-H", "\"Content-Type: application/x-www-form-urlencoded\"")
+					}
 				}
 			}
 		}
@@ -2202,6 +2211,114 @@ func renderURIBody(body any, bodyFormat string) (string, error) {
 		return renderURIBodyFormEncoded(body), nil
 	default:
 		return sprintf("%v", body), nil
+	}
+}
+
+func renderURIBodyMultipart(body any) ([]string, error) {
+	fields := multipartBodyFields(body)
+	if len(fields) == 0 {
+		return nil, coreerr.E("Executor.moduleURI", "multipart body requires structured data", nil)
+	}
+
+	opts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		opts = append(opts, "-F", sprintf("%q", field))
+	}
+
+	return opts, nil
+}
+
+func multipartBodyFields(body any) []string {
+	switch v := body.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		fields := make([]string, 0, len(keys))
+		for _, key := range keys {
+			fields = append(fields, multipartFieldValues(key, v[key])...)
+		}
+		return fields
+	case map[any]any:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			if s, ok := key.(string); ok {
+				keys = append(keys, s)
+			}
+		}
+		sort.Strings(keys)
+		fields := make([]string, 0, len(keys))
+		for _, key := range keys {
+			fields = append(fields, multipartFieldValues(key, v[key])...)
+		}
+		return fields
+	case map[string]string:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		fields := make([]string, 0, len(keys))
+		for _, key := range keys {
+			fields = append(fields, multipartFieldValues(key, v[key])...)
+		}
+		return fields
+	case []any:
+		fields := make([]string, 0, len(v))
+		for _, item := range v {
+			if pair, ok := item.(map[string]any); ok {
+				key := getStringArg(pair, "key", "")
+				if key == "" {
+					key = getStringArg(pair, "name", "")
+				}
+				if key != "" {
+					fields = append(fields, multipartFieldValues(key, pair["value"])...)
+				}
+			}
+		}
+		return fields
+	case []string:
+		fields := make([]string, 0, len(v))
+		for _, item := range v {
+			fields = append(fields, item)
+		}
+		return fields
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	default:
+		s := sprintf("%v", body)
+		if s == "" || s == "<nil>" {
+			return nil
+		}
+		return []string{s}
+	}
+}
+
+func multipartFieldValues(key string, value any) []string {
+	switch v := value.(type) {
+	case nil:
+		return []string{key + "="}
+	case string:
+		return []string{key + "=" + v}
+	case []string:
+		fields := make([]string, 0, len(v))
+		for _, item := range v {
+			fields = append(fields, key+"="+item)
+		}
+		return fields
+	case []any:
+		fields := make([]string, 0, len(v))
+		for _, item := range v {
+			fields = append(fields, key+"="+sprintf("%v", item))
+		}
+		return fields
+	default:
+		return []string{key + "=" + sprintf("%v", v)}
 	}
 }
 

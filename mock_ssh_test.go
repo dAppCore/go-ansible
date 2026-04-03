@@ -2061,13 +2061,22 @@ func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 			return nil, mockWrap("moduleURIWithClient", "render body", err)
 		}
 		if bodyText != "" {
-			curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
-			if !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
-				switch bodyFormat {
-				case "json":
-					curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
-				case "form-urlencoded", "form_urlencoded", "form":
-					curlOpts = append(curlOpts, "-H", "\"Content-Type: application/x-www-form-urlencoded\"")
+			switch bodyFormat {
+			case "form-multipart", "multipart", "multipart-form":
+				multipartFields, err := renderURIBodyMultipart(body)
+				if err != nil {
+					return nil, mockWrap("moduleURIWithClient", "render multipart body", err)
+				}
+				curlOpts = append(curlOpts, multipartFields...)
+			default:
+				curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
+				if !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
+					switch bodyFormat {
+					case "json":
+						curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
+					case "form-urlencoded", "form_urlencoded", "form":
+						curlOpts = append(curlOpts, "-H", "\"Content-Type: application/x-www-form-urlencoded\"")
+					}
 				}
 			}
 		}
