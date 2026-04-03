@@ -2218,7 +2218,7 @@ func (e *Executor) getHosts(pattern string) []string {
 
 		var filtered []string
 		for _, h := range hosts {
-			if limitSet[h] || h == e.Limit || contains(h, e.Limit) {
+			if limitSet[h] || h == e.Limit {
 				filtered = append(filtered, h)
 			}
 		}

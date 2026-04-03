@@ -117,7 +117,7 @@ func TestModulesInfra_GetHosts_Good_LimitFiltering(t *testing.T) {
 	assert.Contains(t, hosts, "web1")
 }
 
-func TestModulesInfra_GetHosts_Good_LimitSubstringMatch(t *testing.T) {
+func TestModulesInfra_GetHosts_Good_LimitExactMatchDoesNotSubstringMatch(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
@@ -128,11 +128,10 @@ func TestModulesInfra_GetHosts_Good_LimitSubstringMatch(t *testing.T) {
 			},
 		},
 	})
-	e.Limit = "prod"
+	e.Limit = "prod-web-01"
 
 	hosts := e.getHosts("all")
-	// Limit uses substring matching as fallback
-	assert.Len(t, hosts, 2)
+	assert.Equal(t, []string{"prod-web-01"}, hosts)
 }
 
 // ===========================================================================
