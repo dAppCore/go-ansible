@@ -750,8 +750,17 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	insertAfter := getStringArg(args, "insertafter", "")
 	firstMatch := getBoolArg(args, "firstmatch", false)
 
+	if state != "absent" && line != "" && regexp == "" && insertBefore == "" && insertAfter == "" {
+		if content, ok := remoteFileText(ctx, client, path); ok && fileContainsExactLine(content, line) {
+			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
+		}
+	}
+
 	if state == "absent" {
 		if regexp != "" {
+			if content, ok := remoteFileText(ctx, client, path); !ok || !regexpMatchString(regexp, content) {
+				return &TaskResult{Changed: false}, nil
+			}
 			cmd := sprintf("sed -i '/%s/d' %q", regexp, path)
 			_, stderr, rc, _ := client.Run(ctx, cmd)
 			if rc != 0 {
@@ -809,6 +818,28 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	}
 
 	return &TaskResult{Changed: true}, nil
+}
+
+func fileContainsExactLine(content, line string) bool {
+	if content == "" || line == "" {
+		return false
+	}
+
+	for _, candidate := range strings.Split(content, "\n") {
+		if candidate == line {
+			return true
+		}
+	}
+
+	return false
+}
+
+func regexpMatchString(pattern, value string) bool {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return false
+	}
+	return re.MatchString(value)
 }
 
 func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, line, insertBefore, insertAfter string, firstMatch bool) (bool, error) {
@@ -3310,11 +3341,18 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 	}
 
 	if state == "absent" {
+		if content, ok := remoteFileText(ctx, client, authKeysPath); !ok || !fileContainsExactLine(content, key) {
+			return &TaskResult{Changed: false}, nil
+		}
 		// Remove the exact key line when present.
 		cmd := sprintf("if [ -f %q ]; then sed -i '\\|^%s$|d' %q; fi",
 			authKeysPath, sedExactLinePattern(key), authKeysPath)
 		_, _, _, _ = client.Run(ctx, cmd)
 		return &TaskResult{Changed: true}, nil
+	}
+
+	if content, ok := remoteFileText(ctx, client, authKeysPath); ok && fileContainsExactLine(content, key) {
+		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", authKeysPath)}, nil
 	}
 
 	if manageDir {

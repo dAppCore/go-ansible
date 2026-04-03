@@ -621,6 +621,21 @@ func TestModulesFile_ModuleLineinfile_Good_LineWithSlashes(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`root \\/var\\/www\\/html;`))
 }
 
+func TestModulesFile_ModuleLineinfile_Good_ExactLineAlreadyPresentIsNoOp(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/example.conf", []byte("setting=value\nother=1\n"))
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path": "/etc/example.conf",
+		"line": "setting=value",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Contains(t, result.Msg, "already up to date")
+	assert.Equal(t, 0, mock.commandCount())
+}
+
 // --- blockinfile module ---
 
 func TestModulesFile_ModuleBlockinfile_Good_InsertBlock(t *testing.T) {

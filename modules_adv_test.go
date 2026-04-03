@@ -447,20 +447,18 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_RemoveKey(t *testing.T) {
 func TestModulesAdv_ModuleAuthorizedKey_Good_KeyAlreadyExists(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
+	mock.addFile("/home/deploy/.ssh/authorized_keys", []byte(testKey+"\n"))
 	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
-	mock.expectCommand(`mkdir -p`, "", "", 0)
-	// grep succeeds: key already present, || short-circuits, echo not needed
-	mock.expectCommand(`grep -qF.*echo`, "", "", 0)
-	mock.expectCommand(`chmod 600`, "", "", 0)
 
-	result, err := moduleAuthorizedKeyWithClient(e, mock, map[string]any{
+	result, err := e.moduleAuthorizedKey(context.Background(), mock, map[string]any{
 		"user": "deploy",
 		"key":  testKey,
 	})
 
 	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	assert.False(t, result.Changed)
 	assert.False(t, result.Failed)
+	assert.Contains(t, result.Msg, "already up to date")
 }
 
 func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *testing.T) {
