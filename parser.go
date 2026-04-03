@@ -248,7 +248,7 @@ func (p *Parser) ParseTasksIter(path string) (iter.Seq[Task], error) {
 //
 //	tasks, err := parser.ParseRole("nginx", "main.yml")
 func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
-	tasks, defaults, roleVars, err := p.loadRoleData(name, tasksFrom, "", "")
+	tasks, defaults, roleVars, _, err := p.loadRoleData(name, tasksFrom, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +268,7 @@ func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
 	return tasks, err
 }
 
-func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string, varsFrom string) ([]Task, map[string]any, map[string]any, error) {
+func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string, varsFrom string) ([]Task, map[string]any, map[string]any, string, error) {
 	if tasksFrom == "" {
 		tasksFrom = "main.yml"
 	}
@@ -282,7 +282,7 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 	tasksPath := p.findRoleFilePath(name, "tasks", tasksFrom)
 
 	if tasksPath == "" {
-		return nil, nil, nil, coreerr.E("Parser.ParseRole", sprintf("role %s not found", name), nil)
+		return nil, nil, nil, "", coreerr.E("Parser.ParseRole", sprintf("role %s not found", name), nil)
 	}
 
 	defaults := make(map[string]any)
@@ -305,10 +305,10 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 
 	tasks, err := p.ParseTasks(tasksPath)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, "", err
 	}
 
-	return tasks, defaults, roleVars, nil
+	return tasks, defaults, roleVars, tasksPath, nil
 }
 
 func (p *Parser) loadRoleHandlers(name string, handlersFrom string) ([]Task, error) {

@@ -258,6 +258,10 @@ func (e *Executor) hostMagicVars(host string) map[string]any {
 	}
 
 	if e != nil && e.inventory != nil {
+		if e.inventoryPath != "" {
+			values["inventory_file"] = e.inventoryPath
+			values["inventory_dir"] = pathDir(e.inventoryPath)
+		}
 		if groupNames := hostGroupNames(e.inventory.All, host); len(groupNames) > 0 {
 			values["group_names"] = groupNames
 		}
@@ -752,7 +756,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 		oldVars[k] = v
 	}
 
-	tasks, defaults, roleVars, err := e.parser.loadRoleData(roleRef.Role, roleRef.TasksFrom, roleRef.DefaultsFrom, roleRef.VarsFrom)
+	tasks, defaults, roleVars, tasksPath, err := e.parser.loadRoleData(roleRef.Role, roleRef.TasksFrom, roleRef.DefaultsFrom, roleRef.VarsFrom)
 	if err != nil {
 		e.vars = oldVars
 		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
@@ -776,6 +780,12 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	}
 	for k, v := range roleRef.Vars {
 		roleScope[k] = v
+	}
+	if roleRef.Role != "" {
+		roleScope["role_name"] = roleRef.Role
+	}
+	if tasksPath != "" {
+		roleScope["role_path"] = pathDir(pathDir(tasksPath))
 	}
 	e.vars = roleScope
 

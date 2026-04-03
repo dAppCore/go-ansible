@@ -1260,6 +1260,59 @@ func TestExecutor_RunPlay_Good_RestoresPlayVarsBetweenPlays(t *testing.T) {
 	assert.Equal(t, "missing", e.results["localhost"]["second_result"].Msg)
 }
 
+func TestExecutor_Templating_Good_ExposesInventoryMagicVars(t *testing.T) {
+	dir := t.TempDir()
+	inventoryPath := joinPath(dir, "inventory.yml")
+
+	require.NoError(t, writeTestFile(inventoryPath, []byte(`---
+all:
+  hosts:
+    host1:
+`), 0644))
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.SetInventory(inventoryPath))
+
+	result := e.templateString("{{ inventory_file }}|{{ inventory_dir }}", "host1", nil)
+
+	assert.Equal(t, inventoryPath+"|"+dir, result)
+}
+
+func TestExecutor_RunPlay_Good_ExposesRoleContextVars(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---
+- name: role context
+  debug:
+    msg: "{{ role_name }}|{{ role_path }}"
+  register: role_context_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+	e.clients["localhost"] = NewMockSSHClient()
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Roles: []RoleRef{
+			{Role: "demo"},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["localhost"]["role_context_result"])
+	assert.Equal(t, "demo|"+joinPath(dir, "roles", "demo"), e.results["localhost"]["role_context_result"].Msg)
+}
+
 func TestExecutor_RunTaskOnHost_Good_LoopControlPause(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{
