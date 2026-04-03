@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -3590,20 +3591,16 @@ func (e *Executor) handleLookup(expr string, host string, task *Task) string {
 }
 
 func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool) {
-	// Parse lookup('type', 'arg')
-	re := regexp.MustCompile(`lookup\s*\(\s*['"](\w+)['"]\s*,\s*(.+?)\s*\)`)
+	// Parse lookup('type', 'arg') and accept fully-qualified lookup names.
+	re := regexp.MustCompile(`lookup\s*\(\s*['"]([\w.]+)['"]\s*,\s*(.+?)\s*\)`)
 	match := re.FindStringSubmatch(expr)
 	if len(match) < 3 {
 		return nil, false
 	}
 
-	lookupType := match[1]
+	lookupType := normalizeLookupName(match[1])
 	arg := strings.TrimSpace(match[2])
-	if len(arg) >= 2 {
-		if (arg[0] == '\'' && arg[len(arg)-1] == '\'') || (arg[0] == '"' && arg[len(arg)-1] == '"') {
-			arg = arg[1 : len(arg)-1]
-		}
-	}
+	arg, quoted := unquoteLookupArg(arg)
 
 	switch lookupType {
 	case "env":
@@ -3634,9 +3631,119 @@ func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool)
 		if value, ok := e.lookupPassword(arg); ok {
 			return value, true
 		}
+	case "first_found":
+		if value, ok := e.lookupFirstFound(arg, quoted, host, task); ok {
+			return value, true
+		}
 	}
 
 	return nil, false
+}
+
+func normalizeLookupName(name string) string {
+	name = corexTrimSpace(name)
+	if name == "" {
+		return ""
+	}
+
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		return name[idx+1:]
+	}
+
+	return name
+}
+
+func unquoteLookupArg(arg string) (string, bool) {
+	if len(arg) >= 2 {
+		if (arg[0] == '\'' && arg[len(arg)-1] == '\'') || (arg[0] == '"' && arg[len(arg)-1] == '"') {
+			return arg[1 : len(arg)-1], true
+		}
+	}
+	return arg, false
+}
+
+func (e *Executor) lookupFirstFound(arg string, quoted bool, host string, task *Task) (string, bool) {
+	resolved := any(arg)
+	if !quoted {
+		if value, ok := e.lookupConditionValue(arg, host, task, nil); ok {
+			resolved = value
+		}
+	}
+
+	files, paths := firstFoundTerms(resolved)
+	if len(files) == 0 {
+		return "", false
+	}
+
+	candidates := make([]string, 0, len(files))
+	if len(paths) == 0 {
+		candidates = append(candidates, files...)
+	} else {
+		for _, base := range paths {
+			if base == "" {
+				continue
+			}
+			for _, file := range files {
+				if file == "" {
+					continue
+				}
+				if pathIsAbs(file) {
+					candidates = append(candidates, file)
+					continue
+				}
+				candidates = append(candidates, joinPath(base, file))
+			}
+		}
+	}
+
+	for _, candidate := range candidates {
+		resolvedPath := e.resolveLocalPath(candidate)
+		if info, err := os.Stat(resolvedPath); err == nil && !info.IsDir() {
+			return resolvedPath, true
+		}
+	}
+
+	return "", false
+}
+
+func firstFoundTerms(value any) ([]string, []string) {
+	switch v := value.(type) {
+	case nil:
+		return nil, nil
+	case string:
+		return normalizeStringList(v), nil
+	case []string:
+		return append([]string(nil), v...), nil
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s := corexTrimSpace(corexSprint(item)); s != "" && s != "<nil>" {
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	case map[string]any:
+		files := normalizeStringArgs(v["files"])
+		if len(files) == 0 {
+			files = normalizeStringArgs(v["terms"])
+		}
+		paths := normalizeStringArgs(v["paths"])
+		return files, paths
+	case map[any]any:
+		converted := make(map[string]any, len(v))
+		for key, val := range v {
+			if s, ok := key.(string); ok {
+				converted[s] = val
+			}
+		}
+		return firstFoundTerms(converted)
+	default:
+		s := corexTrimSpace(corexSprint(v))
+		if s == "" || s == "<nil>" {
+			return nil, nil
+		}
+		return []string{s}, nil
+	}
 }
 
 func (e *Executor) lookupPassword(arg string) (string, bool) {

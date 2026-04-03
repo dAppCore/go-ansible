@@ -947,6 +947,37 @@ func TestExecutorExtra_HandleLookup_Good_PasswordLookupCreatesFile(t *testing.T)
 	assert.Len(t, content, 12)
 }
 
+func TestExecutorExtra_HandleLookup_Good_FirstFoundLookupReturnsFirstExistingPath(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "defaults", "common.yml"), []byte("common: true\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "defaults", "production.yml"), []byte("env: prod\n"), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("findme", map[string]any{
+		"files": []any{"missing.yml", "production.yml", "common.yml"},
+		"paths": []any{"defaults"},
+	})
+
+	result := e.handleLookup("lookup('first_found', findme)", "", nil)
+
+	assert.Equal(t, joinPath(dir, "defaults", "production.yml"), result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_FirstFoundLookupAcceptsFQCN(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "selected.yml"), []byte("selected: true\n"), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("findme", map[string]any{
+		"files": []any{"missing.yml", "selected.yml"},
+		"paths": []any{"vars"},
+	})
+
+	result := e.handleLookup("lookup('ansible.builtin.first_found', findme)", "", nil)
+
+	assert.Equal(t, joinPath(dir, "vars", "selected.yml"), result)
+}
+
 func TestExecutorExtra_RunTaskOnHost_Good_LoopFromFileGlobLookup(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "files", "a.txt"), []byte("alpha"), 0644))
