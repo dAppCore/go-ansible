@@ -3539,14 +3539,16 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClie
 
 	block := getStringArg(args, "block", "")
 	marker := getStringArg(args, "marker", "# {mark} ANSIBLE MANAGED BLOCK")
+	markerBegin := getStringArg(args, "marker_begin", "BEGIN")
+	markerEnd := getStringArg(args, "marker_end", "END")
 	state := getStringArg(args, "state", "present")
 	create := getBoolArg(args, "create", false)
 	backup := getBoolArg(args, "backup", false)
 	prependNewline := getBoolArg(args, "prepend_newline", false)
 	appendNewline := getBoolArg(args, "append_newline", false)
 
-	beginMarker := replaceN(marker, "{mark}", "BEGIN", 1)
-	endMarker := replaceN(marker, "{mark}", "END", 1)
+	beginMarker := renderBlockinfileMarker(marker, markerBegin)
+	endMarker := renderBlockinfileMarker(marker, markerEnd)
 
 	var backupPath string
 	if backup {
@@ -3609,6 +3611,16 @@ BLOCK_EOF
 	}
 
 	return result, nil
+}
+
+func renderBlockinfileMarker(marker, mark string) string {
+	if marker == "" {
+		marker = "# {mark} ANSIBLE MANAGED BLOCK"
+	}
+	if mark == "" {
+		mark = "BEGIN"
+	}
+	return replaceN(marker, "{mark}", mark, 1)
 }
 
 func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
