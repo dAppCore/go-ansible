@@ -481,6 +481,9 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 	case "ansible.builtin.git":
 		return moduleGitWithClient(e, mock, args)
 
+	case "ansible.builtin.wait_for_connection", "wait_for_connection":
+		return e.moduleWaitForConnection(context.Background(), mock, args)
+
 	// Archive
 	case "ansible.builtin.unarchive":
 		return moduleUnarchiveWithClient(e, mock, args)

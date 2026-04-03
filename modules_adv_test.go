@@ -1264,6 +1264,44 @@ func TestModulesAdv_ModuleWaitFor_Good_AcceptsStringNumericArgs(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`until ! nc -z 127.0.0.1 8080`))
 }
 
+// --- wait_for_connection module ---
+
+func TestModulesAdv_ModuleWaitForConnection_Good_ReturnsWhenHostIsReachable(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`^true$`, "", "", 0)
+
+	result, err := executeModuleWithMock(e, mock, "host1", &Task{
+		Module: "wait_for_connection",
+		Args: map[string]any{
+			"timeout": 0,
+		},
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`^true$`))
+}
+
+func TestModulesAdv_ModuleWaitForConnection_Bad_ImmediateFailure(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommandError(`^true$`, assert.AnError)
+
+	result, err := executeModuleWithMock(e, mock, "host1", &Task{
+		Module: "ansible.builtin.wait_for_connection",
+		Args: map[string]any{
+			"timeout": 0,
+		},
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.True(t, result.Failed)
+	assert.Contains(t, result.Msg, assert.AnError.Error())
+	assert.True(t, mock.hasExecuted(`^true$`))
+}
+
 // --- include_vars module ---
 
 func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *testing.T) {

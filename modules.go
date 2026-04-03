@@ -156,6 +156,8 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 		return e.modulePause(ctx, args)
 	case "ansible.builtin.wait_for":
 		return e.moduleWaitFor(ctx, client, args)
+	case "ansible.builtin.wait_for_connection":
+		return e.moduleWaitForConnection(ctx, client, args)
 	case "ansible.builtin.git":
 		return e.moduleGit(ctx, client, args)
 	case "ansible.builtin.unarchive":
@@ -2498,6 +2500,81 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 	}
 
 	return &TaskResult{Changed: false}, nil
+}
+
+func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	timeout := getIntArg(args, "timeout", 300)
+	delay := getIntArg(args, "delay", 0)
+	sleep := getIntArg(args, "sleep", 1)
+	timeoutMsg := getStringArg(args, "msg", "wait_for_connection timed out")
+
+	if delay > 0 {
+		timer := time.NewTimer(time.Duration(delay) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	runCheck := func() (*TaskResult, bool) {
+		stdout, stderr, rc, err := client.Run(ctx, "true")
+		if err == nil && rc == 0 {
+			return &TaskResult{Changed: false}, true
+		}
+		if timeout <= 0 {
+			if err != nil {
+				return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, true
+			}
+			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, Stderr: stderr, RC: rc}, true
+		}
+		return &TaskResult{Stdout: stdout, Stderr: stderr, RC: rc}, false
+	}
+
+	if timeout <= 0 {
+		result, done := runCheck()
+		if done {
+			return result, nil
+		}
+		return &TaskResult{Failed: true, Msg: timeoutMsg}, nil
+	}
+
+	deadline := time.NewTimer(time.Duration(timeout) * time.Second)
+	defer deadline.Stop()
+
+	sleepDuration := time.Duration(sleep) * time.Second
+	if sleepDuration < 0 {
+		sleepDuration = 0
+	}
+
+	for {
+		result, done := runCheck()
+		if done {
+			return result, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return &TaskResult{Failed: true, Msg: timeoutMsg, Stdout: result.Stdout, Stderr: result.Stderr, RC: result.RC}, nil
+		default:
+		}
+
+		if sleepDuration > 0 {
+			timer := time.NewTimer(sleepDuration)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-deadline.C:
+				timer.Stop()
+				return &TaskResult{Failed: true, Msg: timeoutMsg, Stdout: result.Stdout, Stderr: result.Stderr, RC: result.RC}, nil
+			case <-timer.C:
+			}
+		}
+	}
 }
 
 func (e *Executor) moduleGit(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
