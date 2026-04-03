@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type playbookCommandSettings struct {
+type playbookCommandOptions struct {
 	playbookPath string
 	basePath     string
 	limit        string
@@ -280,18 +280,20 @@ func parseExtraVarsScalar(value string) any {
 	return value
 }
 
-// resolveTestSSHKeyFile resolves the SSH key flag used by the ansible test subcommand.
-func resolveTestSSHKeyFile(opts core.Options) string {
+// Example:
+//
+//	core ansible test server.example.com -i ~/.ssh/id_ed25519
+func resolveSSHTestKeyFile(opts core.Options) string {
 	if key := opts.String("key"); key != "" {
 		return key
 	}
 	return opts.String("i")
 }
 
-func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbookCommandSettings, error) {
+func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbookCommandOptions, error) {
 	positional := positionalArgs(opts)
 	if len(positional) < 1 {
-		return playbookCommandSettings{}, coreerr.E("buildPlaybookCommandSettings", "usage: ansible <playbook>", nil)
+		return playbookCommandOptions{}, coreerr.E("buildPlaybookCommandSettings", "usage: ansible <playbook>", nil)
 	}
 	playbookPath := positional[0]
 
@@ -300,15 +302,15 @@ func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbook
 	}
 
 	if !coreio.Local.Exists(playbookPath) {
-		return playbookCommandSettings{}, coreerr.E("buildPlaybookCommandSettings", sprintf("playbook not found: %s", playbookPath), nil)
+		return playbookCommandOptions{}, coreerr.E("buildPlaybookCommandSettings", sprintf("playbook not found: %s", playbookPath), nil)
 	}
 
 	vars, err := extraVars(opts)
 	if err != nil {
-		return playbookCommandSettings{}, coreerr.E("buildPlaybookCommandSettings", "parse extra vars", err)
+		return playbookCommandOptions{}, coreerr.E("buildPlaybookCommandSettings", "parse extra vars", err)
 	}
 
-	return playbookCommandSettings{
+	return playbookCommandOptions{
 		playbookPath: playbookPath,
 		basePath:     pathDir(playbookPath),
 		limit:        joinedStringOption(opts, "limit", "l"),
@@ -473,7 +475,7 @@ func runSSHTestCommand(opts core.Options) core.Result {
 		Port:     opts.Int("port"),
 		User:     firstStringOption(opts, "user", "u"),
 		Password: opts.String("password"),
-		KeyFile:  resolveTestSSHKeyFile(opts),
+		KeyFile:  resolveSSHTestKeyFile(opts),
 		Timeout:  30 * time.Second,
 	}
 

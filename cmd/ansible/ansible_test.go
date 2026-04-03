@@ -253,7 +253,7 @@ func TestTestKeyFile_Good_PrefersExplicitKey(t *testing.T) {
 		core.Option{Key: "i", Value: "/tmp/ignored"},
 	)
 
-	assert.Equal(t, "/tmp/id_ed25519", resolveTestSSHKeyFile(opts))
+	assert.Equal(t, "/tmp/id_ed25519", resolveSSHTestKeyFile(opts))
 }
 
 func TestTestKeyFile_Good_FallsBackToShortAlias(t *testing.T) {
@@ -261,7 +261,7 @@ func TestTestKeyFile_Good_FallsBackToShortAlias(t *testing.T) {
 		core.Option{Key: "i", Value: "/tmp/id_ed25519"},
 	)
 
-	assert.Equal(t, "/tmp/id_ed25519", resolveTestSSHKeyFile(opts))
+	assert.Equal(t, "/tmp/id_ed25519", resolveSSHTestKeyFile(opts))
 }
 
 func TestFirstString_Good_ResolvesShortUserAlias(t *testing.T) {
