@@ -2923,9 +2923,16 @@ func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {
 }
 
 func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFactsRunner, args map[string]any) (*TaskResult, error) {
+	gatherTimeout := getIntArg(args, "gather_timeout", 0)
+	if gatherTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(gatherTimeout)*time.Second)
+		defer cancel()
+	}
+
 	facts, err := e.collectFacts(ctx, client)
 	if err != nil {
-		return nil, err
+		return &TaskResult{Failed: true, Msg: err.Error()}, nil
 	}
 
 	factMap := factsToMap(facts)
@@ -3095,19 +3102,38 @@ func gatherSubsetKeys(subset string) []string {
 
 func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner) (*Facts, error) {
 	facts := &Facts{}
+	read := func(cmd string) (string, error) {
+		stdout, _, _, err := client.Run(ctx, cmd)
+		if err != nil {
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			return "", nil
+		}
+		return stdout, nil
+	}
 
-	stdout, _, _, err := client.Run(ctx, "hostname -f 2>/dev/null || hostname")
-	if err == nil {
+	stdout, err := read("hostname -f 2>/dev/null || hostname")
+	if err != nil {
+		return nil, err
+	}
+	if stdout != "" {
 		facts.FQDN = corexTrimSpace(stdout)
 	}
 
-	stdout, _, _, err = client.Run(ctx, "hostname -s 2>/dev/null || hostname")
-	if err == nil {
+	stdout, err = read("hostname -s 2>/dev/null || hostname")
+	if err != nil {
+		return nil, err
+	}
+	if stdout != "" {
 		facts.Hostname = corexTrimSpace(stdout)
 	}
 
-	stdout, _, _, err = client.Run(ctx, "cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID|NAME)=' | head -3")
-	if err == nil {
+	stdout, err = read("cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID|NAME)=' | head -3")
+	if err != nil {
+		return nil, err
+	}
+	if stdout != "" {
 		for _, line := range split(stdout, "\n") {
 			switch {
 			case corexHasPrefix(line, "ID="):
@@ -3129,32 +3155,47 @@ func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner) (*Fa
 		}
 	}
 
-	stdout, _, _, err = client.Run(ctx, "uname -m")
-	if err == nil {
+	stdout, err = read("uname -m")
+	if err != nil {
+		return nil, err
+	}
+	if stdout != "" {
 		facts.Architecture = corexTrimSpace(stdout)
 	}
 
-	stdout, _, _, err = client.Run(ctx, "uname -r")
-	if err == nil {
+	stdout, err = read("uname -r")
+	if err != nil {
+		return nil, err
+	}
+	if stdout != "" {
 		facts.Kernel = corexTrimSpace(stdout)
 	}
 
-	stdout, _, _, err = client.Run(ctx, "nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null")
-	if err == nil {
+	stdout, err = read("nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null")
+	if err != nil {
+		return nil, err
+	}
+	if stdout != "" {
 		if n, parseErr := strconv.Atoi(corexTrimSpace(stdout)); parseErr == nil {
 			facts.CPUs = n
 		}
 	}
 
-	stdout, _, _, err = client.Run(ctx, "free -m 2>/dev/null | awk '/^Mem:/ {print $2}'")
-	if err == nil {
+	stdout, err = read("free -m 2>/dev/null | awk '/^Mem:/ {print $2}'")
+	if err != nil {
+		return nil, err
+	}
+	if stdout != "" {
 		if n, parseErr := strconv.ParseInt(corexTrimSpace(stdout), 10, 64); parseErr == nil {
 			facts.Memory = n
 		}
 	}
 
-	stdout, _, _, err = client.Run(ctx, "hostname -I 2>/dev/null | awk '{print $1}'")
-	if err == nil {
+	stdout, err = read("hostname -I 2>/dev/null | awk '{print $1}'")
+	if err != nil {
+		return nil, err
+	}
+	if stdout != "" {
 		facts.IPv4 = corexTrimSpace(stdout)
 	}
 

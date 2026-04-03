@@ -1,11 +1,20 @@
 package ansible
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type slowFactsClient struct{}
+
+func (slowFactsClient) Run(ctx context.Context, cmd string) (string, string, int, error) {
+	<-ctx.Done()
+	return "", "", 0, ctx.Err()
+}
 
 // ===========================================================================
 // 1. Error Propagation — getHosts
@@ -1098,6 +1107,22 @@ func TestModulesInfra_ModuleSetup_Good_GatherSubset(t *testing.T) {
 	assert.Equal(t, "10.0.0.11", e.facts["host1"].IPv4)
 	assert.Equal(t, "", e.templateString("{{ ansible_hostname }}", "host1", nil))
 	assert.Equal(t, "10.0.0.11", e.templateString("{{ ansible_default_ipv4_address }}", "host1", nil))
+}
+
+func TestModulesInfra_ModuleSetup_Good_RespectsGatherTimeout(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	start := time.Now()
+	result, err := e.moduleSetup(context.Background(), "host1", slowFactsClient{}, map[string]any{
+		"gather_timeout": 1,
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Failed)
+	assert.Contains(t, result.Msg, "context deadline exceeded")
+	assert.GreaterOrEqual(t, elapsed, time.Second)
 }
 
 func TestModulesInfra_ModuleArchive_Good_CreateZipArchive(t *testing.T) {
