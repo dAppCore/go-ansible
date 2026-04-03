@@ -1278,6 +1278,17 @@ all:
 	assert.Equal(t, inventoryPath+"|"+dir, result)
 }
 
+func TestExecutor_Templating_Good_ExposesModeMagicVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.CheckMode = true
+	e.Diff = true
+
+	result := e.templateString("{{ ansible_check_mode }}|{{ ansible_diff_mode }}", "localhost", nil)
+
+	assert.Equal(t, "true|true", result)
+	assert.True(t, e.evalCondition("ansible_check_mode and ansible_diff_mode", "localhost"))
+}
+
 func TestExecutor_RunPlay_Good_ExposesRoleContextVars(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---

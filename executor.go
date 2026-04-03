@@ -286,6 +286,8 @@ func (e *Executor) hostMagicVars(host string) map[string]any {
 		}
 	}
 	if e != nil {
+		values["ansible_check_mode"] = e.CheckMode
+		values["ansible_diff_mode"] = e.Diff
 		if facts := e.hostFactsMap(host); len(facts) > 0 {
 			values["ansible_facts"] = facts
 		}
