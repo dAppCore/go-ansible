@@ -383,6 +383,20 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			continue
 		}
 		e.batchFailedHosts = make(map[string]bool)
+		runSection := func(fn func() error) error {
+			if err := fn(); err != nil {
+				if errors.Is(err, errEndPlay) || errors.Is(err, errEndBatch) {
+					return err
+				}
+				if play.ForceHandlers {
+					if handlerErr := e.runNotifiedHandlers(ctx, batch, play); handlerErr != nil {
+						return handlerErr
+					}
+				}
+				return err
+			}
+			return nil
+		}
 
 		// Gather facts if needed
 		gatherFacts := play.GatherFacts == nil || *play.GatherFacts
@@ -399,7 +413,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 		// Execute pre_tasks
 		for _, task := range play.PreTasks {
-			if err := e.runTaskOnHosts(ctx, batch, &task, play); err != nil {
+			if err := runSection(func() error {
+				return e.runTaskOnHosts(ctx, batch, &task, play)
+			}); err != nil {
 				if errors.Is(err, errEndPlay) {
 					return nil
 				}
@@ -412,7 +428,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 		// Execute roles
 		for _, roleRef := range play.Roles {
-			if err := e.runRole(ctx, batch, &roleRef, play); err != nil {
+			if err := runSection(func() error {
+				return e.runRole(ctx, batch, &roleRef, play)
+			}); err != nil {
 				if errors.Is(err, errEndPlay) {
 					return nil
 				}
@@ -425,7 +443,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 		// Execute tasks
 		for _, task := range play.Tasks {
-			if err := e.runTaskOnHosts(ctx, batch, &task, play); err != nil {
+			if err := runSection(func() error {
+				return e.runTaskOnHosts(ctx, batch, &task, play)
+			}); err != nil {
 				if errors.Is(err, errEndPlay) {
 					return nil
 				}
@@ -438,7 +458,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 		// Execute post_tasks
 		for _, task := range play.PostTasks {
-			if err := e.runTaskOnHosts(ctx, batch, &task, play); err != nil {
+			if err := runSection(func() error {
+				return e.runTaskOnHosts(ctx, batch, &task, play)
+			}); err != nil {
 				if errors.Is(err, errEndPlay) {
 					return nil
 				}

@@ -501,6 +501,28 @@ func TestParser_ParsePlaybook_Good_GatherFactsDisabled(t *testing.T) {
 	assert.False(t, *plays[0].GatherFacts)
 }
 
+func TestParser_ParsePlaybook_Good_ForceHandlers(t *testing.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "playbook.yml")
+
+	yaml := `---
+- name: Handler control
+  hosts: all
+  force_handlers: true
+  any_errors_fatal: true
+  tasks: []
+`
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
+
+	p := NewParser(dir)
+	plays, err := p.ParsePlaybook(path)
+
+	require.NoError(t, err)
+	require.Len(t, plays, 1)
+	assert.True(t, plays[0].ForceHandlers)
+	assert.True(t, plays[0].AnyErrorsFatal)
+}
+
 // --- ParseInventory ---
 
 func TestParser_ParseInventory_Good_SimpleInventory(t *testing.T) {

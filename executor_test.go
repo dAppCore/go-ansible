@@ -1663,6 +1663,57 @@ func TestExecutor_RunTaskOnHosts_Good_MetaFlushesHandlerListenAlias(t *testing.T
 	assert.Equal(t, []string{"change config", "flush handlers", "restart app"}, executed)
 }
 
+func TestExecutor_RunPlay_Good_ForceHandlersAfterFailure(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	play := &Play{
+		Name:          "force handlers",
+		Hosts:         "host1",
+		ForceHandlers: true,
+		Tasks: []Task{
+			{
+				Name:   "change config",
+				Module: "set_fact",
+				Args:   map[string]any{"restart_required": true},
+				Notify: "restart app",
+			},
+			{
+				Name:   "boom",
+				Module: "fail",
+				Args:   map[string]any{"msg": "stop"},
+			},
+		},
+		Handlers: []Task{
+			{
+				Name:     "restart app",
+				Module:   "debug",
+				Args:     map[string]any{"msg": "handler ran"},
+				Register: "restart_result",
+			},
+		},
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task failed")
+	assert.False(t, e.notified["restart app"])
+	assert.Equal(t, []string{"change config", "boom", "restart app"}, executed)
+	require.NotNil(t, e.results["host1"]["restart_result"])
+	assert.Equal(t, "handler ran", e.results["host1"]["restart_result"].Msg)
+}
+
 func TestExecutor_HandleMetaAction_Good_ClearHostErrors(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.batchFailedHosts = map[string]bool{

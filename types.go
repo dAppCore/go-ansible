@@ -29,6 +29,8 @@ type Play struct {
 	Become         bool              `yaml:"become,omitempty"`
 	BecomeUser     string            `yaml:"become_user,omitempty"`
 	GatherFacts    *bool             `yaml:"gather_facts,omitempty"`
+	ForceHandlers  bool              `yaml:"force_handlers,omitempty"`
+	AnyErrorsFatal bool              `yaml:"any_errors_fatal,omitempty"`
 	Vars           map[string]any    `yaml:"vars,omitempty"`
 	VarsFiles      any               `yaml:"vars_files,omitempty"` // string or []string
 	PreTasks       []Task            `yaml:"pre_tasks,omitempty"`
