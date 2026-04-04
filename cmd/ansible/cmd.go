@@ -1,33 +1,46 @@
-package anscmd
+package ansiblecmd
 
 import (
 	"dappco.re/go/core"
 )
 
-// Register registers the 'ansible' command and all subcommands on the given Core instance.
+// Register registers the `ansible` command and its `ansible/test` subcommand.
+//
+// Example:
+//
+//	var app core.Core
+//	Register(&app)
 func Register(c *core.Core) {
 	c.Command("ansible", core.Command{
 		Description: "Run Ansible playbooks natively (no Python required)",
-		Action:      runAnsible,
-		Flags: core.Options{
-			{Key: "inventory", Value: ""},
-			{Key: "limit", Value: ""},
-			{Key: "tags", Value: ""},
-			{Key: "skip-tags", Value: ""},
-			{Key: "extra-vars", Value: ""},
-			{Key: "verbose", Value: 0},
-			{Key: "check", Value: false},
-		},
+		Action:      runPlaybookCommand,
+		Flags: core.NewOptions(
+			core.Option{Key: "inventory", Value: ""},
+			core.Option{Key: "i", Value: ""},
+			core.Option{Key: "limit", Value: ""},
+			core.Option{Key: "l", Value: ""},
+			core.Option{Key: "tags", Value: ""},
+			core.Option{Key: "t", Value: ""},
+			core.Option{Key: "skip-tags", Value: ""},
+			core.Option{Key: "extra-vars", Value: ""},
+			core.Option{Key: "e", Value: ""},
+			core.Option{Key: "verbose", Value: 0},
+			core.Option{Key: "v", Value: false},
+			core.Option{Key: "check", Value: false},
+			core.Option{Key: "diff", Value: false},
+		),
 	})
 
 	c.Command("ansible/test", core.Command{
 		Description: "Test SSH connectivity to a host",
-		Action:      runAnsibleTest,
-		Flags: core.Options{
-			{Key: "user", Value: "root"},
-			{Key: "password", Value: ""},
-			{Key: "key", Value: ""},
-			{Key: "port", Value: 22},
-		},
+		Action:      runSSHTestCommand,
+		Flags: core.NewOptions(
+			core.Option{Key: "user", Value: "root"},
+			core.Option{Key: "u", Value: "root"},
+			core.Option{Key: "password", Value: ""},
+			core.Option{Key: "key", Value: ""},
+			core.Option{Key: "i", Value: ""},
+			core.Option{Key: "port", Value: 22},
+		),
 	})
 }

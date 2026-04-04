@@ -161,7 +161,7 @@ go-ansible/
   types.go            Core data types and KnownModules registry
   parser.go           YAML parsing (playbooks, inventories, roles)
   executor.go         Execution engine (orchestration, templating, conditions)
-  modules.go          41 module handler implementations
+  modules.go          49 module handler implementations
   ssh.go              SSH client (auth, commands, file transfer, become)
   *_test.go           Test files (see table above)
   cmd/

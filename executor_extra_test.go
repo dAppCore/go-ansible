@@ -1,8 +1,8 @@
 package ansible
 
 import (
+	"context"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,28 +15,28 @@ import (
 
 // --- moduleDebug ---
 
-func TestModuleDebug_Good_Message(t *testing.T) {
+func TestExecutorExtra_ModuleDebug_Good_Message(t *testing.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleDebug(map[string]any{"msg": "Hello world"})
+	result, err := e.moduleDebug("host1", nil, map[string]any{"msg": "Hello world"})
 
 	require.NoError(t, err)
 	assert.False(t, result.Changed)
 	assert.Equal(t, "Hello world", result.Msg)
 }
 
-func TestModuleDebug_Good_Var(t *testing.T) {
+func TestExecutorExtra_ModuleDebug_Good_Var(t *testing.T) {
 	e := NewExecutor("/tmp")
-	e.vars["my_version"] = "1.2.3"
+	e.setHostVars("host1", map[string]any{"my_version": "1.2.3"})
 
-	result, err := e.moduleDebug(map[string]any{"var": "my_version"})
+	result, err := e.moduleDebug("host1", nil, map[string]any{"var": "my_version"})
 
 	require.NoError(t, err)
 	assert.Contains(t, result.Msg, "1.2.3")
 }
 
-func TestModuleDebug_Good_EmptyArgs(t *testing.T) {
+func TestExecutorExtra_ModuleDebug_Good_EmptyArgs(t *testing.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleDebug(map[string]any{})
+	result, err := e.moduleDebug("host1", nil, map[string]any{})
 
 	require.NoError(t, err)
 	assert.Equal(t, "", result.Msg)
@@ -44,7 +44,7 @@ func TestModuleDebug_Good_EmptyArgs(t *testing.T) {
 
 // --- moduleFail ---
 
-func TestModuleFail_Good_DefaultMessage(t *testing.T) {
+func TestExecutorExtra_ModuleFail_Good_DefaultMessage(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleFail(map[string]any{})
 
@@ -53,7 +53,7 @@ func TestModuleFail_Good_DefaultMessage(t *testing.T) {
 	assert.Equal(t, "Failed as requested", result.Msg)
 }
 
-func TestModuleFail_Good_CustomMessage(t *testing.T) {
+func TestExecutorExtra_ModuleFail_Good_CustomMessage(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleFail(map[string]any{"msg": "deployment blocked"})
 
@@ -62,9 +62,100 @@ func TestModuleFail_Good_CustomMessage(t *testing.T) {
 	assert.Equal(t, "deployment blocked", result.Msg)
 }
 
+// --- modulePing ---
+
+func TestExecutorExtra_ModulePing_Good_DefaultPong(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := executeModuleWithMock(e, mock, "host1", &Task{
+		Module: "ping",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.False(t, result.Changed)
+	assert.Equal(t, "pong", result.Msg)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "pong", result.Data["ping"])
+	assert.True(t, mock.hasExecuted(`^true$`))
+}
+
+func TestExecutorExtra_ModulePing_Good_CustomData(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := executeModuleWithMock(e, mock, "host1", &Task{
+		Module: "ansible.builtin.ping",
+		Args: map[string]any{
+			"data": "hello",
+		},
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Failed)
+	assert.Equal(t, "hello", result.Msg)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "hello", result.Data["ping"])
+}
+
+func TestExecutorExtra_ModuleSetFact_Good_ReturnsStructuredFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleSetFact("host1", map[string]any{
+		"app_version": "1.2.3",
+		"cacheable":   true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+	facts, ok := result.Data["ansible_facts"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "1.2.3", facts["app_version"])
+	_, cached := facts["cacheable"]
+	assert.False(t, cached)
+	assert.Equal(t, "1.2.3", e.hostScopedVars("host1")["app_version"])
+	_, cached = e.hostScopedVars("host1")["cacheable"]
+	assert.False(t, cached)
+}
+
+func TestExecutorExtra_ExecuteModule_Good_DelegateFactsStoresOnDelegateHost(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+
+	task := &Task{
+		Module:        "set_fact",
+		Args:          map[string]any{"app_version": "2.0.0"},
+		Delegate:      "delegate1",
+		DelegateFacts: true,
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "2.0.0", e.hostScopedVars("delegate1")["app_version"])
+	assert.Nil(t, e.hostScopedVars("host1"))
+	assert.Equal(t, "2.0.0", e.hostFactsMap("delegate1")["app_version"])
+	assert.Nil(t, e.hostFactsMap("host1"))
+}
+
+func TestExecutorExtra_ExecuteModule_Good_LegacyNamespaceCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand("echo hello", "hello\n", "", 0)
+
+	result, err := executeModuleWithMock(e, mock, "host1", &Task{
+		Module: "ansible.legacy.command",
+		Args:   map[string]any{"_raw_params": "echo hello"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "hello\n", result.Stdout)
+	assert.True(t, mock.hasExecuted(`echo hello`))
+}
+
 // --- moduleAssert ---
 
-func TestModuleAssert_Good_PassingAssertion(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Good_PassingAssertion(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = true
 
@@ -75,7 +166,7 @@ func TestModuleAssert_Good_PassingAssertion(t *testing.T) {
 	assert.Equal(t, "All assertions passed", result.Msg)
 }
 
-func TestModuleAssert_Bad_FailingAssertion(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Bad_FailingAssertion(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = false
 
@@ -86,14 +177,14 @@ func TestModuleAssert_Bad_FailingAssertion(t *testing.T) {
 	assert.Contains(t, result.Msg, "Assertion failed")
 }
 
-func TestModuleAssert_Bad_MissingThat(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Bad_MissingThat(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	_, err := e.moduleAssert(map[string]any{}, "host1")
 	assert.Error(t, err)
 }
 
-func TestModuleAssert_Good_CustomFailMsg(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Good_CustomFailMsg(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["ready"] = false
 
@@ -107,7 +198,7 @@ func TestModuleAssert_Good_CustomFailMsg(t *testing.T) {
 	assert.Equal(t, "Service not ready", result.Msg)
 }
 
-func TestModuleAssert_Good_MultipleConditions(t *testing.T) {
+func TestExecutorExtra_ModuleAssert_Good_MultipleConditions(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = true
 	e.vars["count"] = 5
@@ -122,52 +213,238 @@ func TestModuleAssert_Good_MultipleConditions(t *testing.T) {
 
 // --- moduleSetFact ---
 
-func TestModuleSetFact_Good(t *testing.T) {
+func TestExecutorExtra_ModuleSetFact_Good(t *testing.T) {
 	e := NewExecutor("/tmp")
 
-	result, err := e.moduleSetFact(map[string]any{
+	result, err := e.moduleSetFact("host1", map[string]any{
 		"app_version": "2.0.0",
 		"deploy_env":  "production",
 	})
 
 	require.NoError(t, err)
 	assert.True(t, result.Changed)
-	assert.Equal(t, "2.0.0", e.vars["app_version"])
-	assert.Equal(t, "production", e.vars["deploy_env"])
+	require.Contains(t, e.hostVars, "host1")
+	assert.Equal(t, "2.0.0", e.hostVars["host1"]["app_version"])
+	assert.Equal(t, "production", e.hostVars["host1"]["deploy_env"])
 }
 
-func TestModuleSetFact_Good_SkipsCacheable(t *testing.T) {
+func TestExecutorExtra_ModuleSetFact_Good_SkipsCacheable(t *testing.T) {
 	e := NewExecutor("/tmp")
 
-	e.moduleSetFact(map[string]any{
+	e.moduleSetFact("host1", map[string]any{
 		"my_fact":   "value",
 		"cacheable": true,
 	})
 
-	assert.Equal(t, "value", e.vars["my_fact"])
-	_, hasCacheable := e.vars["cacheable"]
+	require.Contains(t, e.hostVars, "host1")
+	assert.Equal(t, "value", e.hostVars["host1"]["my_fact"])
+	_, hasCacheable := e.hostVars["host1"]["cacheable"]
 	assert.False(t, hasCacheable)
+}
+
+func TestExecutorExtra_ModuleSetFact_Good_HostScopedLookup(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleSetFact("host1", map[string]any{
+		"build_id": "2026.04.02",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "2026.04.02", e.templateString("{{ build_id }}", "host1", nil))
+	assert.Equal(t, "{{ build_id }}", e.templateString("{{ build_id }}", "host2", nil))
+}
+
+func TestExecutorExtra_ModuleSetFact_Good_ExposesAnsibleFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleSetFact("host1", map[string]any{
+		"app_version": "2.0.0",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "2.0.0", e.templateString("{{ ansible_facts.app_version }}", "host1", nil))
+	assert.True(t, e.evalCondition("ansible_facts.app_version == '2.0.0'", "host1"))
+}
+
+func TestExecutorExtra_ClearFacts_Good_RemovesSetFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleSetFact("host1", map[string]any{
+		"app_version": "2.0.0",
+	})
+	require.NoError(t, err)
+
+	e.clearFacts([]string{"host1"})
+
+	assert.Equal(t, "{{ ansible_facts.app_version }}", e.templateString("{{ ansible_facts.app_version }}", "host1", nil))
+}
+
+// --- moduleAddHost ---
+
+func TestExecutorExtra_ModuleAddHost_Good_AddsHostAndGroups(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result, err := e.moduleAddHost(map[string]any{
+		"name":                    "db1",
+		"groups":                  "databases,production",
+		"ansible_host":            "10.0.0.5",
+		"ansible_port":            "2222",
+		"ansible_user":            "deploy",
+		"ansible_connection":      "ssh",
+		"ansible_become_password": "secret",
+		"environment":             "prod",
+		"custom_var":              "custom-value",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "db1", result.Data["host"])
+	assert.Contains(t, result.Msg, "db1")
+
+	require.NotNil(t, e.inventory)
+	require.NotNil(t, e.inventory.All)
+	require.NotNil(t, e.inventory.All.Hosts["db1"])
+
+	host := e.inventory.All.Hosts["db1"]
+	assert.Equal(t, "10.0.0.5", host.AnsibleHost)
+	assert.Equal(t, 2222, host.AnsiblePort)
+	assert.Equal(t, "deploy", host.AnsibleUser)
+	assert.Equal(t, "ssh", host.AnsibleConnection)
+	assert.Equal(t, "secret", host.AnsibleBecomePassword)
+	assert.Equal(t, "custom-value", host.Vars["custom_var"])
+
+	require.NotNil(t, e.inventory.All.Children["databases"])
+	require.NotNil(t, e.inventory.All.Children["production"])
+	assert.Same(t, host, e.inventory.All.Children["databases"].Hosts["db1"])
+	assert.Same(t, host, e.inventory.All.Children["production"].Hosts["db1"])
+
+	assert.Equal(t, []string{"db1"}, GetHosts(e.inventory, "all"))
+	assert.Equal(t, []string{"db1"}, GetHosts(e.inventory, "databases"))
+	assert.Equal(t, []string{"db1"}, GetHosts(e.inventory, "production"))
+}
+
+func TestExecutorExtra_ModuleAddHost_Good_IdempotentRepeat(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleAddHost(map[string]any{
+		"name":   "cache1",
+		"groups": []any{"caches"},
+		"role":   "redis",
+	})
+	require.NoError(t, err)
+
+	result, err := e.moduleAddHost(map[string]any{
+		"name":   "cache1",
+		"groups": []any{"caches"},
+		"role":   "redis",
+	})
+	require.NoError(t, err)
+
+	assert.False(t, result.Changed)
+	assert.Equal(t, []string{"cache1"}, GetHosts(e.inventory, "caches"))
+}
+
+func TestExecutorExtra_ModuleAddHost_Good_ThroughDispatcher(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		Module: "add_host",
+		Args: map[string]any{
+			"name":  "cache1",
+			"group": "caches",
+			"role":  "redis",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", &SSHClient{}, task, &Play{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "cache1", result.Data["host"])
+	assert.Equal(t, []string{"caches"}, result.Data["groups"])
+	assert.Equal(t, []string{"cache1"}, GetHosts(e.inventory, "all"))
+	assert.Equal(t, []string{"cache1"}, GetHosts(e.inventory, "caches"))
+	assert.Equal(t, "redis", e.inventory.All.Hosts["cache1"].Vars["role"])
+}
+
+// --- moduleGroupBy ---
+
+func TestExecutorExtra_ModuleGroupBy_Good(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"web1": &Host{AnsibleHost: "10.0.0.10"},
+			},
+		},
+	})
+
+	result, err := e.moduleGroupBy("web1", map[string]any{"key": "debian"})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "web1", result.Data["host"])
+	assert.Equal(t, "debian", result.Data["group"])
+	assert.Contains(t, result.Msg, "web1")
+	assert.Contains(t, result.Msg, "debian")
+	assert.Equal(t, []string{"web1"}, GetHosts(e.inventory, "debian"))
+}
+
+func TestExecutorExtra_ModuleGroupBy_Good_ThroughDispatcher(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	task := &Task{
+		Module: "group_by",
+		Args: map[string]any{
+			"key": "linux",
+		},
+	}
+
+	result, err := executeModuleWithMock(e, mock, "host1", task)
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, []string{"host1"}, GetHosts(e.inventory, "linux"))
+}
+
+func TestExecutorExtra_ModuleGroupBy_Bad_MissingKey(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	_, err := e.moduleGroupBy("host1", map[string]any{})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "key required")
 }
 
 // --- moduleIncludeVars ---
 
-func TestModuleIncludeVars_Good_WithFile(t *testing.T) {
+func TestExecutorExtra_ModuleIncludeVars_Good_WithFile(t *testing.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "main.yml")
+	require.NoError(t, writeTestFile(path, []byte("app_name: demo\n"), 0644))
+
 	e := NewExecutor("/tmp")
-	result, err := e.moduleIncludeVars(map[string]any{"file": "vars/main.yml"})
+	result, err := e.moduleIncludeVars(map[string]any{"file": path})
 
 	require.NoError(t, err)
-	assert.Contains(t, result.Msg, "vars/main.yml")
+	assert.True(t, result.Changed)
+	assert.Contains(t, result.Msg, path)
+	assert.Equal(t, "demo", e.vars["app_name"])
 }
 
-func TestModuleIncludeVars_Good_WithRawParams(t *testing.T) {
+func TestExecutorExtra_ModuleIncludeVars_Good_WithRawParams(t *testing.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "defaults.yml")
+	require.NoError(t, writeTestFile(path, []byte("app_port: 8080\n"), 0644))
+
 	e := NewExecutor("/tmp")
-	result, err := e.moduleIncludeVars(map[string]any{"_raw_params": "defaults.yml"})
+	result, err := e.moduleIncludeVars(map[string]any{"_raw_params": path})
 
 	require.NoError(t, err)
-	assert.Contains(t, result.Msg, "defaults.yml")
+	assert.True(t, result.Changed)
+	assert.Contains(t, result.Msg, path)
+	assert.Equal(t, 8080, e.vars["app_port"])
 }
 
-func TestModuleIncludeVars_Good_Empty(t *testing.T) {
+func TestExecutorExtra_ModuleIncludeVars_Good_Empty(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleIncludeVars(map[string]any{})
 
@@ -177,36 +454,570 @@ func TestModuleIncludeVars_Good_Empty(t *testing.T) {
 
 // --- moduleMeta ---
 
-func TestModuleMeta_Good(t *testing.T) {
+func TestExecutorExtra_ModuleMeta_Good(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleMeta(map[string]any{"_raw_params": "flush_handlers"})
 
 	require.NoError(t, err)
 	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "flush_handlers", result.Data["action"])
+}
+
+func TestExecutorExtra_ModuleMeta_Good_ExplicitActionField(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result, err := e.moduleMeta(map[string]any{"action": "refresh_inventory"})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "refresh_inventory", result.Data["action"])
+}
+
+func TestExecutorExtra_ModuleMeta_Good_ClearFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.facts["host1"] = &Facts{Hostname: "web01"}
+
+	result, err := e.moduleMeta(map[string]any{"_raw_params": "clear_facts"})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "clear_facts", result.Data["action"])
+}
+
+func TestExecutorExtra_ModuleMeta_Good_ResetConnection(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result, err := e.moduleMeta(map[string]any{"_raw_params": "reset_connection"})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "reset_connection", result.Data["action"])
+}
+
+func TestExecutorExtra_ModuleMeta_Good_EndHost(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result, err := e.moduleMeta(map[string]any{"_raw_params": "end_host"})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "end_host", result.Data["action"])
+}
+
+func TestExecutorExtra_ModuleMeta_Good_EndBatch(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result, err := e.moduleMeta(map[string]any{"_raw_params": "end_batch"})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Equal(t, "end_batch", result.Data["action"])
+}
+
+func TestExecutorExtra_HandleMetaAction_Good_ClearFacts(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.facts["host1"] = &Facts{Hostname: "web01"}
+	e.facts["host2"] = &Facts{Hostname: "web02"}
+
+	result := &TaskResult{Data: map[string]any{"action": "clear_facts"}}
+	require.NoError(t, e.handleMetaAction(context.Background(), "host1", []string{"host1"}, nil, result))
+
+	_, ok := e.facts["host1"]
+	assert.False(t, ok)
+	require.NotNil(t, e.facts["host2"])
+	assert.Equal(t, "web02", e.facts["host2"].Hostname)
+}
+
+func TestExecutorExtra_HandleMetaAction_Good_EndHost(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := &TaskResult{Data: map[string]any{"action": "end_host"}}
+	err := e.handleMetaAction(context.Background(), "host1", []string{"host1", "host2"}, nil, result)
+
+	require.ErrorIs(t, err, errEndHost)
+	assert.True(t, e.isHostEnded("host1"))
+	assert.False(t, e.isHostEnded("host2"))
+}
+
+func TestExecutorExtra_HandleMetaAction_Good_EndBatch(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := &TaskResult{Data: map[string]any{"action": "end_batch"}}
+	err := e.handleMetaAction(context.Background(), "host1", []string{"host1", "host2"}, nil, result)
+
+	require.ErrorIs(t, err, errEndBatch)
+	assert.False(t, e.isHostEnded("host1"))
+	assert.False(t, e.isHostEnded("host2"))
+}
+
+func TestExecutorExtra_HandleMetaAction_Good_ResetConnection(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	e.clients["host1"] = mock
+	e.clients["host2"] = NewMockSSHClient()
+
+	result := &TaskResult{Data: map[string]any{"action": "reset_connection"}}
+	require.NoError(t, e.handleMetaAction(context.Background(), "host1", []string{"host1", "host2"}, nil, result))
+
+	_, ok := e.clients["host1"]
+	assert.False(t, ok)
+	_, ok = e.clients["host2"]
+	assert.True(t, ok)
+	assert.True(t, mock.closed)
+}
+
+func TestExecutorExtra_RunBlock_Bad_RescueFailurePropagates(t *testing.T) {
+	e, _ := newTestExecutorWithMock("host1")
+
+	task := &Task{
+		Block: []Task{
+			{
+				Name:   "primary failure",
+				Module: "fail",
+				Args:   map[string]any{"msg": "block failed"},
+			},
+		},
+		Rescue: []Task{
+			{
+				Name:   "rescue failure",
+				Module: "fail",
+				Args:   map[string]any{"msg": "rescue failed"},
+			},
+		},
+	}
+
+	err := e.runBlock(context.Background(), []string{"host1"}, task, &Play{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rescue failed")
+}
+
+func TestExecutorExtra_RunBlock_Good_RescueSuccessClearsBlockFailure(t *testing.T) {
+	e, _ := newTestExecutorWithMock("host1")
+
+	task := &Task{
+		Block: []Task{
+			{
+				Name:   "primary failure",
+				Module: "fail",
+				Args:   map[string]any{"msg": "block failed"},
+			},
+		},
+		Rescue: []Task{
+			{
+				Name:   "rescue success",
+				Module: "debug",
+				Args:   map[string]any{"msg": "recovered"},
+			},
+		},
+	}
+
+	err := e.runBlock(context.Background(), []string{"host1"}, task, &Play{})
+
+	require.NoError(t, err)
+}
+
+func TestExecutorExtra_RunBlock_Good_InheritsBlockVars(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand("echo inherited", "inherited\n", "", 0)
+
+	task := &Task{
+		Vars: map[string]any{
+			"message": "inherited",
+		},
+		Block: []Task{
+			{
+				Name:   "use inherited vars",
+				Module: "command",
+				Args: map[string]any{
+					"_raw_params": "echo {{ message }}",
+				},
+			},
+		},
+	}
+
+	err := e.runBlock(context.Background(), []string{"host1"}, task, &Play{})
+
+	require.NoError(t, err)
+	assert.True(t, mock.hasExecuted("echo inherited"))
+}
+
+func TestExecutorExtra_RunBlock_Good_InheritsBlockWhen(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	task := &Task{
+		When: "false",
+		Block: []Task{
+			{
+				Name:   "should be skipped",
+				Module: "command",
+				Args: map[string]any{
+					"_raw_params": "echo blocked",
+				},
+			},
+		},
+	}
+
+	err := e.runBlock(context.Background(), []string{"host1"}, task, &Play{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, mock.commandCount())
+}
+
+func TestExecutorExtra_RunTaskOnHosts_Good_EndHostSkipsFutureTasks(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"retire_host": true}},
+				"host2": {Vars: map[string]any{"retire_host": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	play := &Play{}
+	first := &Task{
+		Name:   "Retire host",
+		Module: "meta",
+		Args:   map[string]any{"_raw_params": "end_host"},
+		When:   "retire_host",
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1", "host2"}, first, play))
+	assert.True(t, e.isHostEnded("host1"))
+	assert.False(t, e.isHostEnded("host2"))
+
+	second := &Task{
+		Name:   "Follow-up",
+		Module: "debug",
+		Args:   map[string]any{"msg": "still running"},
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1", "host2"}, second, play))
+
+	assert.Contains(t, started, "host1:Retire host")
+	assert.Contains(t, started, "host2:Follow-up")
+	assert.NotContains(t, started, "host1:Follow-up")
+}
+
+func TestExecutorExtra_RunPlay_Good_MetaEndBatchAdvancesToNextSerialBatch(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"end_batch": true}},
+				"host2": {Vars: map[string]any{"end_batch": false}},
+				"host3": {Vars: map[string]any{"end_batch": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+	e.clients["host3"] = NewMockSSHClient()
+
+	serial := 1
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "all",
+		Serial:      serial,
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:   "end current batch",
+				Module: "meta",
+				Args:   map[string]any{"_raw_params": "end_batch"},
+				When:   "end_batch",
+			},
+			{
+				Name:   "follow-up",
+				Module: "debug",
+				Args:   map[string]any{"msg": "next batch"},
+			},
+		},
+	}
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	assert.Contains(t, started, "host1:end current batch")
+	assert.NotContains(t, started, "host1:follow-up")
+	assert.Contains(t, started, "host2:follow-up")
+	assert.Contains(t, started, "host3:follow-up")
+}
+
+func TestExecutorExtra_SplitSerialHosts_Good_ListValues(t *testing.T) {
+	batches := splitSerialHosts([]string{"host1", "host2", "host3", "host4"}, []any{1, "50%"})
+
+	require.Len(t, batches, 3)
+	assert.Equal(t, []string{"host1"}, batches[0])
+	assert.Equal(t, []string{"host2", "host3"}, batches[1])
+	assert.Equal(t, []string{"host4"}, batches[2])
+}
+
+func TestExecutorExtra_SplitSerialHosts_Good_ListRepeatsLastValue(t *testing.T) {
+	batches := splitSerialHosts([]string{"host1", "host2", "host3", "host4", "host5"}, []any{2, 1})
+
+	require.Len(t, batches, 4)
+	assert.Equal(t, []string{"host1", "host2"}, batches[0])
+	assert.Equal(t, []string{"host3"}, batches[1])
+	assert.Equal(t, []string{"host4"}, batches[2])
+	assert.Equal(t, []string{"host5"}, batches[3])
+}
+
+func TestExecutorExtra_RunPlay_Good_ExposesPlayMagicVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	gatherFacts := false
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+				"host2": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	play := &Play{
+		Name:        "Inspect play magic vars",
+		Hosts:       "all",
+		Serial:      1,
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:   "Inspect play magic vars",
+				Module: "debug",
+				Args: map[string]any{
+					"msg": "{{ ansible_play_name }}|{{ ansible_play_hosts_all }}|{{ ansible_play_hosts }}|{{ ansible_play_batch }}",
+				},
+				Register: "magic_vars",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["host1"]["magic_vars"])
+	assert.Equal(t, "Inspect play magic vars|[host1 host2]|[host1 host2]|[host1]", e.results["host1"]["magic_vars"].Msg)
+	require.NotNil(t, e.results["host2"]["magic_vars"])
+	assert.Equal(t, "Inspect play magic vars|[host1 host2]|[host1 host2]|[host2]", e.results["host2"]["magic_vars"].Msg)
+}
+
+func TestExecutorExtra_RunPlay_Good_ExposesLimitMagicVar(t *testing.T) {
+	gatherFacts := false
+	e := NewExecutor(t.TempDir())
+	e.Limit = "host1"
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+				"host2": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	play := &Play{
+		Name:        "Inspect limit magic var",
+		Hosts:       "all",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:   "Inspect limit magic var",
+				Module: "debug",
+				Args: map[string]any{
+					"msg": "{{ ansible_limit }}",
+				},
+				Register: "limit_var",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["host1"]["limit_var"])
+	assert.Equal(t, "host1", e.results["host1"]["limit_var"].Msg)
+	assert.Nil(t, e.results["host2"])
 }
 
 // ============================================================
 // Tests for handleLookup (0% coverage)
 // ============================================================
 
-func TestHandleLookup_Good_EnvVar(t *testing.T) {
+func TestExecutorExtra_HandleLookup_Good_EnvVar(t *testing.T) {
 	e := NewExecutor("/tmp")
-	os.Setenv("TEST_ANSIBLE_LOOKUP", "found_it")
-	defer os.Unsetenv("TEST_ANSIBLE_LOOKUP")
+	t.Setenv("TEST_ANSIBLE_LOOKUP", "found_it")
 
-	result := e.handleLookup("lookup('env', 'TEST_ANSIBLE_LOOKUP')")
+	result := e.handleLookup("lookup('env', 'TEST_ANSIBLE_LOOKUP')", "", nil)
 	assert.Equal(t, "found_it", result)
 }
 
-func TestHandleLookup_Good_EnvVarMissing(t *testing.T) {
+func TestExecutorExtra_HandleLookup_Good_EnvVarMissing(t *testing.T) {
 	e := NewExecutor("/tmp")
-	result := e.handleLookup("lookup('env', 'NONEXISTENT_VAR_12345')")
+	result := e.handleLookup("lookup('env', 'NONEXISTENT_VAR_12345')", "", nil)
 	assert.Equal(t, "", result)
 }
 
-func TestHandleLookup_Bad_InvalidSyntax(t *testing.T) {
+func TestExecutorExtra_HandleLookup_Good_FileLookupResolvesBasePath(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "vars.txt"), []byte("from base path"), 0644))
+
+	e := NewExecutor(dir)
+	result := e.handleLookup("lookup('file', 'vars.txt')", "", nil)
+
+	assert.Equal(t, "from base path", result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_TemplateLookupResolvesBasePathAndVars(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "templates", "message.j2"), []byte("Hello {{ name }}"), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("name", "world")
+
+	result := e.handleLookup("lookup('template', 'templates/message.j2')", "host1", nil)
+
+	assert.Equal(t, "Hello world", result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_VarsLookup(t *testing.T) {
 	e := NewExecutor("/tmp")
-	result := e.handleLookup("lookup(invalid)")
+	e.SetVar("lookup_value", "resolved from vars")
+
+	result := e.handleLookup("lookup('vars', 'lookup_value')", "", nil)
+
+	assert.Equal(t, "resolved from vars", result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_PipeLookup(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := e.handleLookup("lookup('pipe', 'printf pipe-value')", "", nil)
+
+	assert.Equal(t, "pipe-value", result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_FileGlobLookup(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "files", "a.txt"), []byte("alpha"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "files", "b.txt"), []byte("bravo"), 0644))
+
+	e := NewExecutor(dir)
+	result := e.handleLookup("lookup('fileglob', 'files/*.txt')", "", nil)
+
+	assert.Equal(t, join(",", []string{
+		joinPath(dir, "files", "a.txt"),
+		joinPath(dir, "files", "b.txt"),
+	}), result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_PasswordLookupReadsExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	passPath := joinPath(dir, "secrets", "app.pass")
+	require.NoError(t, writeTestFile(passPath, []byte("s3cret\n"), 0600))
+
+	e := NewExecutor(dir)
+	result := e.handleLookup("lookup('password', 'secrets/app.pass')", "", nil)
+
+	assert.Equal(t, "s3cret", result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_PasswordLookupCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	passPath := joinPath(dir, "secrets", "generated.pass")
+
+	e := NewExecutor(dir)
+	result := e.handleLookup("lookup('password', 'secrets/generated.pass length=12 chars=digits')", "", nil)
+
+	require.Len(t, result, 12)
+	content, err := readTestFile(passPath)
+	require.NoError(t, err)
+	assert.Equal(t, result, string(content))
+	assert.Len(t, content, 12)
+}
+
+func TestExecutorExtra_HandleLookup_Good_PasswordLookupHonoursSeed(t *testing.T) {
+	dir := t.TempDir()
+	e := NewExecutor(dir)
+
+	first := e.handleLookup("lookup('password', '/dev/null length=16 chars=ascii_lowercase seed=inventory_hostname')", "host1", nil)
+	second := e.handleLookup("lookup('password', '/dev/null length=16 chars=ascii_lowercase seed=inventory_hostname')", "host1", nil)
+	other := e.handleLookup("lookup('password', '/dev/null length=16 chars=ascii_lowercase seed=inventory_hostname')", "host2", nil)
+
+	assert.Len(t, first, 16)
+	assert.Equal(t, first, second)
+	assert.NotEqual(t, first, other)
+}
+
+func TestExecutorExtra_HandleLookup_Good_FirstFoundLookupReturnsFirstExistingPath(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "defaults", "common.yml"), []byte("common: true\n"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "defaults", "production.yml"), []byte("env: prod\n"), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("findme", map[string]any{
+		"files": []any{"missing.yml", "production.yml", "common.yml"},
+		"paths": []any{"defaults"},
+	})
+
+	result := e.handleLookup("lookup('first_found', findme)", "", nil)
+
+	assert.Equal(t, joinPath(dir, "defaults", "production.yml"), result)
+}
+
+func TestExecutorExtra_HandleLookup_Good_FirstFoundLookupAcceptsFQCN(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "selected.yml"), []byte("selected: true\n"), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("findme", map[string]any{
+		"files": []any{"missing.yml", "selected.yml"},
+		"paths": []any{"vars"},
+	})
+
+	result := e.handleLookup("lookup('ansible.builtin.first_found', findme)", "", nil)
+
+	assert.Equal(t, joinPath(dir, "vars", "selected.yml"), result)
+}
+
+func TestExecutorExtra_RunTaskOnHost_Good_LoopFromFileGlobLookup(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "files", "a.txt"), []byte("alpha"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "files", "b.txt"), []byte("bravo"), 0644))
+
+	e := NewExecutor(dir)
+	task := &Task{
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop:     "{{ lookup('fileglob', 'files/*.txt') }}",
+		Register: "glob_lookup",
+	}
+
+	require.NoError(t, e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{}))
+
+	result := e.results["host1"]["glob_lookup"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, joinPath(dir, "files", "a.txt"), result.Results[0].Msg)
+	assert.Equal(t, joinPath(dir, "files", "b.txt"), result.Results[1].Msg)
+}
+
+func TestExecutorExtra_HandleLookup_Bad_InvalidSyntax(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result := e.handleLookup("lookup(invalid)", "", nil)
 	assert.Equal(t, "", result)
 }
 
@@ -214,9 +1025,9 @@ func TestHandleLookup_Bad_InvalidSyntax(t *testing.T) {
 // Tests for SetInventory (0% coverage)
 // ============================================================
 
-func TestSetInventory_Good(t *testing.T) {
+func TestExecutorExtra_SetInventory_Good(t *testing.T) {
 	dir := t.TempDir()
-	invPath := filepath.Join(dir, "inventory.yml")
+	invPath := joinPath(dir, "inventory.yml")
 	yaml := `all:
   hosts:
     web1:
@@ -224,7 +1035,7 @@ func TestSetInventory_Good(t *testing.T) {
     web2:
       ansible_host: 10.0.0.2
 `
-	require.NoError(t, os.WriteFile(invPath, []byte(yaml), 0644))
+	require.NoError(t, writeTestFile(invPath, []byte(yaml), 0644))
 
 	e := NewExecutor(dir)
 	err := e.SetInventory(invPath)
@@ -234,7 +1045,28 @@ func TestSetInventory_Good(t *testing.T) {
 	assert.Len(t, e.inventory.All.Hosts, 2)
 }
 
-func TestSetInventory_Bad_FileNotFound(t *testing.T) {
+func TestExecutorExtra_SetInventory_Good_Directory(t *testing.T) {
+	dir := t.TempDir()
+	inventoryDir := joinPath(dir, "inventory")
+	require.NoError(t, os.MkdirAll(inventoryDir, 0755))
+
+	invPath := joinPath(inventoryDir, "inventory.yml")
+	yaml := `all:
+  hosts:
+    web1:
+      ansible_host: 10.0.0.1
+`
+	require.NoError(t, writeTestFile(invPath, []byte(yaml), 0644))
+
+	e := NewExecutor(dir)
+	err := e.SetInventory(inventoryDir)
+
+	require.NoError(t, err)
+	assert.NotNil(t, e.inventory)
+	assert.Contains(t, e.inventory.All.Hosts, "web1")
+}
+
+func TestExecutorExtra_SetInventory_Bad_FileNotFound(t *testing.T) {
 	e := NewExecutor("/tmp")
 	err := e.SetInventory("/nonexistent/inventory.yml")
 	assert.Error(t, err)
@@ -244,9 +1076,9 @@ func TestSetInventory_Bad_FileNotFound(t *testing.T) {
 // Tests for iterator functions (0% coverage)
 // ============================================================
 
-func TestParsePlaybookIter_Good(t *testing.T) {
+func TestExecutorExtra_ParsePlaybookIter_Good(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "playbook.yml")
+	path := joinPath(dir, "playbook.yml")
 	yaml := `- name: First play
   hosts: all
   tasks:
@@ -259,7 +1091,7 @@ func TestParsePlaybookIter_Good(t *testing.T) {
     - debug:
         msg: world
 `
-	require.NoError(t, os.WriteFile(path, []byte(yaml), 0644))
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
 	iter, err := p.ParsePlaybookIter(path)
@@ -274,14 +1106,14 @@ func TestParsePlaybookIter_Good(t *testing.T) {
 	assert.Equal(t, "Second play", plays[1].Name)
 }
 
-func TestParsePlaybookIter_Bad_InvalidFile(t *testing.T) {
+func TestExecutorExtra_ParsePlaybookIter_Bad_InvalidFile(t *testing.T) {
 	_, err := NewParser("/tmp").ParsePlaybookIter("/nonexistent.yml")
 	assert.Error(t, err)
 }
 
-func TestParseTasksIter_Good(t *testing.T) {
+func TestExecutorExtra_ParseTasksIter_Good(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "tasks.yml")
+	path := joinPath(dir, "tasks.yml")
 	yaml := `- name: Task one
   debug:
     msg: first
@@ -290,7 +1122,7 @@ func TestParseTasksIter_Good(t *testing.T) {
   debug:
     msg: second
 `
-	require.NoError(t, os.WriteFile(path, []byte(yaml), 0644))
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
 	iter, err := p.ParseTasksIter(path)
@@ -304,12 +1136,520 @@ func TestParseTasksIter_Good(t *testing.T) {
 	assert.Equal(t, "Task one", tasks[0].Name)
 }
 
-func TestParseTasksIter_Bad_InvalidFile(t *testing.T) {
+func TestExecutorExtra_ParseTasksIter_Bad_InvalidFile(t *testing.T) {
 	_, err := NewParser("/tmp").ParseTasksIter("/nonexistent.yml")
 	assert.Error(t, err)
 }
 
-func TestGetHostsIter_Good(t *testing.T) {
+func TestExecutorExtra_RunIncludeTasks_Good_RelativePath(t *testing.T) {
+	dir := t.TempDir()
+	includedPath := joinPath(dir, "included.yml")
+	yaml := `- name: Included first task
+  debug:
+    msg: first
+
+- name: Included second task
+  debug:
+    msg: second
+`
+	require.NoError(t, writeTestFile(includedPath, []byte(yaml), 0644))
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Include tasks",
+		Hosts:       "localhost",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:         "Load included tasks",
+				IncludeTasks: "included.yml",
+			},
+		},
+	}
+
+	e := NewExecutor(dir)
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	assert.Contains(t, started, "localhost:Included first task")
+	assert.Contains(t, started, "localhost:Included second task")
+}
+
+func TestExecutorExtra_RunIncludeTasks_Good_InheritsTaskVars(t *testing.T) {
+	dir := t.TempDir()
+	includedPath := joinPath(dir, "included-vars.yml")
+	yaml := `- name: Included var task
+  debug:
+    msg: "{{ include_message }}"
+  register: included_result
+`
+	require.NoError(t, writeTestFile(includedPath, []byte(yaml), 0644))
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Include vars",
+		Hosts:       "localhost",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:         "Load included tasks",
+				IncludeTasks: "included-vars.yml",
+				Vars:         map[string]any{"include_message": "hello from include"},
+			},
+		},
+	}
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["localhost"]["included_result"])
+	assert.Equal(t, "hello from include", e.results["localhost"]["included_result"].Msg)
+}
+
+func TestExecutorExtra_RunIncludeTasks_Good_HostSpecificTemplate(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "web.yml"), []byte(`- name: Web included task
+  debug:
+    msg: web
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "db.yml"), []byte(`- name: DB included task
+  debug:
+    msg: db
+`), 0644))
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Include host-specific tasks",
+		Hosts:       "all",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"web1": {
+					AnsibleConnection: "local",
+					Vars: map[string]any{
+						"include_file": "web.yml",
+					},
+				},
+				"db1": {
+					AnsibleConnection: "local",
+					Vars: map[string]any{
+						"include_file": "db.yml",
+					},
+				},
+			},
+		},
+	})
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"web1", "db1"}, &Task{
+		Name:         "Load host-specific tasks",
+		IncludeTasks: "{{ include_file }}",
+	}, play))
+
+	assert.Contains(t, started, "web1:Web included task")
+	assert.Contains(t, started, "db1:DB included task")
+}
+
+func TestExecutorExtra_RunIncludeTasks_Good_HonoursWhen(t *testing.T) {
+	dir := t.TempDir()
+	includedPath := joinPath(dir, "conditional.yml")
+	yaml := `- name: Conditional included task
+  debug:
+    msg: should not run
+`
+	require.NoError(t, writeTestFile(includedPath, []byte(yaml), 0644))
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Conditional include",
+		Hosts:       "localhost",
+		GatherFacts: &gatherFacts,
+	}
+
+	e := NewExecutor(dir)
+	e.SetVar("include_enabled", false)
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name:         "Load conditional tasks",
+		IncludeTasks: "conditional.yml",
+		When:         "include_enabled",
+	}, play))
+
+	assert.Empty(t, started)
+}
+
+func TestExecutorExtra_RunIncludeTasks_Good_TemplatesVarsAndInheritsTags(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "tasks", "common.yml"), []byte(`---
+- name: Included tagged task
+  debug:
+    msg: "{{ include_message }}"
+  register: include_result
+  tags:
+    - child-tag
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+	e.SetVar("env_name", "production")
+	e.Tags = []string{"include-tag"}
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name:         "Load included tasks",
+		IncludeTasks: "tasks/common.yml",
+		Tags:         []string{"include-tag"},
+		Vars: map[string]any{
+			"include_message": "{{ env_name }}",
+		},
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["include_result"])
+	assert.Equal(t, "production", e.results["localhost"]["include_result"].Msg)
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_InheritsTaskVars(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---
+- name: Role var task
+  debug:
+    msg: "{{ role_message }}"
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name: "Load role",
+		IncludeRole: &RoleRef{
+			Role: "demo",
+		},
+		Vars: map[string]any{"role_message": "hello from role"},
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["role_result"])
+	assert.Equal(t, "hello from role", e.results["localhost"]["role_result"].Msg)
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleDefaults(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "app", "tasks", "main.yml"), []byte(`---
+- name: Applied role task
+  vars:
+    role_message: from-task
+  shell: printf '%s|%s|%s' "$APP_ENV" "{{ apply_message }}" "{{ role_message }}"
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	var started *Task
+	e.OnTaskStart = func(host string, task *Task) {
+		if task.Name == "Applied role task" {
+			started = task
+		}
+	}
+
+	// Re-run with callback attached so we can inspect the merged task state.
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name: "Load role with apply",
+		IncludeRole: &RoleRef{
+			Role: "app",
+			Apply: &TaskApply{
+				Tags: []string{"role-apply"},
+				Vars: map[string]any{
+					"apply_message": "from-apply",
+					"role_message":  "from-apply",
+				},
+				Environment: map[string]string{
+					"APP_ENV": "production",
+				},
+			},
+		},
+	}, play))
+
+	require.NotNil(t, started)
+	assert.Contains(t, started.Tags, "role-apply")
+	assert.Equal(t, "production", started.Environment["APP_ENV"])
+	assert.Equal(t, "from-apply", started.Vars["apply_message"])
+	assert.Equal(t, "from-task", started.Vars["role_message"])
+	require.NotNil(t, e.results["localhost"]["role_result"])
+	assert.Equal(t, "production|from-apply|from-task", e.results["localhost"]["role_result"].Stdout)
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_AppliesRoleWhen(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "app", "tasks", "main.yml"), []byte(`---
+- name: Conditional role task
+  debug:
+    msg: "role task ran"
+  when: task_enabled
+  register: role_result
+`), 0644))
+
+	e, _ := newTestExecutorWithMock("localhost")
+	e.parser = NewParser(dir)
+	e.SetVar("task_enabled", true)
+	e.SetVar("apply_enabled", false)
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name: "Load role with conditional apply",
+		IncludeRole: &RoleRef{
+			Role: "app",
+			Apply: &TaskApply{
+				When: "apply_enabled",
+			},
+		},
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["role_result"])
+	assert.True(t, e.results["localhost"]["role_result"].Skipped)
+	assert.Equal(t, "Skipped due to when condition", e.results["localhost"]["role_result"].Msg)
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_UsesRoleRefTagsForSelection(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "tagged", "tasks", "main.yml"), []byte(`---
+- name: Tagged role task
+  debug:
+    msg: "role task ran"
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.Tags = []string{"role-tag"}
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "host1",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, &Task{
+		Name: "Load tagged role",
+		IncludeRole: &RoleRef{
+			Role: "tagged",
+			Tags: []string{"role-tag"},
+		},
+	}, play))
+
+	require.NotNil(t, e.results["host1"]["role_result"])
+	assert.Equal(t, "role task ran", e.results["host1"]["role_result"].Msg)
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_HonoursRoleRefWhen(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "conditional", "tasks", "main.yml"), []byte(`---
+- name: Conditional role task
+  debug:
+    msg: "role task ran"
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.SetVar("role_enabled", false)
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "host1",
+		GatherFacts: &gatherFacts,
+	}
+
+	var started []string
+	e.OnTaskStart = func(_ string, task *Task) {
+		started = append(started, task.Name)
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, &Task{
+		Name: "Load conditional role",
+		IncludeRole: &RoleRef{
+			Role: "conditional",
+			When: "role_enabled",
+		},
+	}, play))
+
+	assert.Empty(t, started)
+	if results := e.results["host1"]; results != nil {
+		_, ok := results["role_result"]
+		assert.False(t, ok)
+	}
+}
+
+func TestExecutorExtra_RunIncludeRole_Good_PublicVarsPersist(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "shared", "tasks", "main.yml"), []byte(`---
+- name: Shared role task
+  debug:
+    msg: "{{ shared_message }}"
+  register: shared_role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name: "Load public role",
+				IncludeRole: &RoleRef{
+					Role:   "shared",
+					Public: true,
+				},
+				Vars: map[string]any{"shared_message": "hello from public role"},
+			},
+			{
+				Name:   "Use public role vars",
+				Module: "debug",
+				Args: map[string]any{
+					"msg": "{{ shared_message }}",
+				},
+				Register: "after_public_role",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["localhost"]["shared_role_result"])
+	assert.Equal(t, "hello from public role", e.results["localhost"]["shared_role_result"].Msg)
+	require.NotNil(t, e.results["localhost"]["after_public_role"])
+	assert.Equal(t, "hello from public role", e.results["localhost"]["after_public_role"].Msg)
+}
+
+func TestExecutorExtra_RunPlay_Good_ModuleDefaultsApplyToTasks(t *testing.T) {
+	dir := t.TempDir()
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	mock := newTrackingMockClient()
+	e.clients["localhost"] = mock
+	mock.expectCommand(`cd "/tmp/module-defaults" && pwd`, "/tmp/module-defaults\n", "", 0)
+
+	gatherFacts := false
+	play := &Play{
+		Name:        "Module defaults",
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		ModuleDefaults: map[string]map[string]any{
+			"command": {
+				"chdir": "/tmp/module-defaults",
+			},
+		},
+		Tasks: []Task{
+			{
+				Name:     "Run command with defaults",
+				Module:   "command",
+				Args:     map[string]any{"cmd": "pwd"},
+				Register: "command_result",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["localhost"]["command_result"])
+	assert.Equal(t, "/tmp/module-defaults\n", e.results["localhost"]["command_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`cd "/tmp/module-defaults" && pwd`))
+}
+
+func TestExecutorExtra_GetHostsIter_Good(t *testing.T) {
 	inv := &Inventory{
 		All: &InventoryGroup{
 			Hosts: map[string]*Host{
@@ -327,7 +1667,7 @@ func TestGetHostsIter_Good(t *testing.T) {
 	assert.Len(t, hosts, 3)
 }
 
-func TestAllHostsIter_Good(t *testing.T) {
+func TestExecutorExtra_AllHostsIter_Good(t *testing.T) {
 	group := &InventoryGroup{
 		Hosts: map[string]*Host{
 			"alpha": {},
@@ -353,7 +1693,7 @@ func TestAllHostsIter_Good(t *testing.T) {
 	assert.Equal(t, "gamma", hosts[2])
 }
 
-func TestAllHostsIter_Good_NilGroup(t *testing.T) {
+func TestExecutorExtra_AllHostsIter_Good_NilGroup(t *testing.T) {
 	var count int
 	for range AllHostsIter(nil) {
 		count++
@@ -365,7 +1705,7 @@ func TestAllHostsIter_Good_NilGroup(t *testing.T) {
 // Tests for resolveExpr with registered vars (additional coverage)
 // ============================================================
 
-func TestResolveExpr_Good_RegisteredVarFields(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_RegisteredVarFields(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.results["host1"] = map[string]*TaskResult{
 		"cmd_result": {
@@ -384,7 +1724,7 @@ func TestResolveExpr_Good_RegisteredVarFields(t *testing.T) {
 	assert.Equal(t, "false", e.resolveExpr("cmd_result.failed", "host1", nil))
 }
 
-func TestResolveExpr_Good_TaskVars(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_TaskVars(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{
 		Vars: map[string]any{"local_var": "local_value"},
@@ -394,7 +1734,7 @@ func TestResolveExpr_Good_TaskVars(t *testing.T) {
 	assert.Equal(t, "local_value", result)
 }
 
-func TestResolveExpr_Good_HostVars(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_HostVars(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
@@ -408,7 +1748,7 @@ func TestResolveExpr_Good_HostVars(t *testing.T) {
 	assert.Equal(t, "10.0.0.1", result)
 }
 
-func TestResolveExpr_Good_Facts(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_Facts(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.facts["host1"] = &Facts{
 		Hostname:     "web01",
@@ -429,25 +1769,29 @@ func TestResolveExpr_Good_Facts(t *testing.T) {
 
 // --- applyFilter additional coverage ---
 
-func TestApplyFilter_Good_B64Decode(t *testing.T) {
+func TestExecutorExtra_ApplyFilter_Good_B64Decode(t *testing.T) {
 	e := NewExecutor("/tmp")
-	// b64decode is a no-op stub currently
-	assert.Equal(t, "hello", e.applyFilter("hello", "b64decode"))
+	assert.Equal(t, "hello", e.applyFilter("aGVsbG8=", "b64decode"))
 }
 
-func TestApplyFilter_Good_UnknownFilter(t *testing.T) {
+func TestExecutorExtra_ApplyFilter_Good_B64Encode(t *testing.T) {
+	e := NewExecutor("/tmp")
+	assert.Equal(t, "aGVsbG8=", e.applyFilter("hello", "b64encode"))
+}
+
+func TestExecutorExtra_ApplyFilter_Good_UnknownFilter(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.Equal(t, "value", e.applyFilter("value", "unknown_filter"))
 }
 
 // --- evalCondition with default filter ---
 
-func TestEvalCondition_Good_DefaultFilter(t *testing.T) {
+func TestExecutorExtra_EvalCondition_Good_DefaultFilter(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.True(t, e.evalCondition("myvar | default('fallback')", "host1"))
 }
 
-func TestEvalCondition_Good_UndefinedCheck(t *testing.T) {
+func TestExecutorExtra_EvalCondition_Good_UndefinedCheck(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.True(t, e.evalCondition("missing_var is not defined", "host1"))
 	assert.True(t, e.evalCondition("missing_var is undefined", "host1"))
@@ -455,10 +1799,18 @@ func TestEvalCondition_Good_UndefinedCheck(t *testing.T) {
 
 // --- resolveExpr with filter pipe ---
 
-func TestResolveExpr_Good_WithFilter(t *testing.T) {
+func TestExecutorExtra_ResolveExpr_Good_WithFilter(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["raw_value"] = "  trimmed  "
 
 	result := e.resolveExpr("raw_value | trim", "host1", nil)
 	assert.Equal(t, "trimmed", result)
+}
+
+func TestExecutorExtra_ResolveExpr_Good_WithB64Encode(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["raw_value"] = "hello"
+
+	result := e.resolveExpr("raw_value | b64encode", "host1", nil)
+	assert.Equal(t, "aGVsbG8=", result)
 }

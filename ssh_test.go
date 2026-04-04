@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewSSHClient(t *testing.T) {
+func TestSSH_NewSSHClient_Good_CustomConfig(t *testing.T) {
 	cfg := SSHConfig{
 		Host: "localhost",
 		Port: 2222,
@@ -23,7 +23,7 @@ func TestNewSSHClient(t *testing.T) {
 	assert.Equal(t, 30*time.Second, client.timeout)
 }
 
-func TestSSHConfig_Defaults(t *testing.T) {
+func TestSSH_NewSSHClient_Good_Defaults(t *testing.T) {
 	cfg := SSHConfig{
 		Host: "localhost",
 	}
@@ -33,4 +33,20 @@ func TestSSHConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 22, client.port)
 	assert.Equal(t, "root", client.user)
 	assert.Equal(t, 30*time.Second, client.timeout)
+}
+
+func TestSSH_SetBecome_Good_DisablesAndClearsState(t *testing.T) {
+	client := &SSHClient{}
+
+	client.SetBecome(true, "admin", "secret")
+	become, user, password := client.BecomeState()
+	assert.True(t, become)
+	assert.Equal(t, "admin", user)
+	assert.Equal(t, "secret", password)
+
+	client.SetBecome(false, "", "")
+	become, user, password = client.BecomeState()
+	assert.False(t, become)
+	assert.Empty(t, user)
+	assert.Empty(t, password)
 }

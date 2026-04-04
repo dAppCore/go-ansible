@@ -1,14 +1,44 @@
 package ansible
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
+
+type becomeCall struct {
+	become   bool
+	user     string
+	password string
+}
+
+type trackingMockClient struct {
+	*MockSSHClient
+	becomeCalls []becomeCall
+}
+
+func newTrackingMockClient() *trackingMockClient {
+	return &trackingMockClient{MockSSHClient: NewMockSSHClient()}
+}
+
+func (c *trackingMockClient) SetBecome(become bool, user, password string) {
+	c.becomeCalls = append(c.becomeCalls, becomeCall{become: become, user: user, password: password})
+	c.MockSSHClient.SetBecome(become, user, password)
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
 
 // --- NewExecutor ---
 
-func TestNewExecutor_Good(t *testing.T) {
+func TestExecutor_NewExecutor_Good(t *testing.T) {
 	e := NewExecutor("/some/path")
 
 	assert.NotNil(t, e)
@@ -23,7 +53,7 @@ func TestNewExecutor_Good(t *testing.T) {
 
 // --- SetVar ---
 
-func TestSetVar_Good(t *testing.T) {
+func TestExecutor_SetVar_Good(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetVar("foo", "bar")
 	e.SetVar("count", 42)
@@ -34,7 +64,7 @@ func TestSetVar_Good(t *testing.T) {
 
 // --- SetInventoryDirect ---
 
-func TestSetInventoryDirect_Good(t *testing.T) {
+func TestExecutor_SetInventoryDirect_Good(t *testing.T) {
 	e := NewExecutor("/tmp")
 	inv := &Inventory{
 		All: &InventoryGroup{
@@ -48,9 +78,36 @@ func TestSetInventoryDirect_Good(t *testing.T) {
 	assert.Equal(t, inv, e.inventory)
 }
 
+func TestExecutor_Run_Good_UsesCachedClient(t *testing.T) {
+	dir := t.TempDir()
+	playbookPath := filepath.Join(dir, "site.yml")
+	require.NoError(t, writeTestFile(playbookPath, []byte(`---
+- hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: run shell command
+      shell: echo ok
+      register: shell_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	mock := NewMockSSHClient()
+	mock.expectCommand(`^echo ok$`, "ok\n", "", 0)
+	e.clients["localhost"] = mock
+
+	require.NoError(t, e.Run(context.Background(), playbookPath))
+
+	require.NotNil(t, e.results["localhost"]["shell_result"])
+	assert.Equal(t, "ok\n", e.results["localhost"]["shell_result"].Stdout)
+	assert.True(t, e.results["localhost"]["shell_result"].Changed)
+	assert.Equal(t, 1, len(mock.executed))
+	assert.Equal(t, "RunScript", mock.executed[0].Method)
+	assert.Equal(t, "echo ok", mock.executed[0].Cmd)
+}
+
 // --- getHosts ---
 
-func TestGetHosts_Executor_Good_WithInventory(t *testing.T) {
+func TestExecutor_GetHosts_Good_WithInventory(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
@@ -65,7 +122,7 @@ func TestGetHosts_Executor_Good_WithInventory(t *testing.T) {
 	assert.Len(t, hosts, 2)
 }
 
-func TestGetHosts_Executor_Good_Localhost(t *testing.T) {
+func TestExecutor_GetHosts_Good_Localhost(t *testing.T) {
 	e := NewExecutor("/tmp")
 	// No inventory set
 
@@ -73,14 +130,14 @@ func TestGetHosts_Executor_Good_Localhost(t *testing.T) {
 	assert.Equal(t, []string{"localhost"}, hosts)
 }
 
-func TestGetHosts_Executor_Good_NoInventory(t *testing.T) {
+func TestExecutor_GetHosts_Good_NoInventory(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	hosts := e.getHosts("webservers")
 	assert.Nil(t, hosts)
 }
 
-func TestGetHosts_Executor_Good_WithLimit(t *testing.T) {
+func TestExecutor_GetHosts_Good_WithLimit(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
@@ -98,16 +155,88 @@ func TestGetHosts_Executor_Good_WithLimit(t *testing.T) {
 	assert.Contains(t, hosts, "host2")
 }
 
+func TestExecutor_GetClient_Good_PlayVarsOverrideInventoryVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {
+					AnsibleHost: "10.0.0.10",
+					AnsibleUser: "inventory-user",
+				},
+			},
+		},
+	})
+	e.SetVar("ansible_host", "10.0.0.20")
+	e.SetVar("ansible_user", "play-user")
+
+	client, err := e.getClient("host1", &Play{})
+	require.NoError(t, err)
+
+	sshClient, ok := client.(*SSHClient)
+	require.True(t, ok)
+	assert.Equal(t, "10.0.0.20", sshClient.host)
+	assert.Equal(t, "play-user", sshClient.user)
+}
+
+func TestExecutor_GetClient_Good_UsesInventoryBecomePassword(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {
+					AnsibleHost:           "127.0.0.1",
+					AnsibleBecomePassword: "secret",
+				},
+			},
+		},
+	})
+
+	client, err := e.getClient("host1", &Play{Become: true, BecomeUser: "admin"})
+	require.NoError(t, err)
+
+	sshClient, ok := client.(*SSHClient)
+	require.True(t, ok)
+	become, user, pass := sshClient.BecomeState()
+	assert.True(t, become)
+	assert.Equal(t, "admin", user)
+	assert.Equal(t, "secret", pass)
+}
+
+func TestExecutor_GetClient_Good_UpdatesCachedBecomeState(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {AnsibleHost: "127.0.0.1"},
+			},
+		},
+	})
+
+	cached := &becomeRecordingClient{}
+	e.clients["host1"] = cached
+
+	play := &Play{Become: true, BecomeUser: "admin"}
+	client, err := e.getClient("host1", play)
+	require.NoError(t, err)
+	require.Same(t, cached, client)
+
+	become, user, pass := cached.BecomeState()
+	assert.True(t, become)
+	assert.Equal(t, "admin", user)
+	assert.Empty(t, pass)
+}
+
 // --- matchesTags ---
 
-func TestMatchesTags_Good_NoTagsFilter(t *testing.T) {
+func TestExecutor_MatchesTags_Good_NoTagsFilter(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	assert.True(t, e.matchesTags(nil))
 	assert.True(t, e.matchesTags([]string{"any", "tags"}))
 }
 
-func TestMatchesTags_Good_IncludeTag(t *testing.T) {
+func TestExecutor_MatchesTags_Good_IncludeTag(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Tags = []string{"deploy"}
 
@@ -116,7 +245,7 @@ func TestMatchesTags_Good_IncludeTag(t *testing.T) {
 	assert.False(t, e.matchesTags([]string{"other"}))
 }
 
-func TestMatchesTags_Good_SkipTag(t *testing.T) {
+func TestExecutor_MatchesTags_Good_SkipTag(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.SkipTags = []string{"slow"}
 
@@ -125,14 +254,30 @@ func TestMatchesTags_Good_SkipTag(t *testing.T) {
 	assert.False(t, e.matchesTags([]string{"fast", "slow"}))
 }
 
-func TestMatchesTags_Good_AllTag(t *testing.T) {
+func TestExecutor_MatchesTags_Good_AllTag(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Tags = []string{"all"}
 
 	assert.True(t, e.matchesTags([]string{"anything"}))
 }
 
-func TestMatchesTags_Good_NoTaskTags(t *testing.T) {
+func TestExecutor_MatchesTags_Good_AlwaysTagIgnoresIncludeFilter(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Tags = []string{"deploy"}
+
+	assert.True(t, e.matchesTags([]string{"always"}))
+	assert.True(t, e.matchesTags([]string{"always", "other"}))
+}
+
+func TestExecutor_MatchesTags_Good_AlwaysTagStillRespectsSkipFilter(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Tags = []string{"deploy"}
+	e.SkipTags = []string{"always"}
+
+	assert.False(t, e.matchesTags([]string{"always"}))
+}
+
+func TestExecutor_MatchesTags_Good_NoTaskTags(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.Tags = []string{"deploy"}
 
@@ -143,14 +288,14 @@ func TestMatchesTags_Good_NoTaskTags(t *testing.T) {
 
 // --- handleNotify ---
 
-func TestHandleNotify_Good_String(t *testing.T) {
+func TestExecutor_HandleNotify_Good_String(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.handleNotify("restart nginx")
 
 	assert.True(t, e.notified["restart nginx"])
 }
 
-func TestHandleNotify_Good_StringList(t *testing.T) {
+func TestExecutor_HandleNotify_Good_StringList(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.handleNotify([]string{"restart nginx", "reload config"})
 
@@ -158,7 +303,7 @@ func TestHandleNotify_Good_StringList(t *testing.T) {
 	assert.True(t, e.notified["reload config"])
 }
 
-func TestHandleNotify_Good_AnyList(t *testing.T) {
+func TestExecutor_HandleNotify_Good_AnyList(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.handleNotify([]any{"restart nginx", "reload config"})
 
@@ -166,49 +311,2065 @@ func TestHandleNotify_Good_AnyList(t *testing.T) {
 	assert.True(t, e.notified["reload config"])
 }
 
+// --- run_once ---
+
+func TestExecutor_RunTaskOnHosts_Good_RunOnceSharesRegisteredResult(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+				"host2": {},
+			},
+		},
+	})
+
+	var started []string
+	task := &Task{
+		Name:     "Run once debug",
+		Module:   "debug",
+		Args:     map[string]any{"msg": "hello"},
+		Register: "debug_result",
+		RunOnce:  true,
+	}
+
+	e.OnTaskStart = func(host string, _ *Task) {
+		started = append(started, host)
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1", "host2"}, task, &Play{})
+	require.NoError(t, err)
+
+	assert.Len(t, started, 1)
+	assert.Len(t, e.results["host1"], 1)
+	assert.Len(t, e.results["host2"], 1)
+	require.NotNil(t, e.results["host1"]["debug_result"])
+	require.NotNil(t, e.results["host2"]["debug_result"])
+	assert.Equal(t, "hello", e.results["host1"]["debug_result"].Msg)
+	assert.Equal(t, "hello", e.results["host2"]["debug_result"].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_DelegateToUsesDelegatedClient(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	e.SetVar("delegate_host", "delegate1")
+	e.inventory.All.Hosts["delegate1"] = &Host{AnsibleHost: "127.0.0.2"}
+	e.clients["delegate1"] = mock
+	mock.expectCommand(`echo delegated`, "delegated", "", 0)
+
+	task := &Task{
+		Name:     "Delegate command",
+		Module:   "command",
+		Args:     map[string]any{"cmd": "echo delegated"},
+		Delegate: "{{ delegate_host }}",
+		Register: "delegated_result",
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["delegated_result"])
+	assert.Equal(t, "delegated", e.results["host1"]["delegated_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`echo delegated`))
+	assert.Equal(t, 1, mock.commandCount())
+}
+
+func TestExecutor_RunTaskOnHost_Good_DelegateToTemplatesInventoryHostname(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+	e.clients["host1-delegate"] = mock
+	mock.expectCommand(`echo templated`, "templated", "", 0)
+
+	task := &Task{
+		Name:     "Templated delegate",
+		Module:   "shell",
+		Args:     map[string]any{"_raw_params": "echo templated"},
+		Delegate: "{{ inventory_hostname }}-delegate",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	assert.True(t, mock.hasExecuted(`echo templated`))
+	_, leaked := e.vars["inventory_hostname"]
+	assert.False(t, leaked)
+}
+
+func TestExecutor_RunTaskOnHost_Good_ActionAliasExecutesCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`echo action-alias`, "action-alias", "", 0)
+
+	var task Task
+	require.NoError(t, yaml.Unmarshal([]byte(`
+name: Legacy action
+action: command echo action-alias
+`), &task))
+	task.Register = "action_result"
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, &task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["action_result"])
+	assert.Equal(t, "action-alias", e.results["host1"]["action_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`echo action-alias`))
+}
+
+func TestExecutor_Run_Good_VarsFilesMergeIntoPlayVars(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "common.yml"), []byte(`---
+http_port: 8080
+app_name: base
+environment: staging
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "override.yml"), []byte(`---
+app_name: demo
+`), 0644))
+
+	playbookPath := joinPath(dir, "playbook.yml")
+	require.NoError(t, writeTestFile(playbookPath, []byte(`---
+- name: Vars files
+  hosts: localhost
+  gather_facts: false
+  vars:
+    environment: prod
+  vars_files:
+    - vars/common.yml
+    - vars/override.yml
+  tasks:
+    - name: Show merged vars
+      debug:
+        msg: "{{ http_port }} {{ app_name }} {{ environment }}"
+      register: vars_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.Run(context.Background(), playbookPath))
+
+	require.NotNil(t, e.results["localhost"])
+	require.NotNil(t, e.results["localhost"]["vars_result"])
+	assert.Equal(t, "8080 demo prod", e.results["localhost"]["vars_result"].Msg)
+}
+
+func TestExecutor_Run_Good_VarsFilesSupportTemplatedPaths(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "prod.yml"), []byte(`---
+app_name: templated
+`), 0644))
+
+	playbookPath := joinPath(dir, "playbook.yml")
+	require.NoError(t, writeTestFile(playbookPath, []byte(`---
+- name: Vars files templated path
+  hosts: localhost
+  gather_facts: false
+  vars:
+    environment: prod
+  vars_files:
+    - vars/{{ environment }}.yml
+  tasks:
+    - name: Show templated var
+      debug:
+        msg: "{{ app_name }}"
+      register: vars_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.Run(context.Background(), playbookPath))
+
+	require.NotNil(t, e.results["localhost"])
+	require.NotNil(t, e.results["localhost"]["vars_result"])
+	assert.Equal(t, "templated", e.results["localhost"]["vars_result"].Msg)
+}
+
+func TestExecutor_Run_Good_VarsFilesSupportPlaybookDirMagicVar(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "vars", "prod.yml"), []byte(`---
+app_name: magic
+`), 0644))
+
+	playbookPath := joinPath(dir, "playbook.yml")
+	require.NoError(t, writeTestFile(playbookPath, []byte(`---
+- name: Vars files playbook dir
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/vars/prod.yml"
+  tasks:
+    - name: Show magic var
+      debug:
+        msg: "{{ app_name }} {{ playbook_dir }}"
+      register: vars_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.Run(context.Background(), playbookPath))
+
+	require.NotNil(t, e.results["localhost"])
+	require.NotNil(t, e.results["localhost"]["vars_result"])
+	assert.Equal(t, "magic "+dir, e.results["localhost"]["vars_result"].Msg)
+}
+
+func TestExecutor_RunTaskOnHosts_Good_WithFileUsesFileContents(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "fragments", "hello.txt"), []byte("hello from file"), 0644))
+
+	e := NewExecutor(dir)
+	mock := NewMockSSHClient()
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = mock
+
+	task := &Task{
+		Name:     "Read file loop",
+		Module:   "debug",
+		Args:     map[string]any{"msg": "{{ item }}"},
+		Register: "debug_result",
+		WithFile: []any{
+			"fragments/hello.txt",
+		},
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"])
+	require.NotNil(t, e.results["host1"]["debug_result"])
+	require.Len(t, e.results["host1"]["debug_result"].Results, 1)
+	assert.Equal(t, "hello from file", e.results["host1"]["debug_result"].Results[0].Msg)
+}
+
+func TestExecutor_RunTaskOnHosts_Good_WithFileGlobExpandsMatches(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "fragments", "alpha.txt"), []byte("alpha"), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "fragments", "beta.txt"), []byte("beta"), 0644))
+
+	e := NewExecutor(dir)
+	mock := NewMockSSHClient()
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = mock
+
+	task := &Task{
+		Name:   "Glob files",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Register: "glob_result",
+		WithFileGlob: []any{
+			"fragments/*.txt",
+		},
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"])
+	require.NotNil(t, e.results["host1"]["glob_result"])
+	require.Len(t, e.results["host1"]["glob_result"].Results, 2)
+	assert.Equal(t, []string{
+		joinPath(dir, "fragments", "alpha.txt"),
+		joinPath(dir, "fragments", "beta.txt"),
+	}, []string{
+		e.results["host1"]["glob_result"].Results[0].Msg,
+		e.results["host1"]["glob_result"].Results[1].Msg,
+	})
+}
+
+func TestExecutor_ExecuteModule_Good_ShortFormCommunityAlias(t *testing.T) {
+	e := NewExecutor("/tmp")
+	mock := NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Install SSH key",
+		Module: "authorized_key",
+		Args: map[string]any{
+			"user": "deploy",
+			"key":  "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDshortformalias",
+		},
+	}
+
+	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Changed)
+	assert.False(t, result.Failed)
+	assert.True(t, mock.hasExecuted(`getent passwd deploy`))
+	assert.True(t, mock.hasExecuted(`authorized_keys`))
+}
+
+func TestExecutor_RunTaskOnHost_Good_EnvironmentMergesForCommand(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	play := &Play{
+		Environment: map[string]string{
+			"APP_ENV":   "play",
+			"PLAY_ONLY": "from-play",
+		},
+	}
+	task := &Task{
+		Name:   "Environment command",
+		Module: "command",
+		Args: map[string]any{
+			"cmd": `echo "$APP_ENV:$PLAY_ONLY:$TASK_ONLY"`,
+		},
+		Environment: map[string]string{
+			"APP_ENV":   "task",
+			"TASK_ONLY": "from-task",
+		},
+		Register: "env_result",
+	}
+
+	mock.expectCommand(`export APP_ENV='task'; export PLAY_ONLY='from-play'; export TASK_ONLY='from-task'; echo`, "task:from-play:from-task\n", "", 0)
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, play)
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["env_result"])
+	assert.Equal(t, "task:from-play:from-task\n", e.results["host1"]["env_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`export APP_ENV='task'; export PLAY_ONLY='from-play'; export TASK_ONLY='from-task'; echo`))
+}
+
+func TestExecutor_RunTaskOnHost_Good_EnvironmentAppliesToShellScript(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	play := &Play{
+		Environment: map[string]string{
+			"SHELL_ONLY": "from-play",
+		},
+	}
+	task := &Task{
+		Name:   "Environment shell",
+		Module: "shell",
+		Args: map[string]any{
+			"_raw_params": `echo "$SHELL_ONLY"`,
+		},
+		Environment: map[string]string{
+			"SHELL_ONLY": "from-task",
+		},
+		Register: "shell_env_result",
+	}
+
+	mock.expectCommand(`export SHELL_ONLY='from-task'; echo`, "from-task\n", "", 0)
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, play)
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["shell_env_result"])
+	assert.Equal(t, "from-task\n", e.results["host1"]["shell_env_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`export SHELL_ONLY='from-task'; echo`))
+}
+
+func TestExecutor_RunRole_Good_AppliesRoleTagsToTasks(t *testing.T) {
+	dir := t.TempDir()
+	roleTasks := `---
+- name: tagged role task
+  debug:
+    msg: role ran
+  register: role_result
+`
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(roleTasks), 0644))
+
+	e := NewExecutor(dir)
+	e.Tags = []string{"web"}
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runRole(context.Background(), []string{"host1"}, &RoleRef{
+		Role: "webserver",
+		Tags: []string{"web"},
+	}, &Play{}, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"host1:tagged role task"}, started)
+	require.NotNil(t, e.results["host1"]["role_result"])
+	assert.Equal(t, "role ran", e.results["host1"]["role_result"].Msg)
+}
+
+func TestExecutor_RunRole_Good_MetaEndRoleStopsRemainingRoleTasks(t *testing.T) {
+	dir := t.TempDir()
+	roleTasks := `---
+- name: before end_role
+  debug:
+    msg: before
+  register: before_result
+- name: stop role
+  meta: end_role
+- name: after end_role
+  debug:
+    msg: after
+  register: after_result
+`
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "deploy", "tasks", "main.yml"), []byte(roleTasks), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+
+	play := &Play{Connection: "local"}
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	err := e.runRole(context.Background(), []string{"host1"}, &RoleRef{
+		Role: "deploy",
+	}, play, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"before end_role", "stop role"}, executed)
+	require.NotNil(t, e.results["host1"]["before_result"])
+	_, hasAfter := e.results["host1"]["after_result"]
+	assert.False(t, hasAfter)
+}
+
+func TestExecutor_RunRole_Good_AppliesRoleDefaultsAndVars(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(`---
+- name: role var task
+  debug:
+    msg: "{{ role_value }}|{{ role_param }}"
+  register: role_result
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "defaults", "main.yml"), []byte(`---
+role_value: default-value
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "vars", "main.yml"), []byte(`---
+role_value: vars-value
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("outer_value", "outer")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+
+	play := &Play{Connection: "local"}
+
+	err := e.runRole(context.Background(), []string{"host1"}, &RoleRef{
+		Role: "webserver",
+		Vars: map[string]any{
+			"role_param": "include-value",
+		},
+	}, play, nil)
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["role_result"])
+	assert.Equal(t, "vars-value|include-value", e.results["host1"]["role_result"].Msg)
+	assert.Equal(t, "outer", e.vars["outer_value"])
+	_, leaked := e.vars["role_value"]
+	assert.False(t, leaked)
+}
+
+func TestExecutor_RunRole_Good_UsesCustomRoleDefaultsAndVarsFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(`---
+- name: role file selector task
+  debug:
+    msg: "{{ role_value }}|{{ role_param }}"
+  register: role_result
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "defaults", "main.yml"), []byte(`---
+role_value: default-main
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "defaults", "custom.yml"), []byte(`---
+role_value: default-custom
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "vars", "main.yml"), []byte(`---
+role_value: vars-main
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "vars", "custom.yml"), []byte(`---
+role_value: vars-custom
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	err := e.runRole(context.Background(), []string{"host1"}, &RoleRef{
+		Role:         "webserver",
+		DefaultsFrom: "custom.yml",
+		VarsFrom:     "custom.yml",
+		Vars: map[string]any{
+			"role_param": "include-value",
+		},
+	}, &Play{Connection: "local"}, nil)
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["role_result"])
+	assert.Equal(t, "vars-custom|include-value", e.results["host1"]["role_result"].Msg)
+}
+
+func TestExecutor_RunIncludeRole_Good_TemplatesRoleName(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(`---
+- name: templated role task
+  debug:
+    msg: role ran
+  register: role_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetVar("role_name", "webserver")
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runIncludeRole(context.Background(), []string{"localhost"}, &Task{
+		IncludeRole: &RoleRef{
+			Role: "{{ role_name }}",
+		},
+	}, &Play{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"localhost:templated role task"}, started)
+	require.NotNil(t, e.results["localhost"]["role_result"])
+	assert.Equal(t, "role ran", e.results["localhost"]["role_result"].Msg)
+}
+
+func TestExecutor_RunIncludeTasks_Good_AppliesTaskDefaultsToChildren(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "tasks", "child.yml"), []byte(`---
+- name: included shell task
+  shell: echo "{{ included_value }}"
+  register: child_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	mock := newTrackingMockClient()
+	e.clients["host1"] = mock
+	become := true
+	mock.expectCommand(`echo "from-apply"`, "from-apply\n", "", 0)
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, &Task{
+		Name:         "include child tasks",
+		IncludeTasks: "tasks/child.yml",
+		Apply: &TaskApply{
+			Vars: map[string]any{
+				"included_value": "from-apply",
+			},
+			Become:     &become,
+			BecomeUser: "root",
+		},
+	}, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["child_result"])
+	assert.Equal(t, "from-apply\n", e.results["host1"]["child_result"].Stdout)
+	assert.True(t, mock.hasExecuted(`echo "from-apply"`))
+	require.NotEmpty(t, mock.becomeCalls)
+	assert.Contains(t, mock.becomeCalls, becomeCall{become: true, user: "root", password: ""})
+}
+
+func TestExecutor_RunIncludeTasks_Good_ImportTasksReevaluatesWhenPerTask(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "tasks", "imported.yml"), []byte(`---
+- name: set gate flag
+  set_fact:
+    gate_flag: true
+  register: first_result
+- name: gated follow-up
+  debug:
+    msg: should skip
+  register: second_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {Vars: map[string]any{"gate_flag": false}},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name:        "import child tasks",
+		ImportTasks: "tasks/imported.yml",
+		When:        "not gate_flag",
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["first_result"])
+	assert.True(t, e.results["localhost"]["first_result"].Changed)
+	require.NotNil(t, e.results["localhost"]["second_result"])
+	assert.True(t, e.results["localhost"]["second_result"].Skipped)
+	assert.Equal(t, "Skipped due to when condition", e.results["localhost"]["second_result"].Msg)
+}
+
+func TestExecutor_RunPlay_Good_AppliesPlayTagsToTasks(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Tags = []string{"deploy"}
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	play := &Play{
+		Hosts: "all",
+		Tags:  []string{"deploy"},
+		Tasks: []Task{
+			{
+				Name:     "tagged play task",
+				Module:   "debug",
+				Args:     map[string]any{"msg": "play ran"},
+				Register: "play_result",
+			},
+		},
+	}
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"host1:tagged play task"}, started)
+	require.NotNil(t, e.results["host1"]["play_result"])
+	assert.Equal(t, "play ran", e.results["host1"]["play_result"].Msg)
+}
+
+func TestExecutor_RunRole_Good_HostSpecificWhen(t *testing.T) {
+	dir := t.TempDir()
+	roleTasks := `---
+- name: gated role task
+  debug:
+    msg: role ran
+  register: gated_result
+`
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(roleTasks), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"enabled": true}},
+				"host2": {Vars: map[string]any{"enabled": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runRole(context.Background(), []string{"host1", "host2"}, &RoleRef{
+		Role: "webserver",
+		When: "enabled",
+	}, &Play{}, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"host1:gated role task"}, started)
+	require.NotNil(t, e.results["host1"]["gated_result"])
+	_, ok := e.results["host2"]["gated_result"]
+	assert.False(t, ok)
+}
+
+func TestExecutor_RunIncludeRole_Good_ImportRoleReevaluatesWhenPerTask(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "webserver", "tasks", "main.yml"), []byte(`---
+- name: set role gate
+  set_fact:
+    role_gate: true
+  register: role_first_result
+- name: gated role follow-up
+  debug:
+    msg: role should skip
+  register: role_second_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {Vars: map[string]any{"role_gate": false}},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+	}
+
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"localhost"}, &Task{
+		Name: "import conditional role",
+		ImportRole: &RoleRef{
+			Role: "webserver",
+			When: "not role_gate",
+		},
+	}, play))
+
+	require.NotNil(t, e.results["localhost"]["role_first_result"])
+	assert.True(t, e.results["localhost"]["role_first_result"].Changed)
+	require.NotNil(t, e.results["localhost"]["role_second_result"])
+	assert.True(t, e.results["localhost"]["role_second_result"].Skipped)
+	assert.Equal(t, "Skipped due to when condition", e.results["localhost"]["role_second_result"].Msg)
+}
+
+func TestExecutor_RunPlay_Good_LoadsRoleHandlers(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---
+- name: role task
+  set_fact:
+    role_triggered: true
+  notify: role handler
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "handlers", "main.yml"), []byte(`---
+- name: role handler
+  debug:
+    msg: handler ran
+  register: role_handler_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Roles: []RoleRef{
+			{Role: "demo"},
+		},
+	}
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.NoError(t, err)
+
+	assert.Contains(t, started, "localhost:role task")
+	assert.Contains(t, started, "localhost:role handler")
+	require.NotNil(t, e.results["localhost"]["role_handler_result"])
+	assert.Equal(t, "handler ran", e.results["localhost"]["role_handler_result"].Msg)
+}
+
+func TestExecutor_RunRole_Good_UsesCustomRoleHandlersFile(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---
+- name: role task
+  set_fact:
+    role_triggered: true
+  notify: custom role handler
+`), 0644))
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "handlers", "custom.yml"), []byte(`---
+- name: custom role handler
+  debug:
+    msg: custom handler ran
+  register: custom_role_handler_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Roles: []RoleRef{
+			{Role: "demo", HandlersFrom: "custom.yml"},
+		},
+	}
+
+	var started []string
+	e.OnTaskStart = func(host string, task *Task) {
+		started = append(started, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.NoError(t, err)
+
+	assert.Contains(t, started, "localhost:role task")
+	assert.Contains(t, started, "localhost:custom role handler")
+	require.NotNil(t, e.results["localhost"]["custom_role_handler_result"])
+	assert.Equal(t, "custom handler ran", e.results["localhost"]["custom_role_handler_result"].Msg)
+}
+
+func TestExecutor_RunPlay_Good_SerialBatchesHosts(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+				"host2": {},
+				"host3": {},
+			},
+		},
+	})
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "all",
+		GatherFacts: &gatherFacts,
+		Serial:      1,
+		Tasks: []Task{
+			{Name: "first", Module: "debug", Args: map[string]any{"msg": "one"}},
+			{Name: "second", Module: "debug", Args: map[string]any{"msg": "two"}},
+		},
+	}
+
+	var got []string
+	e.OnTaskStart = func(host string, task *Task) {
+		got = append(got, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	assert.Equal(t, []string{
+		"host1:first",
+		"host1:second",
+		"host2:first",
+		"host2:second",
+		"host3:first",
+		"host3:second",
+	}, got)
+}
+
+func TestExecutor_RunPlay_Good_RestoresPlayVarsBetweenPlays(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+	e.clients["localhost"] = NewMockSSHClient()
+
+	gatherFacts := false
+	first := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Vars: map[string]any{
+			"play_var": "one",
+		},
+		Tasks: []Task{
+			{
+				Name:     "use play var",
+				Module:   "debug",
+				Args:     map[string]any{"msg": "{{ play_var }}"},
+				Register: "first_result",
+			},
+		},
+	}
+	second := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:     "check play var",
+				Module:   "debug",
+				Args:     map[string]any{"msg": "{{ play_var | default('missing') }}"},
+				Register: "second_result",
+			},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), first))
+	_, leaked := e.vars["play_var"]
+	assert.False(t, leaked)
+
+	require.NoError(t, e.runPlay(context.Background(), second))
+	require.NotNil(t, e.results["localhost"]["first_result"])
+	require.NotNil(t, e.results["localhost"]["second_result"])
+	assert.Equal(t, "one", e.results["localhost"]["first_result"].Msg)
+	assert.Equal(t, "missing", e.results["localhost"]["second_result"].Msg)
+}
+
+func TestExecutor_Templating_Good_ExposesInventoryMagicVars(t *testing.T) {
+	dir := t.TempDir()
+	inventoryPath := joinPath(dir, "inventory.yml")
+
+	require.NoError(t, writeTestFile(inventoryPath, []byte(`---
+all:
+  hosts:
+    host1:
+`), 0644))
+
+	e := NewExecutor(dir)
+	require.NoError(t, e.SetInventory(inventoryPath))
+
+	result := e.templateString("{{ inventory_file }}|{{ inventory_dir }}", "host1", nil)
+
+	assert.Equal(t, inventoryPath+"|"+dir, result)
+}
+
+func TestExecutor_Templating_Good_ExposesModeMagicVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.CheckMode = true
+	e.Diff = true
+
+	result := e.templateString("{{ ansible_check_mode }}|{{ ansible_diff_mode }}", "localhost", nil)
+
+	assert.Equal(t, "true|true", result)
+	assert.True(t, e.evalCondition("ansible_check_mode and ansible_diff_mode", "localhost"))
+}
+
+func TestExecutor_RunPlay_Good_ExposesRoleContextVars(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, writeTestFile(joinPath(dir, "roles", "demo", "tasks", "main.yml"), []byte(`---
+- name: role context
+  debug:
+    msg: "{{ role_name }}|{{ role_path }}"
+  register: role_context_result
+`), 0644))
+
+	e := NewExecutor(dir)
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"localhost": {},
+			},
+		},
+	})
+	e.clients["localhost"] = NewMockSSHClient()
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "localhost",
+		Connection:  "local",
+		GatherFacts: &gatherFacts,
+		Roles: []RoleRef{
+			{Role: "demo"},
+		},
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+
+	require.NotNil(t, e.results["localhost"]["role_context_result"])
+	assert.Equal(t, "demo|"+joinPath(dir, "roles", "demo"), e.results["localhost"]["role_context_result"].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopControlPause(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		Name:   "Pause between loop items",
+		Module: "debug",
+		Args:   map[string]any{"msg": "ok"},
+		Loop:   []any{"one", "two"},
+		LoopControl: &LoopControl{
+			Pause: 1,
+		},
+	}
+
+	start := time.Now()
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopWhenEvaluatedPerItem(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Loop with when",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop:     []any{"skip", "run"},
+		When:     "item != 'skip'",
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.True(t, result.Results[0].Skipped)
+	assert.Equal(t, "Skipped due to when condition", result.Results[0].Msg)
+	assert.False(t, result.Results[1].Skipped)
+	assert.Equal(t, "run", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopControlExtendedExposesMetadata(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Extended loop metadata",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ ansible_loop.label }} {{ ansible_loop.index0 }}/{{ ansible_loop.length }} first={{ ansible_loop.first }} last={{ ansible_loop.last }}",
+		},
+		Loop: []any{"one", "two"},
+		LoopControl: &LoopControl{
+			Extended: true,
+			Label:    "{{ item }}",
+		},
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "one 0/2 first=true last=false", result.Results[0].Msg)
+	assert.Equal(t, "two 1/2 first=false last=true", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopControlLabelWithoutExtended(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Label-only loop metadata",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ ansible_loop.label }}={{ item }}",
+		},
+		Loop: []any{"one", "two"},
+		LoopControl: &LoopControl{
+			Label: "{{ item }}",
+		},
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "one=one", result.Results[0].Msg)
+	assert.Equal(t, "two=two", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopControlExtendedExposesNeighbourItems(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Neighbour loop metadata",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "prev={{ ansible_loop.previtem | default('NONE') }} next={{ ansible_loop.nextitem | default('NONE') }} all={{ ansible_loop.allitems }}",
+		},
+		Loop: []any{"one", "two"},
+		LoopControl: &LoopControl{
+			Extended: true,
+		},
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "prev=NONE next=two all=[one two]", result.Results[0].Msg)
+	assert.Equal(t, "prev=one next=NONE all=[one two]", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopTemplateDefaultExpandsItems(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Loop default fallback",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop:     "{{ missing_items | default(['alpha', 'beta']) }}",
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "alpha", result.Results[0].Msg)
+	assert.Equal(t, "beta", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithDictItems(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Dict loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.key }}={{ item.value }}",
+		},
+		Loop: []any{
+			map[string]any{"key": "alpha", "value": "one"},
+			map[string]any{"key": "beta", "value": "two"},
+		},
+		Register: "dict_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["dict_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "alpha=one", result.Results[0].Msg)
+	assert.Equal(t, "beta=two", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithIndexedItems(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Indexed loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0 }}={{ item.1 }}",
+		},
+		Loop: []any{
+			[]any{0, "apple"},
+			[]any{1, "banana"},
+		},
+		Register: "indexed_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["indexed_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "0=apple", result.Results[0].Msg)
+	assert.Equal(t, "1=banana", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithSequence(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Sequence loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		WithSequence: "start=1 end=3 format=%02d",
+		Register:     "sequence_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["sequence_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 3)
+	assert.Equal(t, "01", result.Results[0].Msg)
+	assert.Equal(t, "02", result.Results[1].Msg)
+	assert.Equal(t, "03", result.Results[2].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithNested(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Nested loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0 }}-{{ item.1 }}",
+		},
+		Loop: []any{
+			[]any{"red", "small"},
+			[]any{"red", "large"},
+			[]any{"blue", "small"},
+			[]any{"blue", "large"},
+		},
+		Register: "nested_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["nested_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 4)
+	assert.Equal(t, "red-small", result.Results[0].Msg)
+	assert.Equal(t, "red-large", result.Results[1].Msg)
+	assert.Equal(t, "blue-small", result.Results[2].Msg)
+	assert.Equal(t, "blue-large", result.Results[3].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_TemplatedLoopItems(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+	e.vars["colour"] = "red"
+
+	task := &Task{
+		Name:   "Templated loop items",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop: []any{
+			"{{ colour }}",
+			[]any{"{{ colour }}", "large"},
+		},
+		Register: "templated_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["templated_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "red", result.Results[0].Msg)
+	assert.Equal(t, "[red large]", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithTogether(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Together loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0 }}={{ item.1 }}",
+		},
+		WithTogether: []any{
+			[]any{"red", "blue"},
+			[]any{"small", "large", "medium"},
+		},
+		Register: "together_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["together_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "red=small", result.Results[0].Msg)
+	assert.Equal(t, "blue=large", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithSubelements(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+	e.vars["users"] = []any{
+		map[string]any{
+			"name":       "alice",
+			"authorized": []any{"ssh-rsa AAA", "ssh-ed25519 BBB"},
+		},
+		map[string]any{
+			"name":       "bob",
+			"authorized": "ssh-rsa CCC",
+		},
+	}
+
+	task := &Task{
+		Name:   "Subelements loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0.name }}={{ item.1 }}",
+		},
+		WithSubelements: []any{"{{ users }}", "authorized"},
+		Register:        "subelements_loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["subelements_loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 3)
+	assert.Equal(t, "alice=ssh-rsa AAA", result.Results[0].Msg)
+	assert.Equal(t, "alice=ssh-ed25519 BBB", result.Results[1].Msg)
+	assert.Equal(t, "bob=ssh-rsa CCC", result.Results[2].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Good_LoopFromWithSubelementsSkipMissing(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+	e.vars["users"] = []any{
+		map[string]any{
+			"name":       "alice",
+			"authorized": []any{"ssh-rsa AAA", "ssh-ed25519 BBB"},
+		},
+		map[string]any{
+			"name": "bob",
+		},
+	}
+
+	task := &Task{
+		Name:   "Subelements loop skip missing",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0.name }}={{ item.1 }}",
+		},
+		WithSubelements: []any{"users", "authorized", true},
+		Register:        "subelements_loop_skip_missing_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["subelements_loop_skip_missing_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "alice=ssh-rsa AAA", result.Results[0].Msg)
+	assert.Equal(t, "alice=ssh-ed25519 BBB", result.Results[1].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Bad_LoopFromWithSubelementsMissingSubelement(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+	e.vars["users"] = []any{
+		map[string]any{
+			"name":       "alice",
+			"authorized": []any{"ssh-rsa AAA"},
+		},
+		map[string]any{
+			"name": "bob",
+		},
+	}
+
+	task := &Task{
+		Name:   "Subelements loop missing",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item.0.name }}={{ item.1 }}",
+		},
+		WithSubelements: []any{"users", "authorized"},
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "with_subelements missing subelement")
+}
+
+func TestExecutor_RunTaskOnHosts_Good_LoopNotifiesAndCallsCallback(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	var ended *TaskResult
+	task := &Task{
+		Name:   "Looped change",
+		Module: "set_fact",
+		Args: map[string]any{
+			"changed_flag": true,
+		},
+		Loop:   []any{"one", "two"},
+		Notify: "restart app",
+	}
+	play := &Play{
+		Handlers: []Task{
+			{
+				Name:   "restart app",
+				Module: "debug",
+				Args:   map[string]any{"msg": "handler"},
+			},
+		},
+	}
+
+	e.OnTaskEnd = func(_ string, _ *Task, result *TaskResult) {
+		ended = result
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, play)
+	require.NoError(t, err)
+
+	require.NotNil(t, ended)
+	assert.True(t, ended.Changed)
+	assert.Len(t, ended.Results, 2)
+	assert.True(t, e.notified["restart app"])
+}
+
+func TestExecutor_RunTaskOnHosts_Bad_LoopFailurePropagates(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Looped failure",
+		Module: "fail",
+		Args:   map[string]any{"msg": "bad"},
+		Loop:   []any{"one", "two"},
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task failed")
+}
+
+func TestExecutor_RunTaskWithRetries_Good_UntilSuccess(t *testing.T) {
+	e := NewExecutor("/tmp")
+	attempts := 0
+
+	task := &Task{
+		Until:   "result is success",
+		Retries: 2,
+		Delay:   0,
+	}
+
+	result, err := e.runTaskWithRetries(context.Background(), "host1", task, &Play{}, func() (*TaskResult, error) {
+		attempts++
+		if attempts < 2 {
+			return &TaskResult{Failed: true, Msg: "not yet", RC: 1}, nil
+		}
+		return &TaskResult{Changed: true, Msg: "ok", RC: 0}, nil
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 2, attempts)
+	assert.False(t, result.Failed)
+	assert.True(t, result.Changed)
+	assert.Equal(t, "ok", result.Msg)
+}
+
+// --- check mode ---
+
+func TestExecutor_RunTaskOnHost_Good_CheckModeSkipsMutatingTask(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.CheckMode = true
+
+	var ended *TaskResult
+	task := &Task{
+		Name:     "Run a shell command",
+		Module:   "shell",
+		Args:     map[string]any{"_raw_params": "echo hello"},
+		Register: "shell_result",
+	}
+
+	e.OnTaskEnd = func(_ string, _ *Task, result *TaskResult) {
+		ended = result
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, ended)
+	assert.True(t, ended.Skipped)
+	assert.False(t, ended.Changed)
+	assert.Equal(t, "Skipped in check mode", ended.Msg)
+	require.NotNil(t, e.results["host1"]["shell_result"])
+	assert.True(t, e.results["host1"]["shell_result"].Skipped)
+}
+
+func TestExecutor_RunTaskOnHost_Good_TaskCheckModeOverridesExecutorCheckMode(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.CheckMode = true
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:      "Run despite global check mode",
+		Module:    "shell",
+		Args:      map[string]any{"_raw_params": "echo hello"},
+		CheckMode: boolPtr(false),
+		Register:  "shell_result",
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"]["shell_result"])
+	assert.False(t, e.results["host1"]["shell_result"].Skipped)
+	assert.True(t, e.results["host1"]["shell_result"].Changed)
+}
+
+func TestExecutor_RunTaskOnHost_Good_TaskDiffOverridesExecutorDiff(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:     "Inspect task diff mode",
+		Module:   "debug",
+		Args:     map[string]any{"msg": "{{ ansible_diff_mode }}"},
+		Diff:     boolPtr(true),
+		Register: "diff_result",
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, e.results["host1"])
+	require.NotNil(t, e.results["host1"]["diff_result"])
+	assert.Equal(t, "true", e.results["host1"]["diff_result"].Msg)
+}
+
+// --- no_log ---
+
+func TestExecutor_RunTaskOnHost_Good_NoLogRedactsCallbackResult(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	var ended *TaskResult
+	task := &Task{
+		Name:     "Sensitive debug",
+		Module:   "debug",
+		Args:     map[string]any{"msg": "top secret"},
+		Register: "debug_result",
+		NoLog:    true,
+	}
+
+	e.OnTaskEnd = func(_ string, _ *Task, result *TaskResult) {
+		ended = result
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	require.NotNil(t, ended)
+	assert.Equal(t, "censored due to no_log", ended.Msg)
+	assert.Empty(t, ended.Stdout)
+	assert.Empty(t, ended.Stderr)
+	assert.Nil(t, ended.Data)
+	require.NotNil(t, e.results["host1"]["debug_result"])
+	assert.Equal(t, "top secret", e.results["host1"]["debug_result"].Msg)
+}
+
+func TestExecutor_RunTaskOnHost_Bad_NoLogHidesFailureMessage(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	var ended *TaskResult
+	task := &Task{
+		Name:   "Sensitive failure",
+		Module: "fail",
+		Args:   map[string]any{"msg": "super secret"},
+		NoLog:  true,
+	}
+
+	e.OnTaskEnd = func(_ string, _ *Task, result *TaskResult) {
+		ended = result
+	}
+
+	err := e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, &Play{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task failed")
+	assert.NotContains(t, err.Error(), "super secret")
+	require.NotNil(t, ended)
+	assert.Equal(t, "censored due to no_log", ended.Msg)
+}
+
 // --- normalizeConditions ---
 
-func TestNormalizeConditions_Good_String(t *testing.T) {
+func TestExecutor_NormalizeConditions_Good_String(t *testing.T) {
 	result := normalizeConditions("my_var is defined")
 	assert.Equal(t, []string{"my_var is defined"}, result)
 }
 
-func TestNormalizeConditions_Good_StringSlice(t *testing.T) {
+// --- meta flush handlers ---
+
+func TestExecutor_RunTaskOnHosts_Good_MetaFlushesHandlers(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	play := &Play{
+		Handlers: []Task{
+			{
+				Name:   "restart app",
+				Module: "debug",
+				Args:   map[string]any{"msg": "handler"},
+			},
+		},
+	}
+
+	notifyTask := &Task{
+		Name:   "change config",
+		Module: "set_fact",
+		Args:   map[string]any{"restart_required": true},
+		Notify: "restart app",
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, notifyTask, play))
+	assert.True(t, e.notified["restart app"])
+
+	metaTask := &Task{
+		Name:   "flush handlers",
+		Module: "meta",
+		Args:   map[string]any{"_raw_params": "flush_handlers"},
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, metaTask, play))
+
+	assert.False(t, e.notified["restart app"])
+	assert.Equal(t, []string{"change config", "flush handlers", "restart app"}, executed)
+}
+
+func TestExecutor_RunTaskOnHosts_Good_MetaFlushesHandlerListenAlias(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	play := &Play{
+		Handlers: []Task{
+			{
+				Name:   "restart app",
+				Listen: "reload app",
+				Module: "debug",
+				Args:   map[string]any{"msg": "handler"},
+			},
+		},
+	}
+
+	notifyTask := &Task{
+		Name:   "change config",
+		Module: "set_fact",
+		Args:   map[string]any{"restart_required": true},
+		Notify: "reload app",
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, notifyTask, play))
+	assert.True(t, e.notified["reload app"])
+
+	metaTask := &Task{
+		Name:   "flush handlers",
+		Module: "meta",
+		Args:   map[string]any{"_raw_params": "flush_handlers"},
+	}
+	require.NoError(t, e.runTaskOnHosts(context.Background(), []string{"host1"}, metaTask, play))
+
+	assert.False(t, e.notified["reload app"])
+	assert.Equal(t, []string{"change config", "flush handlers", "restart app"}, executed)
+}
+
+func TestExecutor_RunPlay_Good_ForceHandlersAfterFailure(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	play := &Play{
+		Name:          "force handlers",
+		Hosts:         "host1",
+		ForceHandlers: true,
+		Tasks: []Task{
+			{
+				Name:   "change config",
+				Module: "set_fact",
+				Args:   map[string]any{"restart_required": true},
+				Notify: "restart app",
+			},
+			{
+				Name:   "boom",
+				Module: "fail",
+				Args:   map[string]any{"msg": "stop"},
+			},
+		},
+		Handlers: []Task{
+			{
+				Name:     "restart app",
+				Module:   "debug",
+				Args:     map[string]any{"msg": "handler ran"},
+				Register: "restart_result",
+			},
+		},
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task failed")
+	assert.False(t, e.notified["restart app"])
+	assert.Equal(t, []string{"change config", "boom", "restart app"}, executed)
+	require.NotNil(t, e.results["host1"]["restart_result"])
+	assert.Equal(t, "handler ran", e.results["host1"]["restart_result"].Msg)
+}
+
+func TestExecutor_HandleMetaAction_Good_ClearHostErrors(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.batchFailedHosts = map[string]bool{
+		"host1": true,
+		"host2": true,
+	}
+
+	result := &TaskResult{
+		Data: map[string]any{"action": "clear_host_errors"},
+	}
+
+	require.NoError(t, e.handleMetaAction(context.Background(), "host1", []string{"host1", "host2"}, &Play{}, result))
+	assert.Empty(t, e.batchFailedHosts)
+}
+
+func TestExecutor_HandleMetaAction_Good_RefreshInventory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "inventory.yml")
+
+	initial := []byte("all:\n  hosts:\n    web1:\n      ansible_host: 10.0.0.1\n")
+	updated := []byte("all:\n  hosts:\n    web1:\n      ansible_host: 10.0.0.2\n")
+
+	require.NoError(t, os.WriteFile(path, initial, 0644))
+
+	e := NewExecutor("/tmp")
+	require.NoError(t, e.SetInventory(path))
+	e.clients["web1"] = &SSHClient{}
+
+	require.NoError(t, os.WriteFile(path, updated, 0644))
+
+	result := &TaskResult{
+		Data: map[string]any{"action": "refresh_inventory"},
+	}
+
+	require.NoError(t, e.handleMetaAction(context.Background(), "web1", []string{"web1"}, &Play{}, result))
+	require.NotNil(t, e.inventory)
+	require.NotNil(t, e.inventory.All)
+	require.Contains(t, e.inventory.All.Hosts, "web1")
+	assert.Equal(t, "10.0.0.2", e.inventory.All.Hosts["web1"].AnsibleHost)
+	assert.Empty(t, e.clients)
+}
+
+func TestExecutor_RunPlay_Good_MetaEndPlayStopsRemainingTasks(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {},
+			},
+		},
+	})
+	e.clients["host1"] = &SSHClient{}
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "all",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{Name: "before", Module: "debug", Args: map[string]any{"msg": "before"}},
+			{Name: "stop", Module: "meta", Args: map[string]any{"_raw_params": "end_play"}},
+			{Name: "after", Module: "debug", Args: map[string]any{"msg": "after"}},
+		},
+	}
+
+	var executed []string
+	e.OnTaskEnd = func(_ string, task *Task, _ *TaskResult) {
+		executed = append(executed, task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+	assert.Equal(t, []string{"before", "stop"}, executed)
+}
+
+func TestExecutor_RunPlay_Bad_MaxFailPercentageStopsPlay(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"should_fail": true}},
+				"host2": {Vars: map[string]any{"should_fail": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:          "all",
+		GatherFacts:    &gatherFacts,
+		MaxFailPercent: 49,
+		Tasks: []Task{
+			{
+				Name:         "fail one host",
+				Module:       "fail",
+				Args:         map[string]any{"msg": "boom"},
+				When:         "should_fail",
+				IgnoreErrors: true,
+			},
+			{
+				Name:   "after threshold",
+				Module: "debug",
+				Args:   map[string]any{"msg": "after"},
+			},
+		},
+	}
+
+	var executed []string
+	e.OnTaskEnd = func(host string, task *Task, _ *TaskResult) {
+		executed = append(executed, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max fail percentage exceeded")
+	assert.Equal(t, []string{"host1:fail one host"}, executed)
+}
+
+func TestExecutor_RunPlay_Good_TaskFailureContinuesAcrossHosts(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"should_fail": true}},
+				"host2": {Vars: map[string]any{"should_fail": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:       "all",
+		GatherFacts: &gatherFacts,
+		Tasks: []Task{
+			{
+				Name:   "maybe fail",
+				Module: "fail",
+				Args:   map[string]any{"msg": "boom"},
+				When:   "should_fail",
+			},
+			{
+				Name:   "after failure",
+				Module: "debug",
+				Args:   map[string]any{"msg": "after"},
+			},
+		},
+	}
+
+	var executed []string
+	e.OnTaskEnd = func(host string, task *Task, _ *TaskResult) {
+		executed = append(executed, host+":"+task.Name)
+	}
+
+	require.NoError(t, e.runPlay(context.Background(), play))
+	assert.Equal(t, []string{
+		"host1:maybe fail",
+		"host2:maybe fail",
+		"host1:after failure",
+		"host2:after failure",
+	}, executed)
+}
+
+func TestExecutor_RunPlay_Bad_AnyErrorsFatalStopsPlay(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"host1": {Vars: map[string]any{"should_fail": true}},
+				"host2": {Vars: map[string]any{"should_fail": false}},
+			},
+		},
+	})
+	e.clients["host1"] = NewMockSSHClient()
+	e.clients["host2"] = NewMockSSHClient()
+
+	gatherFacts := false
+	play := &Play{
+		Hosts:          "all",
+		GatherFacts:    &gatherFacts,
+		AnyErrorsFatal: true,
+		Tasks: []Task{
+			{
+				Name:   "maybe fail",
+				Module: "fail",
+				Args:   map[string]any{"msg": "boom"},
+				When:   "should_fail",
+			},
+			{
+				Name:   "after failure",
+				Module: "debug",
+				Args:   map[string]any{"msg": "after"},
+			},
+		},
+	}
+
+	var executed []string
+	e.OnTaskEnd = func(host string, task *Task, _ *TaskResult) {
+		executed = append(executed, host+":"+task.Name)
+	}
+
+	err := e.runPlay(context.Background(), play)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task failed")
+	assert.Equal(t, []string{"host1:maybe fail"}, executed)
+}
+
+func TestExecutor_NormalizeConditions_Good_StringSlice(t *testing.T) {
 	result := normalizeConditions([]string{"cond1", "cond2"})
 	assert.Equal(t, []string{"cond1", "cond2"}, result)
 }
 
-func TestNormalizeConditions_Good_AnySlice(t *testing.T) {
+func TestExecutor_NormalizeConditions_Good_AnySlice(t *testing.T) {
 	result := normalizeConditions([]any{"cond1", "cond2"})
 	assert.Equal(t, []string{"cond1", "cond2"}, result)
 }
 
-func TestNormalizeConditions_Good_Nil(t *testing.T) {
+func TestExecutor_NormalizeConditions_Good_Nil(t *testing.T) {
 	result := normalizeConditions(nil)
 	assert.Nil(t, result)
 }
 
 // --- evaluateWhen ---
 
-func TestEvaluateWhen_Good_TrueLiteral(t *testing.T) {
+func TestExecutor_EvaluateWhen_Good_TrueLiteral(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.True(t, e.evaluateWhen("true", "host1", nil))
 	assert.True(t, e.evaluateWhen("True", "host1", nil))
 }
 
-func TestEvaluateWhen_Good_FalseLiteral(t *testing.T) {
+func TestExecutor_EvaluateWhen_Good_FalseLiteral(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.False(t, e.evaluateWhen("false", "host1", nil))
 	assert.False(t, e.evaluateWhen("False", "host1", nil))
 }
 
-func TestEvaluateWhen_Good_Negation(t *testing.T) {
+func TestExecutor_EvaluateWhen_Good_Negation(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.False(t, e.evaluateWhen("not true", "host1", nil))
 	assert.True(t, e.evaluateWhen("not false", "host1", nil))
 }
 
-func TestEvaluateWhen_Good_RegisteredVarDefined(t *testing.T) {
+func TestExecutor_EvaluateWhen_Good_RegisteredVarDefined(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.results["host1"] = map[string]*TaskResult{
 		"myresult": {Changed: true, Failed: false},
@@ -220,7 +2381,7 @@ func TestEvaluateWhen_Good_RegisteredVarDefined(t *testing.T) {
 	assert.True(t, e.evaluateWhen("nonexistent is not defined", "host1", nil))
 }
 
-func TestEvaluateWhen_Good_RegisteredVarStatus(t *testing.T) {
+func TestExecutor_EvaluateWhen_Good_RegisteredVarStatus(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.results["host1"] = map[string]*TaskResult{
 		"success_result": {Changed: true, Failed: false},
@@ -235,7 +2396,7 @@ func TestEvaluateWhen_Good_RegisteredVarStatus(t *testing.T) {
 	assert.True(t, e.evaluateWhen("skipped_result is skipped", "host1", nil))
 }
 
-func TestEvaluateWhen_Good_VarTruthy(t *testing.T) {
+func TestExecutor_EvaluateWhen_Good_VarTruthy(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = true
 	e.vars["disabled"] = false
@@ -252,7 +2413,7 @@ func TestEvaluateWhen_Good_VarTruthy(t *testing.T) {
 	assert.False(t, e.evalCondition("zero", "host1"))
 }
 
-func TestEvaluateWhen_Good_MultipleConditions(t *testing.T) {
+func TestExecutor_EvaluateWhen_Good_MultipleConditions(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = true
 
@@ -261,9 +2422,96 @@ func TestEvaluateWhen_Good_MultipleConditions(t *testing.T) {
 	assert.False(t, e.evaluateWhen([]any{"true", "false"}, "host1", nil))
 }
 
+func TestExecutor_EvaluateWhen_Good_LogicalAndOrExpressions(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["enabled"] = true
+	e.vars["maintenance"] = false
+
+	assert.True(t, e.evaluateWhen("enabled and not maintenance", "host1", nil))
+	assert.False(t, e.evaluateWhen("enabled and maintenance", "host1", nil))
+	assert.True(t, e.evaluateWhen("enabled or maintenance", "host1", nil))
+	assert.False(t, e.evaluateWhen("maintenance or false", "host1", nil))
+}
+
+func TestExecutor_EvaluateWhen_Good_LogicalExpressionParentheses(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["enabled"] = true
+	e.vars["maintenance"] = false
+	e.vars["deployed"] = true
+
+	assert.True(t, e.evaluateWhen("(enabled and not maintenance) or deployed", "host1", nil))
+	assert.False(t, e.evaluateWhen("enabled and (maintenance or false)", "host1", nil))
+}
+
+func TestExecutor_EvaluateWhen_Good_NestedVarAccess(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["feature"] = map[string]any{
+		"enabled": true,
+		"mode":    "active",
+	}
+
+	task := &Task{
+		Vars: map[string]any{
+			"settings": map[string]any{
+				"ready": false,
+			},
+		},
+	}
+
+	assert.True(t, e.evaluateWhen("feature.enabled", "host1", nil))
+	assert.True(t, e.evaluateWhen(`feature.mode == "active"`, "host1", nil))
+	assert.False(t, e.evaluateWhen("settings.ready", "host1", task))
+}
+
+func TestExecutor_ApplyTaskResultConditions_Good_ChangedWhen(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		ChangedWhen: "stdout == 'expected'",
+	}
+	result := &TaskResult{
+		Changed: true,
+		Stdout:  "actual",
+	}
+
+	e.applyTaskResultConditions("host1", task, result)
+
+	assert.False(t, result.Changed)
+}
+
+func TestExecutor_ApplyTaskResultConditions_Good_FailedWhen(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		FailedWhen: []any{"rc != 0", "stdout == 'expected'"},
+	}
+	result := &TaskResult{
+		Failed: true,
+		Stdout: "expected",
+		RC:     0,
+	}
+
+	e.applyTaskResultConditions("host1", task, result)
+
+	assert.False(t, result.Failed)
+}
+
+func TestExecutor_ApplyTaskResultConditions_Good_DottedResultAccess(t *testing.T) {
+	e := NewExecutor("/tmp")
+	task := &Task{
+		ChangedWhen: "result.rc == 0",
+	}
+	result := &TaskResult{
+		Changed: false,
+		RC:      0,
+	}
+
+	e.applyTaskResultConditions("host1", task, result)
+
+	assert.True(t, result.Changed)
+}
+
 // --- templateString ---
 
-func TestTemplateString_Good_SimpleVar(t *testing.T) {
+func TestExecutor_TemplateString_Good_SimpleVar(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["name"] = "world"
 
@@ -271,7 +2519,7 @@ func TestTemplateString_Good_SimpleVar(t *testing.T) {
 	assert.Equal(t, "hello world", result)
 }
 
-func TestTemplateString_Good_MultVars(t *testing.T) {
+func TestExecutor_TemplateString_Good_MultVars(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["host"] = "example.com"
 	e.vars["port"] = 8080
@@ -280,28 +2528,137 @@ func TestTemplateString_Good_MultVars(t *testing.T) {
 	assert.Equal(t, "http://example.com:8080", result)
 }
 
-func TestTemplateString_Good_Unresolved(t *testing.T) {
+func TestExecutor_TemplateString_Good_Unresolved(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result := e.templateString("{{ undefined_var }}", "", nil)
 	assert.Equal(t, "{{ undefined_var }}", result)
 }
 
-func TestTemplateString_Good_NoTemplate(t *testing.T) {
+func TestExecutor_TemplateString_Good_NoTemplate(t *testing.T) {
 	e := NewExecutor("/tmp")
 	result := e.templateString("plain string", "", nil)
 	assert.Equal(t, "plain string", result)
 }
 
+func TestExecutor_TemplateString_Good_InventoryHostnameShort(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	result := e.templateString("{{ inventory_hostname_short }}", "web01.example.com", nil)
+
+	assert.Equal(t, "web01", result)
+}
+
+func TestExecutor_TemplateString_Good_GroupNames(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Children: map[string]*InventoryGroup{
+				"production": {
+					Hosts: map[string]*Host{
+						"web01.example.com": {},
+					},
+				},
+				"web": {
+					Children: map[string]*InventoryGroup{
+						"frontend": {
+							Hosts: map[string]*Host{
+								"web01.example.com": {},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	result := e.templateString("{{ group_names }}", "web01.example.com", nil)
+
+	assert.Equal(t, "[frontend production web]", result)
+}
+
+func TestExecutor_TemplateString_Good_Groups(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Children: map[string]*InventoryGroup{
+				"production": {
+					Hosts: map[string]*Host{
+						"web01": {},
+						"web02": {},
+					},
+				},
+				"web": {
+					Children: map[string]*InventoryGroup{
+						"frontend": {
+							Hosts: map[string]*Host{
+								"web01": {},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	result := e.templateString("{{ groups.production }}", "web01", nil)
+
+	assert.Equal(t, "[web01 web02]", result)
+}
+
+func TestExecutor_TemplateString_Good_HostVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Children: map[string]*InventoryGroup{
+				"production": {
+					Hosts: map[string]*Host{
+						"web01": {
+							AnsibleHost: "10.0.0.10",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	result := e.templateString("{{ hostvars.web01.ansible_host }}", "web01", nil)
+
+	assert.Equal(t, "10.0.0.10", result)
+}
+
+func TestExecutor_EvalCondition_Good_InventoryHostnameShort(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	assert.True(t, e.evalCondition("inventory_hostname_short == 'web01'", "web01.example.com"))
+}
+
+func TestExecutor_EvalCondition_Good_HostVars(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.SetInventoryDirect(&Inventory{
+		All: &InventoryGroup{
+			Hosts: map[string]*Host{
+				"web01": {
+					Vars: map[string]any{
+						"deploy_enabled": true,
+					},
+				},
+			},
+		},
+	})
+
+	assert.True(t, e.evalCondition("hostvars.web01.deploy_enabled", "web01"))
+}
+
 // --- applyFilter ---
 
-func TestApplyFilter_Good_Default(t *testing.T) {
+func TestExecutor_ApplyFilter_Good_Default(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	assert.Equal(t, "hello", e.applyFilter("hello", "default('fallback')"))
 	assert.Equal(t, "fallback", e.applyFilter("", "default('fallback')"))
 }
 
-func TestApplyFilter_Good_Bool(t *testing.T) {
+func TestExecutor_ApplyFilter_Good_Bool(t *testing.T) {
 	e := NewExecutor("/tmp")
 
 	assert.Equal(t, "true", e.applyFilter("true", "bool"))
@@ -312,41 +2669,82 @@ func TestApplyFilter_Good_Bool(t *testing.T) {
 	assert.Equal(t, "false", e.applyFilter("anything", "bool"))
 }
 
-func TestApplyFilter_Good_Trim(t *testing.T) {
+func TestExecutor_ApplyFilter_Good_Trim(t *testing.T) {
 	e := NewExecutor("/tmp")
 	assert.Equal(t, "hello", e.applyFilter("  hello  ", "trim"))
 }
 
+func TestExecutor_ApplyFilter_Good_RegexReplace(t *testing.T) {
+	e := NewExecutor("/tmp")
+
+	assert.Equal(t, "web-01", e.applyFilter("web_01", "regex_replace('_', '-')"))
+	assert.Equal(t, "123", e.applyFilter("abc123", `regex_replace("\D+", "")`))
+}
+
+func TestExecutor_TemplateString_Good_ChainedFilters(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["padded"] = "  web01  "
+
+	result := e.templateString("{{ missing_var | default('fallback') | trim }} {{ padded | trim }}", "", nil)
+
+	assert.Equal(t, "fallback web01", result)
+}
+
 // --- resolveLoop ---
 
-func TestResolveLoop_Good_SliceAny(t *testing.T) {
+func TestExecutor_ResolveLoop_Good_SliceAny(t *testing.T) {
 	e := NewExecutor("/tmp")
 	items := e.resolveLoop([]any{"a", "b", "c"}, "host1")
 	assert.Len(t, items, 3)
 }
 
-func TestResolveLoop_Good_SliceString(t *testing.T) {
+func TestExecutor_ResolveLoop_Good_SliceString(t *testing.T) {
 	e := NewExecutor("/tmp")
 	items := e.resolveLoop([]string{"a", "b", "c"}, "host1")
 	assert.Len(t, items, 3)
 }
 
-func TestResolveLoop_Good_Nil(t *testing.T) {
+func TestExecutor_ResolveLoop_Good_Nil(t *testing.T) {
 	e := NewExecutor("/tmp")
 	items := e.resolveLoop(nil, "host1")
 	assert.Nil(t, items)
 }
 
+func TestExecutor_RunTaskOnHost_Good_LoopFromTemplatedListVariable(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["items"] = []any{"alpha", "beta"}
+	e.clients["host1"] = NewMockSSHClient()
+
+	task := &Task{
+		Name:   "Templated list loop",
+		Module: "debug",
+		Args: map[string]any{
+			"msg": "{{ item }}",
+		},
+		Loop:     "{{ items }}",
+		Register: "loop_result",
+	}
+
+	err := e.runTaskOnHosts(context.Background(), []string{"host1"}, task, &Play{})
+	require.NoError(t, err)
+
+	result := e.results["host1"]["loop_result"]
+	require.NotNil(t, result)
+	require.Len(t, result.Results, 2)
+	assert.Equal(t, "alpha", result.Results[0].Msg)
+	assert.Equal(t, "beta", result.Results[1].Msg)
+}
+
 // --- templateArgs ---
 
-func TestTemplateArgs_Good(t *testing.T) {
+func TestExecutor_TemplateArgs_Good(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["myvar"] = "resolved"
 
 	args := map[string]any{
-		"plain":    "no template",
+		"plain":     "no template",
 		"templated": "{{ myvar }}",
-		"number":   42,
+		"number":    42,
 	}
 
 	result := e.templateArgs(args, "host1", nil)
@@ -355,7 +2753,7 @@ func TestTemplateArgs_Good(t *testing.T) {
 	assert.Equal(t, 42, result["number"])
 }
 
-func TestTemplateArgs_Good_NestedMap(t *testing.T) {
+func TestExecutor_TemplateArgs_Good_NestedMap(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["port"] = "8080"
 
@@ -370,7 +2768,7 @@ func TestTemplateArgs_Good_NestedMap(t *testing.T) {
 	assert.Equal(t, "8080", nested["port"])
 }
 
-func TestTemplateArgs_Good_ArrayValues(t *testing.T) {
+func TestExecutor_TemplateArgs_Good_ArrayValues(t *testing.T) {
 	e := NewExecutor("/tmp")
 	e.vars["pkg"] = "nginx"
 
@@ -386,7 +2784,7 @@ func TestTemplateArgs_Good_ArrayValues(t *testing.T) {
 
 // --- Helper functions ---
 
-func TestGetStringArg_Good(t *testing.T) {
+func TestExecutor_GetStringArg_Good(t *testing.T) {
 	args := map[string]any{
 		"name":   "value",
 		"number": 42,
@@ -397,7 +2795,7 @@ func TestGetStringArg_Good(t *testing.T) {
 	assert.Equal(t, "default", getStringArg(args, "missing", "default"))
 }
 
-func TestGetBoolArg_Good(t *testing.T) {
+func TestExecutor_GetBoolArg_Good(t *testing.T) {
 	args := map[string]any{
 		"enabled":  true,
 		"disabled": false,
@@ -419,7 +2817,7 @@ func TestGetBoolArg_Good(t *testing.T) {
 
 // --- Close ---
 
-func TestClose_Good_EmptyClients(t *testing.T) {
+func TestExecutor_Close_Good_EmptyClients(t *testing.T) {
 	e := NewExecutor("/tmp")
 	// Should not panic with no clients
 	e.Close()

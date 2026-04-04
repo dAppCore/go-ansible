@@ -36,6 +36,7 @@ Jinja2-like `{{ var }}` syntax is supported:
 `when` supports:
 
 - Boolean literals: `true`, `false`
+- Inline boolean expressions with `and`, `or`, and parentheses
 - Registered variable checks: `result is success`, `result is failed`, `result is changed`, `result is defined`
 - Negation: `not condition`
 - Variable truthiness checks

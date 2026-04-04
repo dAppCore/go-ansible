@@ -3,12 +3,9 @@ package ansible
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
+	"io/fs"
 	"net"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +16,10 @@ import (
 )
 
 // SSHClient handles SSH connections to remote hosts.
+//
+// Example:
+//
+//	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
 type SSHClient struct {
 	host       string
 	port       int
@@ -34,6 +35,10 @@ type SSHClient struct {
 }
 
 // SSHConfig holds SSH connection configuration.
+//
+// Example:
+//
+//	config := SSHConfig{Host: "web1", User: "deploy", Port: 22}
 type SSHConfig struct {
 	Host       string
 	Port       int
@@ -47,33 +52,41 @@ type SSHConfig struct {
 }
 
 // NewSSHClient creates a new SSH client.
-func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
-	if cfg.Port == 0 {
-		cfg.Port = 22
+//
+// Example:
+//
+//	client, err := NewSSHClient(SSHConfig{Host: "web1", User: "deploy"})
+func NewSSHClient(config SSHConfig) (*SSHClient, error) {
+	if config.Port == 0 {
+		config.Port = 22
 	}
-	if cfg.User == "" {
-		cfg.User = "root"
+	if config.User == "" {
+		config.User = "root"
 	}
-	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+	if config.Timeout == 0 {
+		config.Timeout = 30 * time.Second
 	}
 
 	client := &SSHClient{
-		host:       cfg.Host,
-		port:       cfg.Port,
-		user:       cfg.User,
-		password:   cfg.Password,
-		keyFile:    cfg.KeyFile,
-		become:     cfg.Become,
-		becomeUser: cfg.BecomeUser,
-		becomePass: cfg.BecomePass,
-		timeout:    cfg.Timeout,
+		host:       config.Host,
+		port:       config.Port,
+		user:       config.User,
+		password:   config.Password,
+		keyFile:    config.KeyFile,
+		become:     config.Become,
+		becomeUser: config.BecomeUser,
+		becomePass: config.BecomePass,
+		timeout:    config.Timeout,
 	}
 
 	return client, nil
 }
 
 // Connect establishes the SSH connection.
+//
+// Example:
+//
+//	_ = client.Connect(context.Background())
 func (c *SSHClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -87,9 +100,8 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 	// Try key-based auth first
 	if c.keyFile != "" {
 		keyPath := c.keyFile
-		if strings.HasPrefix(keyPath, "~") {
-			home, _ := os.UserHomeDir()
-			keyPath = filepath.Join(home, keyPath[1:])
+		if corexHasPrefix(keyPath, "~") {
+			keyPath = joinPath(env("DIR_HOME"), keyPath[1:])
 		}
 
 		if key, err := coreio.Local.Read(keyPath); err == nil {
@@ -101,10 +113,10 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 
 	// Try default SSH keys
 	if len(authMethods) == 0 {
-		home, _ := os.UserHomeDir()
+		home := env("DIR_HOME")
 		defaultKeys := []string{
-			filepath.Join(home, ".ssh", "id_ed25519"),
-			filepath.Join(home, ".ssh", "id_rsa"),
+			joinPath(home, ".ssh", "id_ed25519"),
+			joinPath(home, ".ssh", "id_rsa"),
 		}
 		for _, keyPath := range defaultKeys {
 			if key, err := coreio.Local.Read(keyPath); err == nil {
@@ -135,15 +147,15 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 	// Host key verification
 	var hostKeyCallback ssh.HostKeyCallback
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return coreerr.E("ssh.Connect", "failed to get user home dir", err)
+	home := env("DIR_HOME")
+	if home == "" {
+		return coreerr.E("ssh.Connect", "failed to get user home dir", nil)
 	}
-	knownHostsPath := filepath.Join(home, ".ssh", "known_hosts")
+	knownHostsPath := joinPath(home, ".ssh", "known_hosts")
 
 	// Ensure known_hosts file exists
 	if !coreio.Local.Exists(knownHostsPath) {
-		if err := coreio.Local.EnsureDir(filepath.Dir(knownHostsPath)); err != nil {
+		if err := coreio.Local.EnsureDir(pathDir(knownHostsPath)); err != nil {
 			return coreerr.E("ssh.Connect", "failed to create .ssh dir", err)
 		}
 		if err := coreio.Local.Write(knownHostsPath, ""); err != nil {
@@ -164,19 +176,19 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 		Timeout:         c.timeout,
 	}
 
-	addr := fmt.Sprintf("%s:%d", c.host, c.port)
+	addr := sprintf("%s:%d", c.host, c.port)
 
 	// Connect with context timeout
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return coreerr.E("ssh.Connect", fmt.Sprintf("dial %s", addr), err)
+		return coreerr.E("ssh.Connect", sprintf("dial %s", addr), err)
 	}
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		// conn is closed by NewClientConn on error
-		return coreerr.E("ssh.Connect", fmt.Sprintf("ssh connect %s", addr), err)
+		return coreerr.E("ssh.Connect", sprintf("ssh connect %s", addr), err)
 	}
 
 	c.client = ssh.NewClient(sshConn, chans, reqs)
@@ -184,6 +196,10 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 }
 
 // Close closes the SSH connection.
+//
+// Example:
+//
+//	_ = client.Close()
 func (c *SSHClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -196,7 +212,22 @@ func (c *SSHClient) Close() error {
 	return nil
 }
 
+// BecomeState returns the current privilege escalation settings.
+//
+// Example:
+//
+//	become, user, password := client.BecomeState()
+func (c *SSHClient) BecomeState() (bool, string, string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.become, c.becomeUser, c.becomePass
+}
+
 // Run executes a command on the remote host.
+//
+// Example:
+//
+//	stdout, stderr, rc, err := client.Run(context.Background(), "hostname")
 func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string, exitCode int, err error) {
 	if err := c.Connect(ctx); err != nil {
 		return "", "", -1, err
@@ -219,33 +250,33 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 			becomeUser = "root"
 		}
 		// Escape single quotes in the command
-		escapedCmd := strings.ReplaceAll(cmd, "'", "'\\''")
+		escapedCmd := replaceAll(cmd, "'", "'\\''")
 		if c.becomePass != "" {
 			// Use sudo with password via stdin (-S flag)
 			// We launch a goroutine to write the password to stdin
-			cmd = fmt.Sprintf("sudo -S -u %s bash -c '%s'", becomeUser, escapedCmd)
+			cmd = sprintf("sudo -S -u %s bash -c '%s'", becomeUser, escapedCmd)
 			stdin, err := session.StdinPipe()
 			if err != nil {
 				return "", "", -1, coreerr.E("ssh.Run", "stdin pipe", err)
 			}
 			go func() {
 				defer func() { _ = stdin.Close() }()
-				_, _ = io.WriteString(stdin, c.becomePass+"\n")
+				writeString(stdin, c.becomePass+"\n")
 			}()
 		} else if c.password != "" {
 			// Try using connection password for sudo
-			cmd = fmt.Sprintf("sudo -S -u %s bash -c '%s'", becomeUser, escapedCmd)
+			cmd = sprintf("sudo -S -u %s bash -c '%s'", becomeUser, escapedCmd)
 			stdin, err := session.StdinPipe()
 			if err != nil {
 				return "", "", -1, coreerr.E("ssh.Run", "stdin pipe", err)
 			}
 			go func() {
 				defer func() { _ = stdin.Close() }()
-				_, _ = io.WriteString(stdin, c.password+"\n")
+				writeString(stdin, c.password+"\n")
 			}()
 		} else {
 			// Try passwordless sudo
-			cmd = fmt.Sprintf("sudo -n -u %s bash -c '%s'", becomeUser, escapedCmd)
+			cmd = sprintf("sudo -n -u %s bash -c '%s'", becomeUser, escapedCmd)
 		}
 	}
 
@@ -273,36 +304,44 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 }
 
 // RunScript runs a script on the remote host.
+//
+// Example:
+//
+//	stdout, stderr, rc, err := client.RunScript(context.Background(), "echo hello")
 func (c *SSHClient) RunScript(ctx context.Context, script string) (stdout, stderr string, exitCode int, err error) {
 	// Escape the script for heredoc
-	cmd := fmt.Sprintf("bash <<'ANSIBLE_SCRIPT_EOF'\n%s\nANSIBLE_SCRIPT_EOF", script)
+	cmd := sprintf("bash <<'ANSIBLE_SCRIPT_EOF'\n%s\nANSIBLE_SCRIPT_EOF", script)
 	return c.Run(ctx, cmd)
 }
 
 // Upload copies a file to the remote host.
-func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, mode os.FileMode) error {
+//
+// Example:
+//
+//	err := client.Upload(context.Background(), newReader("hello"), "/tmp/hello.txt", 0644)
+func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error {
 	if err := c.Connect(ctx); err != nil {
 		return err
 	}
 
 	// Read content
-	content, err := io.ReadAll(local)
+	content, err := readAllString(local)
 	if err != nil {
 		return coreerr.E("ssh.Upload", "read content", err)
 	}
 
 	// Create parent directory
-	dir := filepath.Dir(remote)
-	dirCmd := fmt.Sprintf("mkdir -p %q", dir)
+	dir := pathDir(remote)
+	dirCmd := sprintf("mkdir -p %q", dir)
 	if c.become {
-		dirCmd = fmt.Sprintf("sudo mkdir -p %q", dir)
+		dirCmd = sprintf("sudo mkdir -p %q", dir)
 	}
 	if _, _, _, err := c.Run(ctx, dirCmd); err != nil {
 		return coreerr.E("ssh.Upload", "create parent dir", err)
 	}
 
 	// Use cat to write the file (simpler than SCP)
-	writeCmd := fmt.Sprintf("cat > %q && chmod %o %q", remote, mode, remote)
+	writeCmd := sprintf("cat > %q && chmod %o %q", remote, mode, remote)
 
 	// If become is needed, we construct a command that reads password then content from stdin
 	// But we need to be careful with handling stdin for sudo + cat.
@@ -335,11 +374,11 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 
 		if pass != "" {
 			// Use sudo -S with password from stdin
-			writeCmd = fmt.Sprintf("sudo -S -u %s bash -c 'cat > %q && chmod %o %q'",
+			writeCmd = sprintf("sudo -S -u %s bash -c 'cat > %q && chmod %o %q'",
 				becomeUser, remote, mode, remote)
 		} else {
 			// Use passwordless sudo (sudo -n) to avoid consuming file content as password
-			writeCmd = fmt.Sprintf("sudo -n -u %s bash -c 'cat > %q && chmod %o %q'",
+			writeCmd = sprintf("sudo -n -u %s bash -c 'cat > %q && chmod %o %q'",
 				becomeUser, remote, mode, remote)
 		}
 
@@ -350,9 +389,9 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 		go func() {
 			defer func() { _ = stdin.Close() }()
 			if pass != "" {
-				_, _ = io.WriteString(stdin, pass+"\n")
+				writeString(stdin, pass+"\n")
 			}
-			_, _ = stdin.Write(content)
+			_, _ = stdin.Write([]byte(content))
 		}()
 	} else {
 		// Normal write
@@ -362,39 +401,47 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 
 		go func() {
 			defer func() { _ = stdin.Close() }()
-			_, _ = stdin.Write(content)
+			_, _ = stdin.Write([]byte(content))
 		}()
 	}
 
 	if err := session2.Wait(); err != nil {
-		return coreerr.E("ssh.Upload", fmt.Sprintf("write failed (stderr: %s)", stderrBuf.String()), err)
+		return coreerr.E("ssh.Upload", sprintf("write failed (stderr: %s)", stderrBuf.String()), err)
 	}
 
 	return nil
 }
 
 // Download copies a file from the remote host.
+//
+// Example:
+//
+//	data, err := client.Download(context.Background(), "/etc/hostname")
 func (c *SSHClient) Download(ctx context.Context, remote string) ([]byte, error) {
 	if err := c.Connect(ctx); err != nil {
 		return nil, err
 	}
 
-	cmd := fmt.Sprintf("cat %q", remote)
+	cmd := sprintf("cat %q", remote)
 
 	stdout, stderr, exitCode, err := c.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
 	if exitCode != 0 {
-		return nil, coreerr.E("ssh.Download", fmt.Sprintf("cat failed: %s", stderr), nil)
+		return nil, coreerr.E("ssh.Download", sprintf("cat failed: %s", stderr), nil)
 	}
 
 	return []byte(stdout), nil
 }
 
 // FileExists checks if a file exists on the remote host.
+//
+// Example:
+//
+//	ok, err := client.FileExists(context.Background(), "/etc/hosts")
 func (c *SSHClient) FileExists(ctx context.Context, path string) (bool, error) {
-	cmd := fmt.Sprintf("test -e %q && echo yes || echo no", path)
+	cmd := sprintf("test -e %q && echo yes || echo no", path)
 	stdout, _, exitCode, err := c.Run(ctx, cmd)
 	if err != nil {
 		return false, err
@@ -403,13 +450,17 @@ func (c *SSHClient) FileExists(ctx context.Context, path string) (bool, error) {
 		// test command failed but didn't error - file doesn't exist
 		return false, nil
 	}
-	return strings.TrimSpace(stdout) == "yes", nil
+	return corexTrimSpace(stdout) == "yes", nil
 }
 
 // Stat returns file info from the remote host.
+//
+// Example:
+//
+//	info, err := client.Stat(context.Background(), "/etc/hosts")
 func (c *SSHClient) Stat(ctx context.Context, path string) (map[string]any, error) {
 	// Simple approach - get basic file info
-	cmd := fmt.Sprintf(`
+	cmd := sprintf(`
 if [ -e %q ]; then
   if [ -d %q ]; then
     echo "exists=true isdir=true"
@@ -427,9 +478,9 @@ fi
 	}
 
 	result := make(map[string]any)
-	parts := strings.Fields(strings.TrimSpace(stdout))
+	parts := fields(corexTrimSpace(stdout))
 	for _, part := range parts {
-		kv := strings.SplitN(part, "=", 2)
+		kv := splitN(part, "=", 2)
 		if len(kv) == 2 {
 			result[kv[0]] = kv[1] == "true"
 		}
@@ -439,10 +490,19 @@ fi
 }
 
 // SetBecome enables privilege escalation.
+//
+// Example:
+//
+//	client.SetBecome(true, "root", "")
 func (c *SSHClient) SetBecome(become bool, user, password string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.become = become
+	if !become {
+		c.becomeUser = ""
+		c.becomePass = ""
+		return
+	}
 	if user != "" {
 		c.becomeUser = user
 	}

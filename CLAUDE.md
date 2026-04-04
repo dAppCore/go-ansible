@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`core/go-ansible` is a pure Go Ansible playbook engine. It parses YAML playbooks, inventories, and roles, then executes tasks on remote hosts via SSH. 41 module handler implementations (plus 3 community modules), Jinja2-compatible templating, privilege escalation (become), and event-driven callbacks. This is a library — there is no standalone binary. The CLI integration lives in `cmd/ansible/` and is compiled as part of the `core` CLI binary.
+`core/go-ansible` is a pure Go Ansible playbook engine. It parses YAML playbooks, inventories, and roles, then executes tasks on remote hosts via SSH. 42 module handler implementations (plus 3 community modules), Jinja2-compatible templating, privilege escalation (become), and event-driven callbacks. This is a library — there is no standalone binary. The CLI integration lives in `cmd/ansible/` and is compiled as part of the `core` CLI binary.
 
 ## Build & Test
 
@@ -29,10 +29,10 @@ Playbook YAML ──► Parser ──► []Play ──► Executor ──► Mod
 Inventory YAML ──► Parser ──► Inventory        Callbacks (OnPlayStart, OnTaskEnd, ...)
 ```
 
-- **`types.go`** — Core structs (`Playbook`, `Play`, `Task`, `TaskResult`, `Inventory`, `Host`, `Facts`) and `KnownModules` registry (80 entries: both FQCN `ansible.builtin.*` and short forms).
+- **`types.go`** — Core structs (`Playbook`, `Play`, `Task`, `TaskResult`, `Inventory`, `Host`, `Facts`) and `KnownModules` registry (96 entries: both FQCN `ansible.builtin.*` and short forms, plus compatibility aliases).
 - **`parser.go`** — YAML parsing for playbooks, inventories, tasks, and roles. Custom `Task.UnmarshalYAML` scans map keys against `KnownModules` to extract the module name and args (since Ansible embeds the module name as a YAML key, not a fixed field). Free-form syntax (`shell: echo hello`) is stored as `Args["_raw_params"]`. Iterator variants (`ParsePlaybookIter`, `ParseTasksIter`, etc.) return `iter.Seq` values.
 - **`executor.go`** — Orchestration engine: host resolution from inventory, play execution order (gather facts → pre_tasks → roles → tasks → post_tasks → notified handlers), `when:` condition evaluation, `{{ }}` Jinja2-style templating with filter support, loop execution, block/rescue/always, handler notification.
-- **`modules.go`** — 41 module handler implementations dispatched via a `switch` on the normalised module name. Each handler extracts args via `getStringArg`/`getBoolArg`, constructs shell commands, runs them via SSH, and returns a `TaskResult`.
+- **`modules.go`** — 50 module handler implementations dispatched via a `switch` on the normalised module name. Each handler extracts args via `getStringArg`/`getBoolArg`, constructs shell commands, runs them via SSH, and returns a `TaskResult`.
 - **`ssh.go`** — SSH client with lazy connection, auth chain (key file → default keys → password), `known_hosts` verification, become/sudo wrapping, file transfer via `cat >` piped through stdin.
 - **`cmd/ansible/`** — CLI command registration via `core/cli`. Provides `ansible <playbook>` and `ansible test <host>` subcommands with flags for inventory, limit, tags, extra-vars, verbosity, and check mode.
 

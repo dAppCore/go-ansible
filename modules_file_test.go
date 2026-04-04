@@ -1,13 +1,146 @@
 package ansible
 
 import (
-	"os"
-	"path/filepath"
+	"context"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/hex"
+	"io"
+	"io/fs"
+	"regexp"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type diffFileClient struct {
+	mu    sync.Mutex
+	files map[string]string
+}
+
+func newDiffFileClient(initial map[string]string) *diffFileClient {
+	files := make(map[string]string, len(initial))
+	for path, content := range initial {
+		files[path] = content
+	}
+	return &diffFileClient{files: files}
+}
+
+func (c *diffFileClient) Run(_ context.Context, cmd string) (string, string, int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if strings.Contains(cmd, `|| echo `) && strings.Contains(cmd, `grep -qxF `) {
+		re := regexp.MustCompile(`grep -qxF "([^"]*)" "([^"]*)" \|\| echo "([^"]*)" >> "([^"]*)"`)
+		match := re.FindStringSubmatch(cmd)
+		if len(match) == 5 {
+			line := match[3]
+			path := match[4]
+			if c.files[path] == "" {
+				c.files[path] = line + "\n"
+			} else if !strings.Contains(c.files[path], line+"\n") && c.files[path] != line {
+				if !strings.HasSuffix(c.files[path], "\n") {
+					c.files[path] += "\n"
+				}
+				c.files[path] += line + "\n"
+			}
+		}
+	}
+
+	if strings.Contains(cmd, `sed -i '/`) && strings.Contains(cmd, `/d' `) {
+		re := regexp.MustCompile(`sed -i '/([^']*)/d' "([^"]*)"`)
+		match := re.FindStringSubmatch(cmd)
+		if len(match) == 3 {
+			pattern := match[1]
+			path := match[2]
+			lines := strings.Split(c.files[path], "\n")
+			out := make([]string, 0, len(lines))
+			for _, line := range lines {
+				if line == "" {
+					continue
+				}
+				if strings.Contains(line, pattern) {
+					continue
+				}
+				out = append(out, line)
+			}
+			if len(out) > 0 {
+				c.files[path] = strings.Join(out, "\n") + "\n"
+			} else {
+				c.files[path] = ""
+			}
+		}
+	}
+
+	return "", "", 0, nil
+}
+
+func (c *diffFileClient) RunScript(_ context.Context, script string) (string, string, int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	re := regexp.MustCompile("(?s)cat >> \"([^\"]+)\" << 'BLOCK_EOF'\\n(.*)\\nBLOCK_EOF")
+	match := re.FindStringSubmatch(script)
+	if len(match) == 3 {
+		path := match[1]
+		block := match[2]
+		c.files[path] = block + "\n"
+	}
+
+	return "", "", 0, nil
+}
+
+func (c *diffFileClient) Upload(_ context.Context, local io.Reader, remote string, _ fs.FileMode) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	content, err := io.ReadAll(local)
+	if err != nil {
+		return err
+	}
+	c.files[remote] = string(content)
+	return nil
+}
+
+func (c *diffFileClient) Download(_ context.Context, remote string) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	content, ok := c.files[remote]
+	if !ok {
+		return nil, mockError("diffFileClient.Download", "file not found: "+remote)
+	}
+	return []byte(content), nil
+}
+
+func (c *diffFileClient) Stat(_ context.Context, path string) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, ok := c.files[path]; ok {
+		return map[string]any{"exists": true}, nil
+	}
+	return map[string]any{"exists": false}, nil
+}
+
+func (c *diffFileClient) FileExists(_ context.Context, path string) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	_, ok := c.files[path]
+	return ok, nil
+}
+
+func (c *diffFileClient) BecomeState() (bool, string, string) {
+	return false, "", ""
+}
+
+func (c *diffFileClient) SetBecome(bool, string, string) {}
+
+func (c *diffFileClient) Close() error { return nil }
 
 // ============================================================
 // Step 1.2: copy / template / file / lineinfile / blockinfile / stat module tests
@@ -15,7 +148,7 @@ import (
 
 // --- copy module ---
 
-func TestModuleCopy_Good_ContentUpload(t *testing.T) {
+func TestModulesFile_ModuleCopy_Good_ContentUpload(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleCopyWithClient(e, mock, map[string]any{
@@ -33,13 +166,13 @@ func TestModuleCopy_Good_ContentUpload(t *testing.T) {
 	require.NotNil(t, up)
 	assert.Equal(t, "/etc/app/config", up.Remote)
 	assert.Equal(t, []byte("server_name=web01"), up.Content)
-	assert.Equal(t, os.FileMode(0644), up.Mode)
+	assert.Equal(t, fs.FileMode(0644), up.Mode)
 }
 
-func TestModuleCopy_Good_SrcFile(t *testing.T) {
+func TestModulesFile_ModuleCopy_Good_SrcFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	srcPath := filepath.Join(tmpDir, "nginx.conf")
-	require.NoError(t, os.WriteFile(srcPath, []byte("worker_processes auto;"), 0644))
+	srcPath := joinPath(tmpDir, "nginx.conf")
+	require.NoError(t, writeTestFile(srcPath, []byte("worker_processes auto;"), 0644))
 
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -57,7 +190,26 @@ func TestModuleCopy_Good_SrcFile(t *testing.T) {
 	assert.Equal(t, []byte("worker_processes auto;"), up.Content)
 }
 
-func TestModuleCopy_Good_OwnerGroup(t *testing.T) {
+func TestModulesFile_ModuleCopy_Good_RemoteSrc(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/remote-source.txt", []byte("remote payload"))
+
+	result, err := e.moduleCopy(context.Background(), mock, map[string]any{
+		"src":        "/tmp/remote-source.txt",
+		"dest":       "/etc/app/remote.txt",
+		"remote_src": true,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Equal(t, "/etc/app/remote.txt", up.Remote)
+	assert.Equal(t, []byte("remote payload"), up.Content)
+}
+
+func TestModulesFile_ModuleCopy_Good_OwnerGroup(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleCopyWithClient(e, mock, map[string]any{
@@ -76,7 +228,7 @@ func TestModuleCopy_Good_OwnerGroup(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`chgrp appgroup "/opt/app/data.txt"`))
 }
 
-func TestModuleCopy_Good_CustomMode(t *testing.T) {
+func TestModulesFile_ModuleCopy_Good_CustomMode(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleCopyWithClient(e, mock, map[string]any{
@@ -90,10 +242,10 @@ func TestModuleCopy_Good_CustomMode(t *testing.T) {
 
 	up := mock.lastUpload()
 	require.NotNil(t, up)
-	assert.Equal(t, os.FileMode(0755), up.Mode)
+	assert.Equal(t, fs.FileMode(0755), up.Mode)
 }
 
-func TestModuleCopy_Bad_MissingDest(t *testing.T) {
+func TestModulesFile_ModuleCopy_Bad_MissingDest(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleCopyWithClient(e, mock, map[string]any{
@@ -104,7 +256,7 @@ func TestModuleCopy_Bad_MissingDest(t *testing.T) {
 	assert.Contains(t, err.Error(), "dest required")
 }
 
-func TestModuleCopy_Bad_MissingSrcAndContent(t *testing.T) {
+func TestModulesFile_ModuleCopy_Bad_MissingSrcAndContent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleCopyWithClient(e, mock, map[string]any{
@@ -115,7 +267,7 @@ func TestModuleCopy_Bad_MissingSrcAndContent(t *testing.T) {
 	assert.Contains(t, err.Error(), "src or content required")
 }
 
-func TestModuleCopy_Bad_SrcFileNotFound(t *testing.T) {
+func TestModulesFile_ModuleCopy_Bad_SrcFileNotFound(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleCopyWithClient(e, mock, map[string]any{
@@ -127,7 +279,7 @@ func TestModuleCopy_Bad_SrcFileNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "read src")
 }
 
-func TestModuleCopy_Good_ContentTakesPrecedenceOverSrc(t *testing.T) {
+func TestModulesFile_ModuleCopy_Good_ContentTakesPrecedenceOverSrc(t *testing.T) {
 	// When both content and src are given, src is checked first in the implementation
 	// but if src is empty string, content is used
 	e, mock := newTestExecutorWithMock("host1")
@@ -143,9 +295,64 @@ func TestModuleCopy_Good_ContentTakesPrecedenceOverSrc(t *testing.T) {
 	assert.Equal(t, []byte("from_content"), up.Content)
 }
 
+func TestModulesFile_ModuleCopy_Good_SkipsUnchangedContent(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	e.Diff = true
+	mock.addFile("/etc/app/config", []byte("server_name=web01"))
+
+	result, err := moduleCopyWithClient(e, mock, map[string]any{
+		"content": "server_name=web01",
+		"dest":    "/etc/app/config",
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.uploadCount())
+	assert.Contains(t, result.Msg, "already up to date")
+}
+
+func TestModulesFile_ModuleCopy_Good_ForceFalseSkipsExistingDest(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/app/config", []byte("server_name=old"))
+
+	result, err := moduleCopyWithClient(e, mock, map[string]any{
+		"content": "server_name=new",
+		"dest":    "/etc/app/config",
+		"force":   false,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.uploadCount())
+	assert.Contains(t, result.Msg, "skipped existing destination")
+}
+
+func TestModulesFile_ModuleCopy_Good_BackupExistingDest(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/app/config", []byte("server_name=old"))
+
+	result, err := moduleCopyWithClient(e, mock, map[string]any{
+		"content": "server_name=new",
+		"dest":    "/etc/app/config",
+		"backup":  true,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	require.NotNil(t, result.Data)
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/app/config.")
+	assert.Equal(t, 2, mock.uploadCount())
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("server_name=old"), backupContent)
+}
+
 // --- file module ---
 
-func TestModuleFile_Good_StateDirectory(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_StateDirectory(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -161,7 +368,7 @@ func TestModuleFile_Good_StateDirectory(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`chmod 0755`))
 }
 
-func TestModuleFile_Good_StateDirectoryCustomMode(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_StateDirectoryCustomMode(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -175,7 +382,7 @@ func TestModuleFile_Good_StateDirectoryCustomMode(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`mkdir -p "/opt/data" && chmod 0700 "/opt/data"`))
 }
 
-func TestModuleFile_Good_StateAbsent(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_StateAbsent(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -188,7 +395,7 @@ func TestModuleFile_Good_StateAbsent(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`rm -rf "/tmp/old-dir"`))
 }
 
-func TestModuleFile_Good_StateTouch(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_StateTouch(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -201,7 +408,7 @@ func TestModuleFile_Good_StateTouch(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`touch "/var/log/app.log"`))
 }
 
-func TestModuleFile_Good_StateLink(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_StateLink(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -215,7 +422,33 @@ func TestModuleFile_Good_StateLink(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`ln -sf "/opt/node/bin/node" "/usr/local/bin/node"`))
 }
 
-func TestModuleFile_Bad_LinkMissingSrc(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_StateHard(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleFileWithClient(e, mock, map[string]any{
+		"path":  "/usr/local/bin/node",
+		"state": "hard",
+		"src":   "/opt/node/bin/node",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`ln -f "/opt/node/bin/node" "/usr/local/bin/node"`))
+}
+
+func TestModulesFile_ModuleFile_Bad_StateHardMissingSrc(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	_, err := moduleFileWithClient(e, mock, map[string]any{
+		"path":  "/usr/local/bin/node",
+		"state": "hard",
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "src required for hard state")
+}
+
+func TestModulesFile_ModuleFile_Bad_LinkMissingSrc(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleFileWithClient(e, mock, map[string]any{
@@ -227,7 +460,7 @@ func TestModuleFile_Bad_LinkMissingSrc(t *testing.T) {
 	assert.Contains(t, err.Error(), "src required for link state")
 }
 
-func TestModuleFile_Good_OwnerGroupMode(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_OwnerGroupMode(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -247,7 +480,7 @@ func TestModuleFile_Good_OwnerGroupMode(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`chgrp www-data "/var/lib/app/data"`))
 }
 
-func TestModuleFile_Good_RecurseOwner(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_RecurseOwner(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -265,7 +498,26 @@ func TestModuleFile_Good_RecurseOwner(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`chown -R www-data "/var/www"`))
 }
 
-func TestModuleFile_Bad_MissingPath(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_RecurseGroupAndMode(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleFileWithClient(e, mock, map[string]any{
+		"path":    "/srv/app",
+		"state":   "directory",
+		"group":   "appgroup",
+		"mode":    "0770",
+		"recurse": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	assert.True(t, mock.hasExecuted(`chgrp appgroup "/srv/app"`))
+	assert.True(t, mock.hasExecuted(`chgrp -R appgroup "/srv/app"`))
+	assert.True(t, mock.hasExecuted(`chmod -R 0770 "/srv/app"`))
+}
+
+func TestModulesFile_ModuleFile_Bad_MissingPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleFileWithClient(e, mock, map[string]any{
@@ -276,7 +528,7 @@ func TestModuleFile_Bad_MissingPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "path required")
 }
 
-func TestModuleFile_Good_DestAliasForPath(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_DestAliasForPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -289,7 +541,7 @@ func TestModuleFile_Good_DestAliasForPath(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`mkdir -p "/opt/myapp"`))
 }
 
-func TestModuleFile_Good_StateFileWithMode(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_StateFileWithMode(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
@@ -303,7 +555,7 @@ func TestModuleFile_Good_StateFileWithMode(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`chmod 0600 "/etc/config.yml"`))
 }
 
-func TestModuleFile_Good_DirectoryCommandFailure(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_DirectoryCommandFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand("mkdir", "", "permission denied", 1)
 
@@ -319,7 +571,7 @@ func TestModuleFile_Good_DirectoryCommandFailure(t *testing.T) {
 
 // --- lineinfile module ---
 
-func TestModuleLineinfile_Good_InsertLine(t *testing.T) {
+func TestModulesFile_ModuleLineinfile_Good_InsertLine(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
@@ -335,7 +587,7 @@ func TestModuleLineinfile_Good_InsertLine(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`192.168.1.100 web01`))
 }
 
-func TestModuleLineinfile_Good_ReplaceRegexp(t *testing.T) {
+func TestModulesFile_ModuleLineinfile_Good_ReplaceRegexp(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
@@ -351,7 +603,7 @@ func TestModuleLineinfile_Good_ReplaceRegexp(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`sed -i 's/\^#\?PermitRootLogin/PermitRootLogin no/'`))
 }
 
-func TestModuleLineinfile_Good_RemoveLine(t *testing.T) {
+func TestModulesFile_ModuleLineinfile_Good_RemoveLine(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
@@ -368,7 +620,7 @@ func TestModuleLineinfile_Good_RemoveLine(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`/d'`))
 }
 
-func TestModuleLineinfile_Good_RegexpFallsBackToAppend(t *testing.T) {
+func TestModulesFile_ModuleLineinfile_Good_RegexpFallsBackToAppend(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// Simulate sed returning non-zero (pattern not found)
 	mock.expectCommand("sed -i", "", "", 1)
@@ -388,7 +640,111 @@ func TestModuleLineinfile_Good_RegexpFallsBackToAppend(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`echo`))
 }
 
-func TestModuleLineinfile_Bad_MissingPath(t *testing.T) {
+func TestModulesFile_ModuleLineinfile_Good_CreateFile(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":   "/etc/example.conf",
+		"regexp": "^setting=",
+		"line":   "setting=value",
+		"create": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`touch "/etc/example\.conf"`))
+	assert.True(t, mock.hasExecuted(`sed -i`))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_BackrefsReplaceMatchOnly(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
+		"path":     "/etc/example.conf",
+		"regexp":   "^(foo=).*$",
+		"line":     "\\1bar",
+		"backrefs": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`grep -Eq`))
+	cmd := mock.lastCommand()
+	assert.Equal(t, "Run", cmd.Method)
+	assert.Contains(t, cmd.Cmd, "sed -E -i")
+	assert.Contains(t, cmd.Cmd, "s/^(foo=).*$")
+	assert.Contains(t, cmd.Cmd, "\\1bar")
+	assert.Contains(t, cmd.Cmd, `"/etc/example.conf"`)
+	assert.False(t, mock.hasExecuted(`echo`))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_BackrefsNoMatchNoAppend(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand("grep -Eq", "", "", 1)
+
+	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
+		"path":     "/etc/example.conf",
+		"regexp":   "^(foo=).*$",
+		"line":     "\\1bar",
+		"backrefs": true,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 1, mock.commandCount())
+	assert.Contains(t, mock.lastCommand().Cmd, "grep -Eq")
+	assert.False(t, mock.hasExecuted(`echo`))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_InsertBeforeAnchor(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":         "/etc/example.conf",
+		"line":         "setting=value",
+		"insertbefore": "^# managed settings",
+		"firstmatch":   true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`grep -Eq`))
+	assert.True(t, mock.hasExecuted(regexp.QuoteMeta("print line; done=1 } print")))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":        "/etc/example.conf",
+		"line":        "setting=value",
+		"insertafter": "^# managed settings",
+		"firstmatch":  true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`grep -Eq`))
+	assert.True(t, mock.hasExecuted(regexp.QuoteMeta("print; if (!done && $0 ~ re) { print line; done=1 }")))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor_DefaultUsesLastMatch(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":        "/etc/example.conf",
+		"line":        "setting=value",
+		"insertafter": "^# managed settings",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`grep -Eq`))
+	assert.True(t, mock.hasExecuted("pos=NR"))
+	assert.False(t, mock.hasExecuted("done=1"))
+}
+
+func TestModulesFile_ModuleLineinfile_Bad_MissingPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleLineinfileWithClient(e, mock, map[string]any{
@@ -399,7 +755,7 @@ func TestModuleLineinfile_Bad_MissingPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "path required")
 }
 
-func TestModuleLineinfile_Good_DestAliasForPath(t *testing.T) {
+func TestModulesFile_ModuleLineinfile_Good_DestAliasForPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
@@ -412,7 +768,7 @@ func TestModuleLineinfile_Good_DestAliasForPath(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`/etc/config`))
 }
 
-func TestModuleLineinfile_Good_AbsentWithNoRegexp(t *testing.T) {
+func TestModulesFile_ModuleLineinfile_Good_AbsentWithNoRegexp(t *testing.T) {
 	// When state=absent but no regexp, nothing happens (no commands)
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -426,7 +782,7 @@ func TestModuleLineinfile_Good_AbsentWithNoRegexp(t *testing.T) {
 	assert.Equal(t, 0, mock.commandCount())
 }
 
-func TestModuleLineinfile_Good_LineWithSlashes(t *testing.T) {
+func TestModulesFile_ModuleLineinfile_Good_LineWithSlashes(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
@@ -442,9 +798,171 @@ func TestModuleLineinfile_Good_LineWithSlashes(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`root \\/var\\/www\\/html;`))
 }
 
+func TestModulesFile_ModuleLineinfile_Good_ExactLineAlreadyPresentIsNoOp(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/example.conf", []byte("setting=value\nother=1\n"))
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path": "/etc/example.conf",
+		"line": "setting=value",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Contains(t, result.Msg, "already up to date")
+	assert.Equal(t, 0, mock.commandCount())
+}
+
+func TestModulesFile_ModuleLineinfile_Good_SearchStringReplacesMatchingLine(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/ssh/sshd_config", []byte("PermitRootLogin yes\nPasswordAuthentication yes\n"))
+
+	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
+		"path":          "/etc/ssh/sshd_config",
+		"search_string": "PermitRootLogin",
+		"line":          "PermitRootLogin no",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	after, err := mock.Download(context.Background(), "/etc/ssh/sshd_config")
+	require.NoError(t, err)
+	assert.Equal(t, "PermitRootLogin no\nPasswordAuthentication yes\n", string(after))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_SearchStringRemovesMatchingLine(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/ssh/sshd_config", []byte("PermitRootLogin yes\nPasswordAuthentication yes\n"))
+
+	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
+		"path":          "/etc/ssh/sshd_config",
+		"search_string": "PermitRootLogin",
+		"state":         "absent",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	after, err := mock.Download(context.Background(), "/etc/ssh/sshd_config")
+	require.NoError(t, err)
+	assert.Equal(t, "PasswordAuthentication yes\n", string(after))
+}
+
+func TestModulesFile_ModuleLineinfile_Good_BackupExistingFile(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	path := "/etc/example.conf"
+	mock.addFile(path, []byte("setting=old\n"))
+
+	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+		"path":   path,
+		"line":   "setting=new",
+		"backup": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/example.conf.")
+
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("setting=old\n"), backupContent)
+}
+
+func TestModulesFile_ModuleLineinfile_Good_DiffData(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Diff = true
+
+	client := newDiffFileClient(map[string]string{
+		"/etc/example.conf": "setting=old\n",
+	})
+
+	result, err := e.moduleLineinfile(context.Background(), client, map[string]any{
+		"path": "/etc/example.conf",
+		"line": "setting=new",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	diff, ok := result.Data["diff"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "/etc/example.conf", diff["path"])
+	assert.Equal(t, "setting=old\n", diff["before"])
+	assert.Contains(t, diff["after"], "setting=new")
+}
+
+// --- replace module ---
+
+func TestModulesFile_ModuleReplace_Good_RegexpReplacementWithBackupAndDiff(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Diff = true
+	client := newDiffFileClient(map[string]string{
+		"/etc/app.conf": "port=8080\nmode=prod\n",
+	})
+
+	result, err := e.moduleReplace(context.Background(), client, map[string]any{
+		"path":    "/etc/app.conf",
+		"regexp":  `port=(\d+)`,
+		"replace": "port=9090",
+		"backup":  true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+	assert.Contains(t, result.Data, "backup_file")
+	assert.Contains(t, result.Data, "diff")
+
+	after, err := client.Download(context.Background(), "/etc/app.conf")
+	require.NoError(t, err)
+	assert.Equal(t, "port=9090\nmode=prod\n", string(after))
+
+	backupPath, _ := result.Data["backup_file"].(string)
+	require.NotEmpty(t, backupPath)
+	backup, err := client.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, "port=8080\nmode=prod\n", string(backup))
+}
+
+func TestModulesFile_ModuleReplace_Good_NoOpWhenPatternMissing(t *testing.T) {
+	e := NewExecutor("/tmp")
+	client := newDiffFileClient(map[string]string{
+		"/etc/app.conf": "port=8080\n",
+	})
+
+	result, err := e.moduleReplace(context.Background(), client, map[string]any{
+		"path":    "/etc/app.conf",
+		"regexp":  `mode=.+`,
+		"replace": "mode=prod",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Contains(t, result.Msg, "already up to date")
+}
+
+func TestModulesFile_ModuleReplace_Bad_MissingPath(t *testing.T) {
+	e := NewExecutor("/tmp")
+	client := newDiffFileClient(nil)
+
+	_, err := e.moduleReplace(context.Background(), client, map[string]any{
+		"regexp":  `mode=.+`,
+		"replace": "mode=prod",
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "path required")
+}
+
 // --- blockinfile module ---
 
-func TestModuleBlockinfile_Good_InsertBlock(t *testing.T) {
+func TestModulesFile_ModuleBlockinfile_Good_InsertBlock(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
@@ -461,7 +979,7 @@ func TestModuleBlockinfile_Good_InsertBlock(t *testing.T) {
 	assert.True(t, mock.hasExecutedMethod("RunScript", "10\\.0\\.0\\.1"))
 }
 
-func TestModuleBlockinfile_Good_CustomMarkers(t *testing.T) {
+func TestModulesFile_ModuleBlockinfile_Good_CustomMarkers(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
@@ -478,7 +996,41 @@ func TestModuleBlockinfile_Good_CustomMarkers(t *testing.T) {
 	assert.True(t, mock.hasExecutedMethod("RunScript", "# END managed by devops"))
 }
 
-func TestModuleBlockinfile_Good_RemoveBlock(t *testing.T) {
+func TestModulesFile_ModuleBlockinfile_Good_CustomMarkerBeginAndEnd(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleBlockinfile(context.Background(), mock, map[string]any{
+		"path":         "/etc/app.conf",
+		"block":        "setting=value",
+		"marker":       "# {mark} managed by app",
+		"marker_begin": "START",
+		"marker_end":   "STOP",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecutedMethod("RunScript", "# START managed by app"))
+	assert.True(t, mock.hasExecutedMethod("RunScript", "# STOP managed by app"))
+}
+
+func TestModulesFile_ModuleBlockinfile_Good_NewlinePadding(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
+		"path":            "/etc/hosts",
+		"block":           "10.0.0.5 db01",
+		"prepend_newline": true,
+		"append_newline":  true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	cmd := mock.lastCommand().Cmd
+	assert.Contains(t, cmd, "\n\n# BEGIN ANSIBLE MANAGED BLOCK\n10.0.0.5 db01\n# END ANSIBLE MANAGED BLOCK\n")
+}
+
+func TestModulesFile_ModuleBlockinfile_Good_RemoveBlock(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
@@ -493,7 +1045,46 @@ func TestModuleBlockinfile_Good_RemoveBlock(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`sed -i '/.*BEGIN ANSIBLE MANAGED BLOCK/,/.*END ANSIBLE MANAGED BLOCK/d'`))
 }
 
-func TestModuleBlockinfile_Good_CreateFile(t *testing.T) {
+func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithBackup(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/config", []byte("before\n# BEGIN ANSIBLE MANAGED BLOCK\nmanaged\n# END ANSIBLE MANAGED BLOCK\nafter\n"))
+
+	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
+		"path":   "/etc/config",
+		"state":  "absent",
+		"backup": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/config.")
+
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("before\n# BEGIN ANSIBLE MANAGED BLOCK\nmanaged\n# END ANSIBLE MANAGED BLOCK\nafter\n"), backupContent)
+}
+
+func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithCustomMarkerBeginAndEnd(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+
+	result, err := e.moduleBlockinfile(context.Background(), mock, map[string]any{
+		"path":         "/etc/app.conf",
+		"state":        "absent",
+		"marker":       "# {mark} managed by app",
+		"marker_begin": "START",
+		"marker_end":   "STOP",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`sed -i '/.*START managed by app/,/.*STOP managed by app/d'`))
+}
+
+func TestModulesFile_ModuleBlockinfile_Good_CreateFile(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
@@ -509,7 +1100,55 @@ func TestModuleBlockinfile_Good_CreateFile(t *testing.T) {
 	assert.True(t, mock.hasExecuted(`touch "/etc/new-config"`))
 }
 
-func TestModuleBlockinfile_Bad_MissingPath(t *testing.T) {
+func TestModulesFile_ModuleBlockinfile_Good_BackupExistingDest(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/config", []byte("old block contents"))
+
+	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
+		"path":   "/etc/config",
+		"block":  "new block contents",
+		"backup": true,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/config.")
+	assert.Equal(t, 1, mock.uploadCount())
+
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("old block contents"), backupContent)
+}
+
+func TestModulesFile_ModuleBlockinfile_Good_DiffData(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.Diff = true
+
+	client := newDiffFileClient(map[string]string{
+		"/etc/config": "old block contents\n",
+	})
+
+	result, err := e.moduleBlockinfile(context.Background(), client, map[string]any{
+		"path":  "/etc/config",
+		"block": "new block contents",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	diff, ok := result.Data["diff"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "/etc/config", diff["path"])
+	assert.Equal(t, "old block contents\n", diff["before"])
+	assert.Contains(t, diff["after"], "new block contents")
+}
+
+func TestModulesFile_ModuleBlockinfile_Bad_MissingPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleBlockinfileWithClient(e, mock, map[string]any{
@@ -520,7 +1159,7 @@ func TestModuleBlockinfile_Bad_MissingPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "path required")
 }
 
-func TestModuleBlockinfile_Good_DestAliasForPath(t *testing.T) {
+func TestModulesFile_ModuleBlockinfile_Good_DestAliasForPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
@@ -532,7 +1171,7 @@ func TestModuleBlockinfile_Good_DestAliasForPath(t *testing.T) {
 	assert.True(t, result.Changed)
 }
 
-func TestModuleBlockinfile_Good_ScriptFailure(t *testing.T) {
+func TestModulesFile_ModuleBlockinfile_Good_ScriptFailure(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand("BLOCK_EOF", "", "write error", 1)
 
@@ -548,7 +1187,7 @@ func TestModuleBlockinfile_Good_ScriptFailure(t *testing.T) {
 
 // --- stat module ---
 
-func TestModuleStat_Good_ExistingFile(t *testing.T) {
+func TestModulesFile_ModuleStat_Good_ExistingFile(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addStat("/etc/nginx/nginx.conf", map[string]any{
 		"exists": true,
@@ -575,7 +1214,7 @@ func TestModuleStat_Good_ExistingFile(t *testing.T) {
 	assert.Equal(t, 1234, stat["size"])
 }
 
-func TestModuleStat_Good_MissingFile(t *testing.T) {
+func TestModulesFile_ModuleStat_Good_MissingFile(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleStatWithClient(e, mock, map[string]any{
@@ -591,7 +1230,7 @@ func TestModuleStat_Good_MissingFile(t *testing.T) {
 	assert.Equal(t, false, stat["exists"])
 }
 
-func TestModuleStat_Good_Directory(t *testing.T) {
+func TestModulesFile_ModuleStat_Good_Directory(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addStat("/var/log", map[string]any{
 		"exists": true,
@@ -609,7 +1248,7 @@ func TestModuleStat_Good_Directory(t *testing.T) {
 	assert.Equal(t, true, stat["isdir"])
 }
 
-func TestModuleStat_Good_FallbackFromFileSystem(t *testing.T) {
+func TestModulesFile_ModuleStat_Good_FallbackFromFileSystem(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// No explicit stat, but add a file — stat falls back to file existence
 	mock.addFile("/etc/hosts", []byte("127.0.0.1 localhost"))
@@ -624,7 +1263,7 @@ func TestModuleStat_Good_FallbackFromFileSystem(t *testing.T) {
 	assert.Equal(t, false, stat["isdir"])
 }
 
-func TestModuleStat_Bad_MissingPath(t *testing.T) {
+func TestModulesFile_ModuleStat_Bad_MissingPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleStatWithClient(e, mock, map[string]any{})
@@ -635,10 +1274,10 @@ func TestModuleStat_Bad_MissingPath(t *testing.T) {
 
 // --- template module ---
 
-func TestModuleTemplate_Good_BasicTemplate(t *testing.T) {
+func TestModulesFile_ModuleTemplate_Good_BasicTemplate(t *testing.T) {
 	tmpDir := t.TempDir()
-	srcPath := filepath.Join(tmpDir, "app.conf.j2")
-	require.NoError(t, os.WriteFile(srcPath, []byte("server_name={{ server_name }};"), 0644))
+	srcPath := joinPath(tmpDir, "app.conf.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("server_name={{ server_name }};"), 0644))
 
 	e, mock := newTestExecutorWithMock("host1")
 	e.SetVar("server_name", "web01.example.com")
@@ -661,10 +1300,60 @@ func TestModuleTemplate_Good_BasicTemplate(t *testing.T) {
 	assert.Contains(t, string(up.Content), "web01.example.com")
 }
 
-func TestModuleTemplate_Good_CustomMode(t *testing.T) {
+func TestModulesFile_ModuleTemplate_Good_AnsibleFactsMapTemplate(t *testing.T) {
 	tmpDir := t.TempDir()
-	srcPath := filepath.Join(tmpDir, "script.sh.j2")
-	require.NoError(t, os.WriteFile(srcPath, []byte("#!/bin/bash\necho done"), 0644))
+	srcPath := joinPath(tmpDir, "facts.conf.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("host={{ ansible_facts.ansible_hostname }}"), 0644))
+
+	e, mock := newTestExecutorWithMock("host1")
+	e.facts["host1"] = &Facts{
+		Hostname:     "web01",
+		Distribution: "debian",
+	}
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":  srcPath,
+		"dest": "/etc/app/facts.conf",
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Contains(t, string(up.Content), "host=web01")
+}
+
+func TestModulesFile_ModuleTemplate_Good_TaskVarsAndHostMagicVars(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "context.conf.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("short={{ inventory_hostname_short }} local={{ local_value }}"), 0644))
+
+	e, mock := newTestExecutorWithMock("web01.example.com")
+	task := &Task{
+		Vars: map[string]any{
+			"local_value": "from-task",
+		},
+	}
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":  srcPath,
+		"dest": "/etc/app/context.conf",
+	}, "web01.example.com", task)
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Contains(t, string(up.Content), "short=web01")
+	assert.Contains(t, string(up.Content), "local=from-task")
+}
+
+func TestModulesFile_ModuleTemplate_Good_CustomMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "script.sh.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("#!/bin/bash\necho done"), 0644))
 
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -679,10 +1368,57 @@ func TestModuleTemplate_Good_CustomMode(t *testing.T) {
 
 	up := mock.lastUpload()
 	require.NotNil(t, up)
-	assert.Equal(t, os.FileMode(0755), up.Mode)
+	assert.Equal(t, fs.FileMode(0755), up.Mode)
 }
 
-func TestModuleTemplate_Bad_MissingSrc(t *testing.T) {
+func TestModulesFile_ModuleTemplate_Good_ForceFalseSkipsExistingDest(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "config.tmpl")
+	require.NoError(t, writeTestFile(srcPath, []byte("server_name={{ inventory_hostname }}"), 0644))
+
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/app/config", []byte("server_name=old"))
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":   srcPath,
+		"dest":  "/etc/app/config",
+		"force": false,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, 0, mock.uploadCount())
+	assert.Contains(t, result.Msg, "skipped existing destination")
+}
+
+func TestModulesFile_ModuleTemplate_Good_BackupExistingDest(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "config.tmpl")
+	require.NoError(t, writeTestFile(srcPath, []byte("server_name={{ inventory_hostname }}"), 0644))
+
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/app/config", []byte("server_name=old"))
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":    srcPath,
+		"dest":   "/etc/app/config",
+		"backup": true,
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+
+	require.NotNil(t, result.Data)
+	backupPath, ok := result.Data["backup_file"].(string)
+	require.True(t, ok)
+	assert.Contains(t, backupPath, "/etc/app/config.")
+	assert.Equal(t, 2, mock.uploadCount())
+	backupContent, err := mock.Download(context.Background(), backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("server_name=old"), backupContent)
+}
+
+func TestModulesFile_ModuleTemplate_Bad_MissingSrc(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleTemplateWithClient(e, mock, map[string]any{
@@ -693,7 +1429,7 @@ func TestModuleTemplate_Bad_MissingSrc(t *testing.T) {
 	assert.Contains(t, err.Error(), "src and dest required")
 }
 
-func TestModuleTemplate_Bad_MissingDest(t *testing.T) {
+func TestModulesFile_ModuleTemplate_Bad_MissingDest(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleTemplateWithClient(e, mock, map[string]any{
@@ -704,7 +1440,7 @@ func TestModuleTemplate_Bad_MissingDest(t *testing.T) {
 	assert.Contains(t, err.Error(), "src and dest required")
 }
 
-func TestModuleTemplate_Bad_SrcFileNotFound(t *testing.T) {
+func TestModulesFile_ModuleTemplate_Bad_SrcFileNotFound(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleTemplateWithClient(e, mock, map[string]any{
@@ -716,11 +1452,11 @@ func TestModuleTemplate_Bad_SrcFileNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "template")
 }
 
-func TestModuleTemplate_Good_PlainTextNoVars(t *testing.T) {
+func TestModulesFile_ModuleTemplate_Good_PlainTextNoVars(t *testing.T) {
 	tmpDir := t.TempDir()
-	srcPath := filepath.Join(tmpDir, "static.conf")
+	srcPath := joinPath(tmpDir, "static.conf")
 	content := "listen 80;\nserver_name localhost;"
-	require.NoError(t, os.WriteFile(srcPath, []byte(content), 0644))
+	require.NoError(t, writeTestFile(srcPath, []byte(content), 0644))
 
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -737,9 +1473,35 @@ func TestModuleTemplate_Good_PlainTextNoVars(t *testing.T) {
 	assert.Equal(t, content, string(up.Content))
 }
 
+func TestModulesFile_ModuleTemplate_Good_DiffData(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := joinPath(tmpDir, "app.conf.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("server_name={{ server_name }};"), 0644))
+
+	e, mock := newTestExecutorWithMock("host1")
+	e.Diff = true
+	e.SetVar("server_name", "web01.example.com")
+	mock.addFile("/etc/nginx/conf.d/app.conf", []byte("server_name=old.example.com;"))
+
+	result, err := moduleTemplateWithClient(e, mock, map[string]any{
+		"src":  srcPath,
+		"dest": "/etc/nginx/conf.d/app.conf",
+	}, "host1", &Task{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	require.NotNil(t, result.Data)
+
+	diff, ok := result.Data["diff"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "/etc/nginx/conf.d/app.conf", diff["path"])
+	assert.Equal(t, "server_name=old.example.com;", diff["before"])
+	assert.Contains(t, diff["after"], "web01.example.com")
+}
+
 // --- Cross-module dispatch tests for file modules ---
 
-func TestExecuteModuleWithMock_Good_DispatchCopy(t *testing.T) {
+func TestModulesFile_ExecuteModuleWithMock_Good_DispatchCopy(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	task := &Task{
@@ -757,7 +1519,7 @@ func TestExecuteModuleWithMock_Good_DispatchCopy(t *testing.T) {
 	assert.Equal(t, 1, mock.uploadCount())
 }
 
-func TestExecuteModuleWithMock_Good_DispatchFile(t *testing.T) {
+func TestModulesFile_ExecuteModuleWithMock_Good_DispatchFile(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	task := &Task{
@@ -775,7 +1537,7 @@ func TestExecuteModuleWithMock_Good_DispatchFile(t *testing.T) {
 	assert.True(t, mock.hasExecuted("mkdir"))
 }
 
-func TestExecuteModuleWithMock_Good_DispatchStat(t *testing.T) {
+func TestModulesFile_ExecuteModuleWithMock_Good_DispatchStat(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addStat("/etc/hosts", map[string]any{"exists": true, "isdir": false})
 
@@ -794,7 +1556,7 @@ func TestExecuteModuleWithMock_Good_DispatchStat(t *testing.T) {
 	assert.Equal(t, true, stat["exists"])
 }
 
-func TestExecuteModuleWithMock_Good_DispatchLineinfile(t *testing.T) {
+func TestModulesFile_ExecuteModuleWithMock_Good_DispatchLineinfile(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	task := &Task{
@@ -811,7 +1573,7 @@ func TestExecuteModuleWithMock_Good_DispatchLineinfile(t *testing.T) {
 	assert.True(t, result.Changed)
 }
 
-func TestExecuteModuleWithMock_Good_DispatchBlockinfile(t *testing.T) {
+func TestModulesFile_ExecuteModuleWithMock_Good_DispatchBlockinfile(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	task := &Task{
@@ -828,10 +1590,10 @@ func TestExecuteModuleWithMock_Good_DispatchBlockinfile(t *testing.T) {
 	assert.True(t, result.Changed)
 }
 
-func TestExecuteModuleWithMock_Good_DispatchTemplate(t *testing.T) {
+func TestModulesFile_ExecuteModuleWithMock_Good_DispatchTemplate(t *testing.T) {
 	tmpDir := t.TempDir()
-	srcPath := filepath.Join(tmpDir, "test.j2")
-	require.NoError(t, os.WriteFile(srcPath, []byte("static content"), 0644))
+	srcPath := joinPath(tmpDir, "test.j2")
+	require.NoError(t, writeTestFile(srcPath, []byte("static content"), 0644))
 
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -852,7 +1614,7 @@ func TestExecuteModuleWithMock_Good_DispatchTemplate(t *testing.T) {
 
 // --- Template variable resolution integration ---
 
-func TestModuleCopy_Good_TemplatedArgs(t *testing.T) {
+func TestModulesFile_ModuleCopy_Good_TemplatedArgs(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	e.SetVar("deploy_path", "/opt/myapp")
 
@@ -876,7 +1638,7 @@ func TestModuleCopy_Good_TemplatedArgs(t *testing.T) {
 	assert.Equal(t, "/opt/myapp/config.yml", up.Remote)
 }
 
-func TestModuleFile_Good_TemplatedPath(t *testing.T) {
+func TestModulesFile_ModuleFile_Good_TemplatedPath(t *testing.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	e.SetVar("app_dir", "/var/www/html")
 
@@ -896,4 +1658,124 @@ func TestModuleFile_Good_TemplatedPath(t *testing.T) {
 	assert.True(t, result.Changed)
 	assert.True(t, mock.hasExecuted(`mkdir -p "/var/www/html/uploads"`))
 	assert.True(t, mock.hasExecuted(`chown www-data "/var/www/html/uploads"`))
+}
+
+func TestModulesFile_ModuleGetURL_Good_Checksum(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	payload := "downloaded artifact"
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, payload, "", 0)
+
+	sum := sha256.Sum256([]byte(payload))
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":      "https://downloads.example.com/app.tgz",
+		"dest":     "/tmp/app.tgz",
+		"checksum": "sha256:" + hex.EncodeToString(sum[:]),
+		"mode":     "0600",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, 1, mock.uploadCount())
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Equal(t, "/tmp/app.tgz", up.Remote)
+	assert.Equal(t, []byte(payload), up.Content)
+	assert.Equal(t, fs.FileMode(0600), up.Mode)
+}
+
+func TestModulesFile_ModuleGetURL_Good_Sha512Checksum(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	payload := "downloaded artifact"
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, payload, "", 0)
+
+	sum := sha512.Sum512([]byte(payload))
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":      "https://downloads.example.com/app.tgz",
+		"dest":     "/tmp/app.tgz",
+		"checksum": "sha512:" + hex.EncodeToString(sum[:]),
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, 1, mock.uploadCount())
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Equal(t, "/tmp/app.tgz", up.Remote)
+	assert.Equal(t, []byte(payload), up.Content)
+}
+
+func TestModulesFile_ModuleGetURL_Good_ChecksumFileURL(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	payload := "downloaded artifact"
+	sum := sha256.Sum256([]byte(payload))
+	checksumURL := "https://downloads.example.com/app.tgz.sha256"
+
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz\.sha256(?:["\s]|$)`, hex.EncodeToString(sum[:])+"  app.tgz\n", "", 0)
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz(?:["\s]|$)`, payload, "", 0)
+
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":      "https://downloads.example.com/app.tgz",
+		"dest":     "/tmp/app.tgz",
+		"checksum": "sha256:" + checksumURL,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, 1, mock.uploadCount())
+
+	up := mock.lastUpload()
+	require.NotNil(t, up)
+	assert.Equal(t, "/tmp/app.tgz", up.Remote)
+	assert.Equal(t, []byte(payload), up.Content)
+}
+
+func TestModulesFile_ModuleGetURL_Good_ForceFalseSkipsExistingDestination(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/tmp/app.tgz", []byte("existing artifact"))
+
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":   "https://downloads.example.com/app.tgz",
+		"dest":  "/tmp/app.tgz",
+		"force": false,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	assert.Equal(t, "skipped existing destination: /tmp/app.tgz", result.Msg)
+	assert.Equal(t, 0, mock.commandCount())
+	assert.Equal(t, 0, mock.uploadCount())
+}
+
+func TestModulesFile_ModuleGetURL_Good_DisablesProxyUsage(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, "downloaded artifact", "", 0)
+
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":       "https://downloads.example.com/app.tgz",
+		"dest":      "/tmp/app.tgz",
+		"use_proxy": false,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.True(t, mock.hasExecuted(`--noproxy`))
+	assert.True(t, mock.hasExecuted(`wget --no-proxy`))
+}
+
+func TestModulesFile_ModuleGetURL_Bad_ChecksumMismatch(t *testing.T) {
+	e, mock := newTestExecutorWithMock("host1")
+	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, "downloaded artifact", "", 0)
+
+	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+		"url":      "https://downloads.example.com/app.tgz",
+		"dest":     "/tmp/app.tgz",
+		"checksum": "sha256:deadbeef",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Failed)
+	assert.Contains(t, result.Msg, "checksum mismatch")
+	assert.Equal(t, 0, mock.uploadCount())
 }
