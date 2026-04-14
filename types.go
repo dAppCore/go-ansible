@@ -170,6 +170,8 @@ type Task struct {
 	Listen        any               `yaml:"listen,omitempty"` // string or []string
 	Retries       int               `yaml:"retries,omitempty"`
 	Delay         int               `yaml:"delay,omitempty"`
+	Async         int               `yaml:"async,omitempty"`
+	Poll          int               `yaml:"poll,omitempty"`
 	Until         string            `yaml:"until,omitempty"`
 
 	// Include/import directives
@@ -244,7 +246,8 @@ type TaskResult struct {
 //
 //	inventory := Inventory{All: &InventoryGroup{Hosts: map[string]*Host{"web1": {AnsibleHost: "10.0.0.1"}}}}
 type Inventory struct {
-	All *InventoryGroup `yaml:"all"`
+	All      *InventoryGroup           `yaml:"all"`
+	HostVars map[string]map[string]any `yaml:"host_vars,omitempty"`
 }
 
 // UnmarshalYAML supports both the explicit `all:` root and inventories that
@@ -257,6 +260,7 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
 
 	root := &InventoryGroup{}
 	rootInput := make(map[string]any)
+	hostVars := make(map[string]map[string]any)
 	if all, ok := raw["all"]; ok {
 		group, err := decodeInventoryGroupValue(all)
 		if err != nil {
@@ -267,6 +271,21 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
 
 	for name, value := range raw {
 		if name == "all" {
+			continue
+		}
+		if name == "host_vars" {
+			decoded, err := decodeInventoryHostVarsValue(value)
+			if err != nil {
+				return coreerr.E("Inventory.UnmarshalYAML", "decode host_vars", err)
+			}
+			for host, vars := range decoded {
+				if hostVars[host] == nil {
+					hostVars[host] = make(map[string]any, len(vars))
+				}
+				for key, val := range vars {
+					hostVars[host][key] = val
+				}
+			}
 			continue
 		}
 
@@ -296,6 +315,7 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	i.All = root
+	i.HostVars = hostVars
 	return nil
 }
 
@@ -342,6 +362,24 @@ func mergeInventoryGroups(dst, src *InventoryGroup) {
 	for key, value := range src.Vars {
 		dst.Vars[key] = value
 	}
+}
+
+func decodeInventoryHostVarsValue(value any) (map[string]map[string]any, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	data, err := yaml.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+
+	var hostVars map[string]map[string]any
+	if err := yaml.Unmarshal(data, &hostVars); err != nil {
+		return nil, err
+	}
+
+	return hostVars, nil
 }
 
 // InventoryGroup represents a group in inventory.

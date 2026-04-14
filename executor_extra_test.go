@@ -1797,6 +1797,21 @@ func TestExecutorExtra_EvalCondition_Good_UndefinedCheck(t *testing.T) {
 	assert.True(t, e.evalCondition("missing_var is undefined", "host1"))
 }
 
+func TestExecutorExtra_EvalCondition_Good_BinaryOperators(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["count"] = 2
+	e.vars["limit"] = 5
+	e.vars["roles"] = []string{"web", "api"}
+
+	assert.True(t, e.evalCondition("count < limit", "host1"))
+	assert.True(t, e.evalCondition("count <= 2", "host1"))
+	assert.True(t, e.evalCondition("limit >= count", "host1"))
+	assert.True(t, e.evalCondition("'web' in roles", "host1"))
+	assert.True(t, e.evalCondition("roles contains 'api'", "host1"))
+	assert.True(t, e.evalCondition("'db' not in roles", "host1"))
+	assert.False(t, e.evalCondition("count > limit", "host1"))
+}
+
 // --- resolveExpr with filter pipe ---
 
 func TestExecutorExtra_ResolveExpr_Good_WithFilter(t *testing.T) {
@@ -1805,6 +1820,29 @@ func TestExecutorExtra_ResolveExpr_Good_WithFilter(t *testing.T) {
 
 	result := e.resolveExpr("raw_value | trim", "host1", nil)
 	assert.Equal(t, "trimmed", result)
+}
+
+func TestExecutorExtra_ResolveExpr_Good_CommonFilters(t *testing.T) {
+	e := NewExecutor("/tmp")
+	e.vars["name"] = "Hello"
+	e.vars["path"] = "/tmp/example/nginx.conf"
+	e.vars["parts"] = []string{"a", "b"}
+	e.vars["csv"] = "a,b,c"
+	e.vars["count"] = "42"
+	e.vars["negative"] = -7
+	e.vars["values"] = []any{3, 1, 2}
+
+	assert.Equal(t, "HELLO", e.resolveExpr("name | upper", "host1", nil))
+	assert.Equal(t, "hello", e.resolveExpr("name | lower", "host1", nil))
+	assert.Equal(t, "nginx.conf", e.resolveExpr("path | basename", "host1", nil))
+	assert.Equal(t, "/tmp/example", e.resolveExpr("path | dirname", "host1", nil))
+	assert.Equal(t, "a,b", e.resolveExpr("parts | join(',')", "host1", nil))
+	assert.Equal(t, "[a b c]", e.resolveExpr("csv | split(',')", "host1", nil))
+	assert.Equal(t, "42", e.resolveExpr("count | int", "host1", nil))
+	assert.Equal(t, "7", e.resolveExpr("negative | abs", "host1", nil))
+	assert.Equal(t, "1", e.resolveExpr("values | min", "host1", nil))
+	assert.Equal(t, "3", e.resolveExpr("values | max", "host1", nil))
+	assert.Equal(t, "3", e.resolveExpr("values | length", "host1", nil))
 }
 
 func TestExecutorExtra_ResolveExpr_Good_WithB64Encode(t *testing.T) {

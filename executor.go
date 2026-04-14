@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -1075,6 +1074,40 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 		e.results[host] = make(map[string]*TaskResult)
 	}
 
+	execCtx := ctx
+	if task.Async > 0 && task.Poll > 0 {
+		timeout := time.Duration(task.Async) * time.Second
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			execCtx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+	}
+
+	if task.Async > 0 && task.Poll <= 0 {
+		result := &TaskResult{
+			Changed: false,
+			Msg:     "async task started",
+			Data: map[string]any{
+				"ansible_job_id": newAsyncJobID(),
+				"started":        1,
+				"finished":       0,
+			},
+		}
+		if task.Register != "" {
+			e.results[host][task.Register] = result
+		}
+		displayResult := result
+		if task.NoLog {
+			displayResult = redactTaskResult(result)
+		}
+		if e.OnTaskEnd != nil {
+			e.OnTaskEnd(host, task, displayResult)
+		}
+		e.launchDetachedAsyncTask(ctx, host, hosts, task, play)
+		return nil
+	}
+
 	hasLoop := task.Loop != nil || task.WithFile != nil || task.WithFileGlob != nil || task.WithSequence != nil || task.WithTogether != nil || task.WithSubelements != nil
 
 	// Check when condition before allocating a client for simple tasks. Loop
@@ -1115,7 +1148,7 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	// Handle loops, including legacy with_file, with_fileglob, with_sequence,
 	// with_together, and with_subelements syntax.
 	if hasLoop {
-		return e.runLoop(ctx, host, client, task, play, start)
+		return e.runLoop(execCtx, host, client, task, play, start)
 	}
 
 	// Check when conditions for non-loop tasks after loop-only variables have
@@ -1134,8 +1167,8 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	}
 
 	// Execute the task, honouring retries/until when configured.
-	result, err := e.runTaskWithRetries(ctx, host, task, play, func() (*TaskResult, error) {
-		return e.executeModule(ctx, host, client, task, play)
+	result, err := e.runTaskWithRetries(execCtx, host, task, play, func() (*TaskResult, error) {
+		return e.executeModule(execCtx, host, client, task, play)
 	})
 	if err != nil {
 		result = &TaskResult{Failed: true, Msg: err.Error()}
@@ -2594,28 +2627,8 @@ func (e *Executor) evalConditionWithLocals(cond string, host string, task *Task,
 		return !e.evalConditionWithLocals(corexTrimPrefix(cond, "not "), host, task, locals)
 	}
 
-	// Handle equality/inequality
-	if contains(cond, "==") {
-		parts := splitN(cond, "==", 2)
-		if len(parts) == 2 {
-			left, leftOK := e.resolveConditionOperand(parts[0], host, task, locals)
-			right, rightOK := e.resolveConditionOperand(parts[1], host, task, locals)
-			if !leftOK || !rightOK {
-				return true
-			}
-			return left == right
-		}
-	}
-	if contains(cond, "!=") {
-		parts := splitN(cond, "!=", 2)
-		if len(parts) == 2 {
-			left, leftOK := e.resolveConditionOperand(parts[0], host, task, locals)
-			right, rightOK := e.resolveConditionOperand(parts[1], host, task, locals)
-			if !leftOK || !rightOK {
-				return true
-			}
-			return left != right
-		}
+	if result, handled := e.evalBinaryCondition(cond, host, task, locals); handled {
+		return result
 	}
 
 	// Handle boolean literals
@@ -2846,12 +2859,214 @@ func isConditionBoundary(ch byte) bool {
 	}
 }
 
-func (e *Executor) lookupConditionValue(name string, host string, task *Task, locals map[string]any) (any, bool) {
-	name = corexTrimSpace(name)
+func (e *Executor) evalBinaryCondition(cond string, host string, task *Task, locals map[string]any) (bool, bool) {
+	ops := []string{"not in", "contains", "<=", ">=", "==", "!=", "<", ">", "in"}
+	for _, op := range ops {
+		left, right, ok := splitBinaryCondition(cond, op)
+		if !ok {
+			continue
+		}
 
-	if value, ok := e.hostMagicVars(host)[name]; ok {
+		leftValue, leftOK := e.resolveConditionOperandValue(left, host, task, locals)
+		rightValue, rightOK := e.resolveConditionOperandValue(right, host, task, locals)
+		if !leftOK || !rightOK {
+			return true, true
+		}
+
+		switch op {
+		case "==":
+			return templateConditionEqual(leftValue, rightValue), true
+		case "!=":
+			return !templateConditionEqual(leftValue, rightValue), true
+		case "<":
+			return templateConditionCompare(leftValue, rightValue) < 0, true
+		case ">":
+			return templateConditionCompare(leftValue, rightValue) > 0, true
+		case "<=":
+			return templateConditionCompare(leftValue, rightValue) <= 0, true
+		case ">=":
+			return templateConditionCompare(leftValue, rightValue) >= 0, true
+		case "in":
+			return templateConditionContains(rightValue, leftValue), true
+		case "not in":
+			return !templateConditionContains(rightValue, leftValue), true
+		case "contains":
+			return templateConditionContains(leftValue, rightValue), true
+		}
+	}
+
+	return false, false
+}
+
+func splitBinaryCondition(cond, op string) (string, string, bool) {
+	depth := 0
+	inSingle := false
+	inDouble := false
+	escaped := false
+
+	for i := 0; i <= len(cond)-len(op); i++ {
+		ch := cond[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && (inSingle || inDouble) {
+			escaped = true
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if inSingle || inDouble {
+			continue
+		}
+		switch ch {
+		case '(':
+			depth++
+			continue
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+
+		if depth != 0 || !strings.HasPrefix(cond[i:], op) {
+			continue
+		}
+
+		if i > 0 && !isConditionBoundary(cond[i-1]) {
+			continue
+		}
+		end := i + len(op)
+		if end < len(cond) && !isConditionBoundary(cond[end]) {
+			continue
+		}
+
+		left := corexTrimSpace(cond[:i])
+		right := corexTrimSpace(cond[end:])
+		if left == "" || right == "" {
+			continue
+		}
+		return left, right, true
+	}
+
+	return "", "", false
+}
+
+func (e *Executor) resolveConditionOperandValue(expr string, host string, task *Task, locals map[string]any) (any, bool) {
+	expr = corexTrimSpace(expr)
+	if expr == "" {
+		return "", true
+	}
+
+	switch expr {
+	case "true", "True":
+		return true, true
+	case "false", "False":
+		return false, true
+	}
+
+	if len(expr) >= 2 {
+		if (expr[0] == '\'' && expr[len(expr)-1] == '\'') || (expr[0] == '"' && expr[len(expr)-1] == '"') {
+			return expr[1 : len(expr)-1], true
+		}
+	}
+
+	if i, err := strconv.Atoi(expr); err == nil {
+		return i, true
+	}
+	if f, err := strconv.ParseFloat(expr, 64); err == nil {
+		return f, true
+	}
+
+	if value, ok := e.lookupConditionValue(expr, host, task, locals); ok {
 		return value, true
 	}
+
+	return expr, false
+}
+
+func templateConditionEqual(left, right any) bool {
+	if leftFloat, leftOK := templateFloat(left); leftOK {
+		if rightFloat, rightOK := templateFloat(right); rightOK {
+			return leftFloat == rightFloat
+		}
+	}
+
+	return reflect.DeepEqual(left, right) || templateStringify(left) == templateStringify(right)
+}
+
+func templateConditionCompare(left, right any) int {
+	if leftFloat, leftOK := templateFloat(left); leftOK {
+		if rightFloat, rightOK := templateFloat(right); rightOK {
+			switch {
+			case leftFloat < rightFloat:
+				return -1
+			case leftFloat > rightFloat:
+				return 1
+			default:
+				return 0
+			}
+		}
+	}
+
+	leftStr := templateStringify(left)
+	rightStr := templateStringify(right)
+	switch {
+	case leftStr < rightStr:
+		return -1
+	case leftStr > rightStr:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func templateConditionContains(container, item any) bool {
+	if container == nil {
+		return false
+	}
+
+	if containerStr, ok := container.(string); ok {
+		return strings.Contains(containerStr, templateStringify(item))
+	}
+
+	if items, ok := anySliceFromValue(container); ok {
+		for _, candidate := range items {
+			if templateConditionEqual(candidate, item) || templateStringify(candidate) == templateStringify(item) {
+				return true
+			}
+		}
+		return false
+	}
+
+	rv := reflect.ValueOf(container)
+	if !rv.IsValid() {
+		return false
+	}
+	if rv.Kind() == reflect.Map {
+		for _, key := range rv.MapKeys() {
+			if templateStringify(key.Interface()) == templateStringify(item) {
+				return true
+			}
+			if templateConditionEqual(key.Interface(), item) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return strings.Contains(templateStringify(container), templateStringify(item))
+}
+
+func (e *Executor) lookupConditionValue(name string, host string, task *Task, locals map[string]any) (any, bool) {
+	name = corexTrimSpace(name)
 
 	if locals != nil {
 		if val, ok := locals[name]; ok {
@@ -2878,10 +3093,6 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		return result, true
 	}
 
-	if val, ok := e.vars[name]; ok {
-		return val, true
-	}
-
 	if task != nil {
 		if val, ok := task.Vars[name]; ok {
 			return val, true
@@ -2894,6 +3105,10 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 	}
 
+	if val, ok := e.vars[name]; ok {
+		return val, true
+	}
+
 	if e.inventory != nil {
 		hostVars := GetHostVars(e.inventory, host)
 		if val, ok := hostVars[name]; ok {
@@ -2901,12 +3116,11 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 	}
 
-	if value, ok := e.lookupMagicScopeValue(name, host); ok {
-		return value, true
-	}
-
 	if facts, ok := e.facts[host]; ok {
 		if name == "ansible_facts" {
+			if merged := e.hostFactsMap(host); len(merged) > 0 {
+				return merged, true
+			}
 			return factsToMap(facts), true
 		}
 		switch name {
@@ -2937,22 +3151,17 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 	}
 
+	if value, ok := e.lookupMagicScopeValue(name, host); ok {
+		return value, true
+	}
+	if value, ok := e.hostMagicVars(host)[name]; ok {
+		return value, true
+	}
+
 	if contains(name, ".") {
 		parts := splitN(name, ".", 2)
 		base := parts[0]
 		path := parts[1]
-
-		if magic, ok := e.hostMagicVars(host)[base]; ok {
-			if nested, ok := lookupNestedValue(magic, path); ok {
-				return nested, true
-			}
-		}
-
-		if magic, ok := e.lookupMagicScopeValue(base, host); ok {
-			if nested, ok := lookupNestedValue(magic, path); ok {
-				return nested, true
-			}
-		}
 
 		if locals != nil {
 			if val, ok := locals[base]; ok {
@@ -2963,22 +3172,13 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 		}
 
 		if base == "ansible_facts" {
-			if facts, ok := e.facts[host]; ok {
-				if nested, ok := lookupNestedValue(factsToMap(facts), path); ok {
+			if merged := e.hostFactsMap(host); len(merged) > 0 {
+				if nested, ok := lookupNestedValue(merged, path); ok {
 					return nested, true
 				}
 			}
-		}
-
-		if val, ok := e.vars[base]; ok {
-			if nested, ok := lookupNestedValue(val, path); ok {
-				return nested, true
-			}
-		}
-
-		if hostVars := e.hostScopedVars(host); hostVars != nil {
-			if val, ok := hostVars[base]; ok {
-				if nested, ok := lookupNestedValue(val, path); ok {
+			if facts, ok := e.facts[host]; ok {
+				if nested, ok := lookupNestedValue(factsToMap(facts), path); ok {
 					return nested, true
 				}
 			}
@@ -2992,12 +3192,38 @@ func (e *Executor) lookupConditionValue(name string, host string, task *Task, lo
 			}
 		}
 
+		if hostVars := e.hostScopedVars(host); hostVars != nil {
+			if val, ok := hostVars[base]; ok {
+				if nested, ok := lookupNestedValue(val, path); ok {
+					return nested, true
+				}
+			}
+		}
+
+		if val, ok := e.vars[base]; ok {
+			if nested, ok := lookupNestedValue(val, path); ok {
+				return nested, true
+			}
+		}
+
 		if e.inventory != nil {
 			hostVars := GetHostVars(e.inventory, host)
 			if val, ok := hostVars[base]; ok {
 				if nested, ok := lookupNestedValue(val, path); ok {
 					return nested, true
 				}
+			}
+		}
+
+		if magic, ok := e.lookupMagicScopeValue(base, host); ok {
+			if nested, ok := lookupNestedValue(magic, path); ok {
+				return nested, true
+			}
+		}
+
+		if magic, ok := e.hostMagicVars(host)[base]; ok {
+			if nested, ok := lookupNestedValue(magic, path); ok {
+				return nested, true
 			}
 		}
 	}
@@ -3035,23 +3261,11 @@ func taskResultField(value any, field string) (any, bool) {
 }
 
 func (e *Executor) resolveConditionOperand(expr string, host string, task *Task, locals map[string]any) (string, bool) {
-	expr = corexTrimSpace(expr)
-
-	if expr == "true" || expr == "True" || expr == "false" || expr == "False" {
-		return expr, true
+	value, ok := e.resolveConditionOperandValue(expr, host, task, locals)
+	if !ok {
+		return corexTrimSpace(expr), false
 	}
-	if len(expr) > 0 && expr[0] >= '0' && expr[0] <= '9' {
-		return expr, true
-	}
-	if (len(expr) >= 2 && expr[0] == '\'' && expr[len(expr)-1] == '\'') || (len(expr) >= 2 && expr[0] == '"' && expr[len(expr)-1] == '"') {
-		return expr[1 : len(expr)-1], true
-	}
-
-	if value, ok := e.lookupConditionValue(expr, host, task, locals); ok {
-		return sprintf("%v", value), true
-	}
-
-	return expr, false
+	return templateStringify(value), true
 }
 
 func (e *Executor) applyTaskResultConditions(host string, task *Task, result *TaskResult) {
@@ -3115,126 +3329,17 @@ func (e *Executor) templateString(s string, host string, task *Task) string {
 
 // resolveExpr resolves a template expression.
 func (e *Executor) resolveExpr(expr string, host string, task *Task) string {
-	parts := splitTemplatePipeline(expr)
-	if len(parts) == 0 {
-		return ""
-	}
-
-	value := e.resolveExprBase(parts[0], host, task)
-	for _, filter := range parts[1:] {
-		value = e.applyFilter(value, filter)
-	}
-	return value
+	value, _ := e.resolveExprValue(expr, host, task)
+	return templateStringify(value)
 }
 
 // resolveExprBase resolves a single templating expression without applying filters.
 func (e *Executor) resolveExprBase(expr string, host string, task *Task) string {
-	expr = corexTrimSpace(expr)
-	if expr == "" {
-		return ""
+	value, ok := e.resolveExprBaseValue(expr, host, task)
+	if !ok {
+		return "{{ " + corexTrimSpace(expr) + " }}"
 	}
-
-	// Handle lookups
-	if corexHasPrefix(expr, "lookup(") {
-		return e.handleLookup(expr, host, task)
-	}
-
-	// Handle registered vars
-	if contains(expr, ".") {
-		parts := splitN(expr, ".", 2)
-		if result := e.getRegisteredVar(host, parts[0]); result != nil {
-			switch parts[1] {
-			case "stdout":
-				return result.Stdout
-			case "stderr":
-				return result.Stderr
-			case "rc":
-				return sprintf("%d", result.RC)
-			case "changed":
-				return sprintf("%t", result.Changed)
-			case "failed":
-				return sprintf("%t", result.Failed)
-			}
-		}
-	}
-
-	if value, ok := e.hostMagicVars(host)[expr]; ok {
-		return sprintf("%v", value)
-	}
-
-	// Resolve nested maps from vars, task vars, or host vars.
-	if contains(expr, ".") {
-		parts := splitN(expr, ".", 2)
-		if val, ok := e.lookupExprValue(parts[0], host, task); ok {
-			if nested, ok := lookupNestedValue(val, parts[1]); ok {
-				return sprintf("%v", nested)
-			}
-		}
-	}
-
-	// Check vars
-	if val, ok := e.vars[expr]; ok {
-		return sprintf("%v", val)
-	}
-
-	// Check task vars
-	if task != nil {
-		if val, ok := task.Vars[expr]; ok {
-			return sprintf("%v", val)
-		}
-	}
-
-	if hostVars := e.hostScopedVars(host); hostVars != nil {
-		if val, ok := hostVars[expr]; ok {
-			return sprintf("%v", val)
-		}
-	}
-
-	// Check host vars
-	if e.inventory != nil {
-		hostVars := GetHostVars(e.inventory, host)
-		if val, ok := hostVars[expr]; ok {
-			return sprintf("%v", val)
-		}
-	}
-
-	// Check facts
-	if facts, ok := e.facts[host]; ok {
-		if expr == "ansible_facts" {
-			if merged := e.hostFactsMap(host); len(merged) > 0 {
-				return sprintf("%v", merged)
-			}
-			return sprintf("%v", factsToMap(facts))
-		}
-		switch expr {
-		case "ansible_hostname":
-			return facts.Hostname
-		case "ansible_fqdn":
-			return facts.FQDN
-		case "ansible_os_family":
-			return facts.OS
-		case "ansible_memtotal_mb":
-			return sprintf("%d", facts.Memory)
-		case "ansible_processor_vcpus":
-			return sprintf("%d", facts.CPUs)
-		case "ansible_default_ipv4_address":
-			return facts.IPv4
-		case "ansible_distribution":
-			return facts.Distribution
-		case "ansible_distribution_version":
-			return facts.Version
-		case "ansible_architecture":
-			return facts.Architecture
-		case "ansible_kernel":
-			return facts.Kernel
-		case "ansible_virtualization_role":
-			return facts.VirtualizationRole
-		case "ansible_virtualization_type":
-			return facts.VirtualizationType
-		}
-	}
-
-	return "{{ " + expr + " }}" // Return as-is if unresolved
+	return templateStringify(value)
 }
 
 // splitTemplatePipeline splits a template expression into a base expression
@@ -3353,13 +3458,6 @@ func shellQuote(value string) string {
 // lookupExprValue resolves the first segment of an expression against the
 // executor, task, and inventory scopes.
 func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, bool) {
-	if value, ok := e.lookupMagicScopeValue(name, host); ok {
-		return value, true
-	}
-
-	if val, ok := e.vars[name]; ok {
-		return val, true
-	}
 	if task != nil {
 		if val, ok := task.Vars[name]; ok {
 			return val, true
@@ -3369,6 +3467,9 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 		if val, ok := hostVars[name]; ok {
 			return val, true
 		}
+	}
+	if val, ok := e.vars[name]; ok {
+		return val, true
 	}
 	if e.inventory != nil {
 		hostVars := GetHostVars(e.inventory, host)
@@ -3381,6 +3482,42 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 		if facts := e.hostFactsMap(host); len(facts) > 0 {
 			return facts, true
 		}
+	}
+
+	if facts, ok := e.facts[host]; ok {
+		switch name {
+		case "ansible_hostname":
+			return facts.Hostname, true
+		case "ansible_fqdn":
+			return facts.FQDN, true
+		case "ansible_os_family":
+			return facts.OS, true
+		case "ansible_memtotal_mb":
+			return facts.Memory, true
+		case "ansible_processor_vcpus":
+			return facts.CPUs, true
+		case "ansible_default_ipv4_address":
+			return facts.IPv4, true
+		case "ansible_distribution":
+			return facts.Distribution, true
+		case "ansible_distribution_version":
+			return facts.Version, true
+		case "ansible_architecture":
+			return facts.Architecture, true
+		case "ansible_kernel":
+			return facts.Kernel, true
+		case "ansible_virtualization_role":
+			return facts.VirtualizationRole, true
+		case "ansible_virtualization_type":
+			return facts.VirtualizationType, true
+		}
+	}
+
+	if value, ok := e.lookupMagicScopeValue(name, host); ok {
+		return value, true
+	}
+	if value, ok := e.hostMagicVars(host)[name]; ok {
+		return value, true
 	}
 
 	if contains(name, ".") {
@@ -3401,6 +3538,32 @@ func (e *Executor) lookupExprValue(name string, host string, task *Task) (any, b
 				if nested, ok := lookupNestedValue(val, path); ok {
 					return nested, true
 				}
+			}
+		}
+		if task != nil {
+			if val, ok := task.Vars[base]; ok {
+				if nested, ok := lookupNestedValue(val, path); ok {
+					return nested, true
+				}
+			}
+		}
+		if val, ok := e.vars[base]; ok {
+			if nested, ok := lookupNestedValue(val, path); ok {
+				return nested, true
+			}
+		}
+		if e.inventory != nil {
+			hostVars := GetHostVars(e.inventory, host)
+			if val, ok := hostVars[base]; ok {
+				if nested, ok := lookupNestedValue(val, path); ok {
+					return nested, true
+				}
+			}
+		}
+
+		if value, ok := e.lookupMagicScopeValue(base, host); ok {
+			if nested, ok := lookupNestedValue(value, path); ok {
+				return nested, true
 			}
 		}
 	}
@@ -3463,66 +3626,7 @@ func lookupNestedValue(value any, path string) (any, bool) {
 
 // applyFilter applies a Jinja2 filter.
 func (e *Executor) applyFilter(value, filter string) string {
-	filter = corexTrimSpace(filter)
-
-	// Handle default filter
-	if corexHasPrefix(filter, "default(") {
-		if value == "" || isUnresolvedTemplateValue(value) {
-			// Extract default value
-			re := regexp.MustCompile(`default\(([^)]*)\)`)
-			if match := re.FindStringSubmatch(filter); len(match) > 1 {
-				return trimCutset(match[1], "'\"")
-			}
-		}
-		return value
-	}
-
-	// Handle bool filter
-	if filter == "bool" {
-		lowered := lower(value)
-		if lowered == "true" || lowered == "yes" || lowered == "1" {
-			return "true"
-		}
-		return "false"
-	}
-
-	// Handle trim
-	if filter == "trim" {
-		return corexTrimSpace(value)
-	}
-
-	// Handle regex_replace
-	if corexHasPrefix(filter, "regex_replace(") {
-		pattern, replacement, ok := parseRegexReplaceFilter(filter)
-		if !ok {
-			return value
-		}
-
-		compiled, err := regexp.Compile(pattern)
-		if err != nil {
-			return value
-		}
-		return compiled.ReplaceAllString(value, replacement)
-	}
-
-	// Handle b64decode
-	if filter == "b64decode" {
-		decoded, err := base64.StdEncoding.DecodeString(value)
-		if err == nil {
-			return string(decoded)
-		}
-		if decoded, err := base64.RawStdEncoding.DecodeString(value); err == nil {
-			return string(decoded)
-		}
-		return value
-	}
-
-	// Handle b64encode
-	if filter == "b64encode" {
-		return base64.StdEncoding.EncodeToString([]byte(value))
-	}
-
-	return value
+	return templateStringify(e.applyFilterValue(value, filter))
 }
 
 func parseRegexReplaceFilter(filter string) (string, string, bool) {
@@ -4204,8 +4308,15 @@ func (e *Executor) runNotifiedHandlers(ctx context.Context, hosts []string, play
 		return nil
 	}
 
+	executed := make(map[string]bool)
 	for _, handler := range play.Handlers {
 		if handlerMatchesNotifications(&handler, pending) {
+			if handler.Name != "" {
+				if executed[handler.Name] {
+					continue
+				}
+				executed[handler.Name] = true
+			}
 			if err := e.runTaskOnHosts(ctx, hosts, &handler, play); err != nil {
 				return err
 			}

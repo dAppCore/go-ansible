@@ -726,6 +726,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"block": true, "rescue": true, "always": true, "notify": true, "listen": true,
 		"module_defaults": true,
 		"retries":         true, "delay": true, "until": true,
+		"async": true, "poll": true,
 		"action": true, "local_action": true,
 		"ansible.builtin.action": true, "ansible.legacy.action": true,
 		"ansible.builtin.local_action": true, "ansible.legacy.local_action": true,
@@ -1484,9 +1485,20 @@ func hasHost(group *InventoryGroup, name string) bool {
 //	hostVars := GetHostVars(inventory, "web1")
 func GetHostVars(inventory *Inventory, hostname string) map[string]any {
 	vars := make(map[string]any)
+	if inventory == nil {
+		return vars
+	}
 
 	// Collect vars from all levels
 	collectHostVars(inventory.All, hostname, vars)
+
+	if inventory != nil && len(inventory.HostVars) > 0 {
+		if hostVars, ok := inventory.HostVars[hostname]; ok {
+			for key, value := range hostVars {
+				vars[key] = value
+			}
+		}
+	}
 
 	return vars
 }

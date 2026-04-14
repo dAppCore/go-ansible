@@ -732,6 +732,37 @@ all:
 	assert.Equal(t, 2222, inv.All.Children["production"].Hosts["prod1"].AnsiblePort)
 }
 
+func TestParser_ParseInventory_Good_HostVars(t *testing.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "inventory.yml")
+
+	yaml := `---
+all:
+  hosts:
+    web1:
+      ansible_host: 192.168.1.10
+  vars:
+    env: prod
+host_vars:
+  web1:
+    env: staging
+    owner: ops
+`
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
+
+	p := NewParser(dir)
+	inv, err := p.ParseInventory(path)
+
+	require.NoError(t, err)
+	require.NotNil(t, inv.HostVars)
+	assert.Equal(t, "staging", inv.HostVars["web1"]["env"])
+
+	vars := GetHostVars(inv, "web1")
+	assert.Equal(t, "staging", vars["env"])
+	assert.Equal(t, "ops", vars["owner"])
+	assert.Equal(t, "192.168.1.10", vars["ansible_host"])
+}
+
 func TestParser_ParseInventory_Bad_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := joinPath(dir, "bad.yml")
@@ -766,6 +797,10 @@ func TestParser_ParseTasks_Good_TaskFile(t *testing.T) {
   copy:
     src: /tmp/a
     dest: /tmp/b
+- name: Async task
+  shell: sleep 5
+  async: 30
+  poll: 0
 `
 	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
 
@@ -773,11 +808,14 @@ func TestParser_ParseTasks_Good_TaskFile(t *testing.T) {
 	tasks, err := p.ParseTasks(path)
 
 	require.NoError(t, err)
-	require.Len(t, tasks, 2)
+	require.Len(t, tasks, 3)
 	assert.Equal(t, "shell", tasks[0].Module)
 	assert.Equal(t, "echo first", tasks[0].Args["_raw_params"])
 	assert.Equal(t, "copy", tasks[1].Module)
 	assert.Equal(t, "/tmp/a", tasks[1].Args["src"])
+	assert.Equal(t, "shell", tasks[2].Module)
+	assert.Equal(t, 30, tasks[2].Async)
+	assert.Equal(t, 0, tasks[2].Poll)
 }
 
 func TestParser_ParseTasks_Bad_InvalidYAML(t *testing.T) {
