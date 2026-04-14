@@ -112,6 +112,16 @@ func (r *RoleRef) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
+// Role represents a parsed role directory.
+type Role struct {
+	Name     string         `yaml:"name,omitempty"`
+	Path     string         `yaml:"path,omitempty"`
+	Tasks    []Task         `yaml:"tasks,omitempty"`
+	Defaults map[string]any `yaml:"defaults,omitempty"`
+	Vars     map[string]any `yaml:"vars,omitempty"`
+	Handlers []Task         `yaml:"handlers,omitempty"`
+}
+
 func directiveValue(fields map[string]any, name string) (any, bool) {
 	if fields == nil {
 		return nil, false

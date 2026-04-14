@@ -127,7 +127,7 @@ func (c *localClient) becomeStateLocked() (bool, string, string) {
 }
 
 func runLocalShell(ctx context.Context, command, password string) (stdout, stderr string, exitCode int, err error) {
-	cmd := exec.CommandContext(ctx, "bash", "-lc", command)
+	cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", "-lc", command)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf

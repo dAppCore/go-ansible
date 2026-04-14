@@ -159,6 +159,14 @@ func (e *Executor) SetVar(key string, value any) {
 	e.vars[key] = value
 }
 
+// SetMedium configures the storage medium used by the embedded parser.
+func (e *Executor) SetMedium(medium coreio.Medium) {
+	if e == nil || e.parser == nil {
+		return
+	}
+	e.parser.SetMedium(medium)
+}
+
 func (e *Executor) setHostVars(host string, values map[string]any) {
 	if host == "" || len(values) == 0 {
 		return
@@ -604,7 +612,7 @@ func (e *Executor) loadPlayVarsFiles(play *Play) error {
 	merged := make(map[string]any)
 	for _, file := range files {
 		resolved := e.resolveLocalPath(e.templateString(file, "", nil))
-		data, err := coreio.Local.Read(resolved)
+		data, err := e.parser.readFile(resolved)
 		if err != nil {
 			return coreerr.E("Executor.loadPlayVarsFiles", "read vars file", err)
 		}

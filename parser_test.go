@@ -792,6 +792,79 @@ func TestParser_ParseTasks_Bad_InvalidYAML(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestParser_ParseTasksFromDir_Good_MainFallback(t *testing.T) {
+	dir := t.TempDir()
+	taskDir := joinPath(dir, "tasks")
+	path := joinPath(taskDir, "main.yml")
+
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+	require.NoError(t, writeTestFile(path, []byte(`---
+- name: From dir
+  debug:
+    msg: "ok"
+`), 0o644))
+
+	p := NewParser(dir)
+	tasks, err := p.ParseTasksFromDir(taskDir)
+
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, "From dir", tasks[0].Name)
+	assert.Equal(t, "debug", tasks[0].Module)
+}
+
+func TestParser_ParseVarsFiles_Good_GlobMerge(t *testing.T) {
+	dir := t.TempDir()
+	varsDir := joinPath(dir, "vars")
+	require.NoError(t, os.MkdirAll(varsDir, 0o755))
+	require.NoError(t, writeTestFile(joinPath(varsDir, "01.yml"), []byte("a: 1\nb: one\n"), 0o644))
+	require.NoError(t, writeTestFile(joinPath(varsDir, "02.yml"), []byte("b: two\nc: 3\n"), 0o644))
+
+	p := NewParser(dir)
+	vars, err := p.ParseVarsFiles(joinPath(varsDir, "*.yml"))
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, vars["a"])
+	assert.Equal(t, "two", vars["b"])
+	assert.Equal(t, 3, vars["c"])
+}
+
+func TestParser_ParseRoles_Good_RoleDirectory(t *testing.T) {
+	dir := t.TempDir()
+	roleDir := joinPath(dir, "roles", "web")
+	require.NoError(t, os.MkdirAll(joinPath(roleDir, "tasks"), 0o755))
+	require.NoError(t, os.MkdirAll(joinPath(roleDir, "defaults"), 0o755))
+	require.NoError(t, os.MkdirAll(joinPath(roleDir, "vars"), 0o755))
+	require.NoError(t, os.MkdirAll(joinPath(roleDir, "handlers"), 0o755))
+	require.NoError(t, writeTestFile(joinPath(roleDir, "tasks", "main.yml"), []byte(`---
+- name: Role task
+  debug:
+    msg: "role"
+`), 0o644))
+	require.NoError(t, writeTestFile(joinPath(roleDir, "defaults", "main.yml"), []byte("role_default: true\n"), 0o644))
+	require.NoError(t, writeTestFile(joinPath(roleDir, "vars", "main.yml"), []byte("role_var: 42\n"), 0o644))
+	require.NoError(t, writeTestFile(joinPath(roleDir, "handlers", "main.yml"), []byte(`---
+- name: Role handler
+  debug:
+    msg: "handler"
+`), 0o644))
+
+	p := NewParser(dir)
+	roles, err := p.ParseRoles("roles")
+
+	require.NoError(t, err)
+	role, ok := roles["web"]
+	require.True(t, ok)
+	require.NotNil(t, role)
+	assert.Equal(t, "web", role.Name)
+	require.Len(t, role.Tasks, 1)
+	assert.Equal(t, "Role task", role.Tasks[0].Name)
+	assert.Equal(t, true, role.Defaults["role_default"])
+	assert.Equal(t, 42, role.Vars["role_var"])
+	require.Len(t, role.Handlers, 1)
+	assert.Equal(t, "Role handler", role.Handlers[0].Name)
+}
+
 func TestParser_ParseRole_Good_LoadsRoleVarsIntoParserContext(t *testing.T) {
 	dir := t.TempDir()
 
