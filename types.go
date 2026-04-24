@@ -3,7 +3,7 @@ package ansible
 import (
 	"time"
 
-	coreerr "dappco.re/go/core/log"
+	coreerr "dappco.re/go/log"
 	"gopkg.in/yaml.v3"
 )
 
