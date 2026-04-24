@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	dappco.re/go/core v0.8.0-alpha.1
-	dappco.re/go/io v0.2.0
-	dappco.re/go/log v0.1.0
+	dappco.re/go/io v0.8.0-alpha.1
+	dappco.re/go/log v0.8.0-alpha.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
