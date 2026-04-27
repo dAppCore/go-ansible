@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	coreio "dappco.re/go/io"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -732,6 +733,37 @@ all:
 	assert.Equal(t, 2222, inv.All.Children["production"].Hosts["prod1"].AnsiblePort)
 }
 
+func TestParser_ParseInventory_Good_HostVars(t *testing.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "inventory.yml")
+
+	yaml := `---
+all:
+  hosts:
+    web1:
+      ansible_host: 192.168.1.10
+  vars:
+    env: prod
+host_vars:
+  web1:
+    env: staging
+    owner: ops
+`
+	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
+
+	p := NewParser(dir)
+	inv, err := p.ParseInventory(path)
+
+	require.NoError(t, err)
+	require.NotNil(t, inv.HostVars)
+	assert.Equal(t, "staging", inv.HostVars["web1"]["env"])
+
+	vars := GetHostVars(inv, "web1")
+	assert.Equal(t, "staging", vars["env"])
+	assert.Equal(t, "ops", vars["owner"])
+	assert.Equal(t, "192.168.1.10", vars["ansible_host"])
+}
+
 func TestParser_ParseInventory_Bad_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := joinPath(dir, "bad.yml")
@@ -766,6 +798,10 @@ func TestParser_ParseTasks_Good_TaskFile(t *testing.T) {
   copy:
     src: /tmp/a
     dest: /tmp/b
+- name: Async task
+  shell: sleep 5
+  async: 30
+  poll: 0
 `
 	require.NoError(t, writeTestFile(path, []byte(yaml), 0644))
 
@@ -773,11 +809,14 @@ func TestParser_ParseTasks_Good_TaskFile(t *testing.T) {
 	tasks, err := p.ParseTasks(path)
 
 	require.NoError(t, err)
-	require.Len(t, tasks, 2)
+	require.Len(t, tasks, 3)
 	assert.Equal(t, "shell", tasks[0].Module)
 	assert.Equal(t, "echo first", tasks[0].Args["_raw_params"])
 	assert.Equal(t, "copy", tasks[1].Module)
 	assert.Equal(t, "/tmp/a", tasks[1].Args["src"])
+	assert.Equal(t, "shell", tasks[2].Module)
+	assert.Equal(t, 30, tasks[2].Async)
+	assert.Equal(t, 0, tasks[2].Poll)
 }
 
 func TestParser_ParseTasks_Bad_InvalidYAML(t *testing.T) {
@@ -790,6 +829,92 @@ func TestParser_ParseTasks_Bad_InvalidYAML(t *testing.T) {
 	_, err := p.ParseTasks(path)
 
 	assert.Error(t, err)
+}
+
+func TestParser_ParseTasksFromDir_Good_MainFallback(t *testing.T) {
+	dir := t.TempDir()
+	taskDir := joinPath(dir, "tasks")
+	path := joinPath(taskDir, "main.yml")
+
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+	require.NoError(t, writeTestFile(path, []byte(`---
+- name: From dir
+  debug:
+    msg: "ok"
+`), 0o644))
+
+	p := NewParser(dir)
+	tasks, err := p.ParseTasksFromDir(taskDir)
+
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, "From dir", tasks[0].Name)
+	assert.Equal(t, "debug", tasks[0].Module)
+}
+
+func TestParser_ParseVarsFiles_Good_GlobMerge(t *testing.T) {
+	dir := t.TempDir()
+	varsDir := joinPath(dir, "vars")
+	require.NoError(t, os.MkdirAll(varsDir, 0o755))
+	require.NoError(t, writeTestFile(joinPath(varsDir, "01.yml"), []byte("a: 1\nb: one\n"), 0o644))
+	require.NoError(t, writeTestFile(joinPath(varsDir, "02.yml"), []byte("b: two\nc: 3\n"), 0o644))
+
+	p := NewParser(dir)
+	vars, err := p.ParseVarsFiles(joinPath(varsDir, "*.yml"))
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, vars["a"])
+	assert.Equal(t, "two", vars["b"])
+	assert.Equal(t, 3, vars["c"])
+}
+
+func TestParser_ParseVarsFiles_Bad_WildcardWithNonLocalMedium(t *testing.T) {
+	medium := coreio.NewMemoryMedium()
+	require.NoError(t, medium.EnsureDir("vars"))
+	require.NoError(t, medium.Write("vars/01.yml", "a: 1\n"))
+
+	p := NewParser("")
+	p.SetMedium(medium)
+	_, err := p.ParseVarsFiles("vars/*.yml")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "wildcard patterns require")
+}
+
+func TestParser_ParseRoles_Good_RoleDirectory(t *testing.T) {
+	dir := t.TempDir()
+	roleDir := joinPath(dir, "roles", "web")
+	require.NoError(t, os.MkdirAll(joinPath(roleDir, "tasks"), 0o755))
+	require.NoError(t, os.MkdirAll(joinPath(roleDir, "defaults"), 0o755))
+	require.NoError(t, os.MkdirAll(joinPath(roleDir, "vars"), 0o755))
+	require.NoError(t, os.MkdirAll(joinPath(roleDir, "handlers"), 0o755))
+	require.NoError(t, writeTestFile(joinPath(roleDir, "tasks", "main.yml"), []byte(`---
+- name: Role task
+  debug:
+    msg: "role"
+`), 0o644))
+	require.NoError(t, writeTestFile(joinPath(roleDir, "defaults", "main.yml"), []byte("role_default: true\n"), 0o644))
+	require.NoError(t, writeTestFile(joinPath(roleDir, "vars", "main.yml"), []byte("role_var: 42\n"), 0o644))
+	require.NoError(t, writeTestFile(joinPath(roleDir, "handlers", "main.yml"), []byte(`---
+- name: Role handler
+  debug:
+    msg: "handler"
+`), 0o644))
+
+	p := NewParser(dir)
+	roles, err := p.ParseRoles("roles")
+
+	require.NoError(t, err)
+	role, ok := roles["web"]
+	require.True(t, ok)
+	require.NotNil(t, role)
+	assert.Equal(t, "web", role.Name)
+	require.Len(t, role.Tasks, 1)
+	assert.Equal(t, "Role task", role.Tasks[0].Name)
+	assert.Equal(t, true, role.Defaults["role_default"])
+	assert.Equal(t, 42, role.Vars["role_var"])
+	require.Len(t, role.Handlers, 1)
+	assert.Equal(t, "Role handler", role.Handlers[0].Name)
 }
 
 func TestParser_ParseRole_Good_LoadsRoleVarsIntoParserContext(t *testing.T) {

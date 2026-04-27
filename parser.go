@@ -1,13 +1,18 @@
 package ansible
 
 import (
+	"io/fs"
 	"iter"
 	"maps"
+	"path/filepath"
+	"reflect"
 	"slices"
+	"sort"
 	"strings"
+	"sync"
 
-	coreio "dappco.re/go/core/io"
-	coreerr "dappco.re/go/core/log"
+	coreio "dappco.re/go/io"
+	coreerr "dappco.re/go/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,6 +23,8 @@ import (
 //	parser := NewParser("/workspace/playbooks")
 type Parser struct {
 	basePath string
+	mediumMu sync.RWMutex
+	medium   coreio.Medium
 	vars     map[string]any
 }
 
@@ -31,6 +38,20 @@ func NewParser(basePath string) *Parser {
 		basePath: basePath,
 		vars:     make(map[string]any),
 	}
+}
+
+// SetMedium configures the storage medium used for reading parser inputs.
+//
+// Example:
+//
+//	parser.SetMedium(io.Local)
+func (p *Parser) SetMedium(medium coreio.Medium) {
+	if p == nil {
+		return
+	}
+	p.mediumMu.Lock()
+	defer p.mediumMu.Unlock()
+	p.medium = medium
 }
 
 // ParsePlaybook parses an Ansible playbook file.
@@ -66,7 +87,7 @@ func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error
 	seen[cleanedPath] = true
 	defer delete(seen, cleanedPath)
 
-	data, err := coreio.Local.Read(path)
+	data, err := p.readFile(path)
 	if err != nil {
 		return nil, coreerr.E("Parser.ParsePlaybook", "read playbook", err)
 	}
@@ -154,7 +175,7 @@ func (p *Parser) ParsePlaybookIter(path string) (iter.Seq[Play], error) {
 func (p *Parser) ParseInventory(path string) (*Inventory, error) {
 	path = p.resolveInventoryPath(path)
 
-	data, err := coreio.Local.Read(path)
+	data, err := p.readFile(path)
 	if err != nil {
 		return nil, coreerr.E("Parser.ParseInventory", "read inventory", err)
 	}
@@ -170,13 +191,13 @@ func (p *Parser) ParseInventory(path string) (*Inventory, error) {
 // resolveInventoryPath resolves inventory directories to a concrete file.
 func (p *Parser) resolveInventoryPath(path string) string {
 	path = p.resolvePath(path)
-	if path == "" || !coreio.Local.Exists(path) || !coreio.Local.IsDir(path) {
+	if path == "" || !p.exists(path) || !p.isDir(path) {
 		return path
 	}
 
 	for _, name := range []string{"inventory.yml", "hosts.yml", "inventory.yaml", "hosts.yaml"} {
 		candidate := joinPath(path, name)
-		if coreio.Local.Exists(candidate) {
+		if p.exists(candidate) {
 			return candidate
 		}
 	}
@@ -192,7 +213,7 @@ func (p *Parser) resolveInventoryPath(path string) string {
 func (p *Parser) ParseTasks(path string) ([]Task, error) {
 	path = p.resolvePath(path)
 
-	data, err := coreio.Local.Read(path)
+	data, err := p.readFile(path)
 	if err != nil {
 		return nil, coreerr.E("Parser.ParseTasks", "read tasks", err)
 	}
@@ -211,6 +232,113 @@ func (p *Parser) ParseTasks(path string) ([]Task, error) {
 	return tasks, nil
 }
 
+// ParseTasksFromDir loads tasks from a directory, falling back to main.yml.
+//
+// Example:
+//
+//	tasks, err := parser.ParseTasksFromDir("/workspace/roles/web/tasks")
+func (p *Parser) ParseTasksFromDir(dir string) ([]Task, error) {
+	dir = p.resolvePath(dir)
+	if dir == "" {
+		return nil, coreerr.E("Parser.ParseTasksFromDir", "directory required", nil)
+	}
+
+	if !p.exists(dir) {
+		return nil, coreerr.E("Parser.ParseTasksFromDir", "tasks directory not found", nil)
+	}
+
+	if !p.isDir(dir) {
+		return p.ParseTasks(dir)
+	}
+
+	for _, name := range []string{"main.yml", "main.yaml", "tasks.yml", "tasks.yaml"} {
+		candidate := joinPath(dir, name)
+		if p.exists(candidate) {
+			return p.ParseTasks(candidate)
+		}
+	}
+
+	return nil, coreerr.E("Parser.ParseTasksFromDir", "no task file found in directory", nil)
+}
+
+// ParseVarsFiles loads and merges vars from one or more files.
+//
+// Example:
+//
+//	vars, err := parser.ParseVarsFiles("/workspace/group_vars/*.yml")
+func (p *Parser) ParseVarsFiles(pattern string) (map[string]any, error) {
+	pattern = p.resolvePath(pattern)
+	if pattern == "" {
+		return nil, nil
+	}
+
+	matches, err := p.expandFilePattern(pattern)
+	if err != nil {
+		return nil, err
+	}
+	if len(matches) == 0 {
+		if !strings.ContainsAny(pattern, "*?[") {
+			matches = []string{pattern}
+		} else {
+			return nil, coreerr.E("Parser.ParseVarsFiles", "no vars files matched pattern", nil)
+		}
+	}
+
+	merged := make(map[string]any)
+	for _, file := range matches {
+		data, err := p.readFile(file)
+		if err != nil {
+			return nil, coreerr.E("Parser.ParseVarsFiles", "read vars file", err)
+		}
+
+		var vars map[string]any
+		if err := yaml.Unmarshal([]byte(data), &vars); err != nil {
+			return nil, coreerr.E("Parser.ParseVarsFiles", "parse vars file", err)
+		}
+		mergeVars(merged, vars, false)
+	}
+
+	return merged, nil
+}
+
+// ParseRoles loads role definitions from a roles directory.
+//
+// Example:
+//
+//	roles, err := parser.ParseRoles("/workspace/roles")
+func (p *Parser) ParseRoles(roleDir string) (map[string]*Role, error) {
+	roleDir = p.resolvePath(roleDir)
+	if roleDir == "" || !p.exists(roleDir) || !p.isDir(roleDir) {
+		return nil, coreerr.E("Parser.ParseRoles", "role directory not found", nil)
+	}
+
+	entries, err := p.listDir(roleDir)
+	if err != nil {
+		return nil, coreerr.E("Parser.ParseRoles", "list role directory", err)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+
+	roles := make(map[string]*Role, len(names))
+	for _, name := range names {
+		role, err := p.parseRoleAtPath(joinPath(roleDir, name), name)
+		if err != nil {
+			return nil, err
+		}
+		if role != nil {
+			roles[name] = role
+		}
+	}
+
+	return roles, nil
+}
+
 // resolvePath resolves a possibly relative path against the parser base path.
 func (p *Parser) resolvePath(path string) string {
 	if path == "" || pathIsAbs(path) || p.basePath == "" {
@@ -222,12 +350,127 @@ func (p *Parser) resolvePath(path string) string {
 		path,
 	}
 	for _, candidate := range candidates {
-		if coreio.Local.Exists(candidate) {
+		if p.exists(candidate) {
 			return candidate
 		}
 	}
 
 	return joinPath(p.basePath, path)
+}
+
+// mediumOrLocal returns the configured storage medium or the OS filesystem.
+func (p *Parser) mediumOrLocal() coreio.Medium {
+	if medium := p.configuredMedium(); medium != nil {
+		return medium
+	}
+	return coreio.Local
+}
+
+// configuredMedium returns the parser medium under read lock.
+func (p *Parser) configuredMedium() coreio.Medium {
+	if p == nil {
+		return nil
+	}
+	p.mediumMu.RLock()
+	defer p.mediumMu.RUnlock()
+	return p.medium
+}
+
+// readFile reads a file through the configured medium.
+func (p *Parser) readFile(path string) (string, error) {
+	medium := p.mediumOrLocal()
+	if medium == nil {
+		return "", coreerr.E("Parser.readFile", "no storage medium configured", nil)
+	}
+	return coreio.Read(medium, path)
+}
+
+// exists checks for a path through the configured medium.
+func (p *Parser) exists(path string) bool {
+	medium := p.mediumOrLocal()
+	if medium == nil {
+		return false
+	}
+	return medium.Exists(path)
+}
+
+// isDir reports whether a path is a directory in the configured medium.
+func (p *Parser) isDir(path string) bool {
+	medium := p.mediumOrLocal()
+	if medium == nil {
+		return false
+	}
+	return medium.IsDir(path)
+}
+
+// listDir lists directory entries through the configured medium.
+func (p *Parser) listDir(path string) ([]fs.DirEntry, error) {
+	medium := p.mediumOrLocal()
+	if medium == nil {
+		return nil, coreerr.E("Parser.listDir", "no storage medium configured", nil)
+	}
+
+	entries, err := medium.List(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
+// expandFilePattern expands wildcard paths that can be safely resolved locally.
+func (p *Parser) expandFilePattern(pattern string) ([]string, error) {
+	if !strings.ContainsAny(pattern, "*?[") {
+		return []string{pattern}, nil
+	}
+
+	if medium := p.configuredMedium(); medium != nil && !isDefaultLocalMedium(medium) {
+		return nil, coreerr.E("Parser.expandFilePattern", "wildcard patterns require the local filesystem medium", nil)
+	}
+
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, coreerr.E("Parser.expandFilePattern", "expand pattern", err)
+	}
+	sort.Strings(matches)
+	return matches, nil
+}
+
+// isDefaultLocalMedium reports whether a medium is the package-level local medium.
+func isDefaultLocalMedium(medium coreio.Medium) bool {
+	if medium == nil || coreio.Local == nil {
+		return medium == nil && coreio.Local == nil
+	}
+
+	mediumValue := reflect.ValueOf(medium)
+	localValue := reflect.ValueOf(coreio.Local)
+	if !mediumValue.IsValid() || !localValue.IsValid() || mediumValue.Type() != localValue.Type() {
+		return false
+	}
+	if mediumValue.Kind() != reflect.Pointer {
+		return false
+	}
+	if mediumValue.IsNil() || localValue.IsNil() {
+		return mediumValue.IsNil() && localValue.IsNil()
+	}
+	return mediumValue.Pointer() == localValue.Pointer()
+}
+
+// parseRoleAtPath loads a role from a concrete role directory.
+func (p *Parser) parseRoleAtPath(rolePath, roleName string) (*Role, error) {
+	tasks, defaults, roleVars, handlers, err := p.loadRoleDataFromPath(rolePath, "main.yml", "main.yml", "main.yml", "main.yml")
+	if err != nil {
+		return nil, err
+	}
+
+	return &Role{
+		Name:     roleName,
+		Path:     rolePath,
+		Tasks:    tasks,
+		Defaults: defaults,
+		Vars:     roleVars,
+		Handlers: handlers,
+	}, nil
 }
 
 // templatePath renders a path-like string against the parser's variable scope.
@@ -305,7 +548,7 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 	defaults := make(map[string]any)
 	// Load role defaults
 	defaultsPath := joinPath(pathDir(pathDir(tasksPath)), "defaults", defaultsFrom)
-	if data, err := coreio.Local.Read(defaultsPath); err == nil {
+	if data, err := p.readFile(defaultsPath); err == nil {
 		if yaml.Unmarshal([]byte(data), &defaults) != nil {
 			defaults = make(map[string]any)
 		}
@@ -314,7 +557,7 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 	roleVars := make(map[string]any)
 	// Load role vars
 	varsPath := joinPath(pathDir(pathDir(tasksPath)), "vars", varsFrom)
-	if data, err := coreio.Local.Read(varsPath); err == nil {
+	if data, err := p.readFile(varsPath); err == nil {
 		if yaml.Unmarshal([]byte(data), &roleVars) != nil {
 			roleVars = make(map[string]any)
 		}
@@ -328,6 +571,57 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 	return tasks, defaults, roleVars, tasksPath, nil
 }
 
+// loadRoleDataFromPath loads role files from a concrete directory path.
+func (p *Parser) loadRoleDataFromPath(rolePath string, tasksFrom string, defaultsFrom string, varsFrom string, handlersFrom string) ([]Task, map[string]any, map[string]any, []Task, error) {
+	if rolePath == "" {
+		return nil, nil, nil, nil, coreerr.E("Parser.ParseRoles", "role path required", nil)
+	}
+
+	if tasksFrom == "" {
+		tasksFrom = "main.yml"
+	}
+	if defaultsFrom == "" {
+		defaultsFrom = "main.yml"
+	}
+	if varsFrom == "" {
+		varsFrom = "main.yml"
+	}
+
+	tasks := make([]Task, 0)
+	var err error
+	taskPath := joinPath(rolePath, "tasks", tasksFrom)
+	if !p.exists(taskPath) {
+		taskPath = joinPath(rolePath, "tasks")
+	}
+	if p.exists(taskPath) {
+		if p.isDir(taskPath) {
+			tasks, err = p.ParseTasksFromDir(taskPath)
+		} else {
+			tasks, err = p.ParseTasks(taskPath)
+		}
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+	}
+
+	defaults := make(map[string]any)
+	if data, err := p.readFile(joinPath(rolePath, "defaults", defaultsFrom)); err == nil {
+		_ = yaml.Unmarshal([]byte(data), &defaults)
+	}
+
+	roleVars := make(map[string]any)
+	if data, err := p.readFile(joinPath(rolePath, "vars", varsFrom)); err == nil {
+		_ = yaml.Unmarshal([]byte(data), &roleVars)
+	}
+
+	handlers, err := p.loadRoleHandlersFromPath(rolePath, handlersFrom)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	return tasks, defaults, roleVars, handlers, nil
+}
+
 func (p *Parser) loadRoleHandlers(name string, handlersFrom string) ([]Task, error) {
 	if handlersFrom == "" {
 		handlersFrom = "main.yml"
@@ -338,7 +632,7 @@ func (p *Parser) loadRoleHandlers(name string, handlersFrom string) ([]Task, err
 		return nil, nil
 	}
 
-	data, err := coreio.Local.Read(handlersPath)
+	data, err := p.readFile(handlersPath)
 	if err != nil {
 		return nil, coreerr.E("Parser.loadRoleHandlers", "read role handlers", err)
 	}
@@ -354,6 +648,31 @@ func (p *Parser) loadRoleHandlers(name string, handlersFrom string) ([]Task, err
 		}
 	}
 
+	return handlers, nil
+}
+
+// loadRoleHandlersFromPath loads handler tasks from a concrete role directory.
+func (p *Parser) loadRoleHandlersFromPath(rolePath string, handlersFrom string) ([]Task, error) {
+	if handlersFrom == "" {
+		handlersFrom = "main.yml"
+	}
+	handlersPath := joinPath(rolePath, "handlers", handlersFrom)
+	if !p.exists(handlersPath) {
+		return nil, nil
+	}
+	data, err := p.readFile(handlersPath)
+	if err != nil {
+		return nil, coreerr.E("Parser.loadRoleHandlersFromPath", "read role handlers", err)
+	}
+	var handlers []Task
+	if err := yaml.Unmarshal([]byte(data), &handlers); err != nil {
+		return nil, coreerr.E("Parser.loadRoleHandlersFromPath", "parse role handlers", err)
+	}
+	for i := range handlers {
+		if err := p.extractModule(&handlers[i]); err != nil {
+			return nil, coreerr.E("Parser.loadRoleHandlersFromPath", sprintf("handler %d", i), err)
+		}
+	}
 	return handlers, nil
 }
 
@@ -470,6 +789,7 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 		"block": true, "rescue": true, "always": true, "notify": true, "listen": true,
 		"module_defaults": true,
 		"retries":         true, "delay": true, "until": true,
+		"async": true, "poll": true,
 		"action": true, "local_action": true,
 		"ansible.builtin.action": true, "ansible.legacy.action": true,
 		"ansible.builtin.local_action": true, "ansible.legacy.local_action": true,
@@ -1228,9 +1548,20 @@ func hasHost(group *InventoryGroup, name string) bool {
 //	hostVars := GetHostVars(inventory, "web1")
 func GetHostVars(inventory *Inventory, hostname string) map[string]any {
 	vars := make(map[string]any)
+	if inventory == nil {
+		return vars
+	}
 
 	// Collect vars from all levels
 	collectHostVars(inventory.All, hostname, vars)
+
+	if inventory != nil && len(inventory.HostVars) > 0 {
+		if hostVars, ok := inventory.HostVars[hostname]; ok {
+			for key, value := range hostVars {
+				vars[key] = value
+			}
+		}
+	}
 
 	return vars
 }
