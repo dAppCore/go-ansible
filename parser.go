@@ -5,9 +5,11 @@ import (
 	"iter"
 	"maps"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
@@ -21,6 +23,7 @@ import (
 //	parser := NewParser("/workspace/playbooks")
 type Parser struct {
 	basePath string
+	mediumMu sync.RWMutex
 	medium   coreio.Medium
 	vars     map[string]any
 }
@@ -43,6 +46,11 @@ func NewParser(basePath string) *Parser {
 //
 //	parser.SetMedium(io.Local)
 func (p *Parser) SetMedium(medium coreio.Medium) {
+	if p == nil {
+		return
+	}
+	p.mediumMu.Lock()
+	defer p.mediumMu.Unlock()
 	p.medium = medium
 }
 
@@ -225,6 +233,10 @@ func (p *Parser) ParseTasks(path string) ([]Task, error) {
 }
 
 // ParseTasksFromDir loads tasks from a directory, falling back to main.yml.
+//
+// Example:
+//
+//	tasks, err := parser.ParseTasksFromDir("/workspace/roles/web/tasks")
 func (p *Parser) ParseTasksFromDir(dir string) ([]Task, error) {
 	dir = p.resolvePath(dir)
 	if dir == "" {
@@ -250,6 +262,10 @@ func (p *Parser) ParseTasksFromDir(dir string) ([]Task, error) {
 }
 
 // ParseVarsFiles loads and merges vars from one or more files.
+//
+// Example:
+//
+//	vars, err := parser.ParseVarsFiles("/workspace/group_vars/*.yml")
 func (p *Parser) ParseVarsFiles(pattern string) (map[string]any, error) {
 	pattern = p.resolvePath(pattern)
 	if pattern == "" {
@@ -286,6 +302,10 @@ func (p *Parser) ParseVarsFiles(pattern string) (map[string]any, error) {
 }
 
 // ParseRoles loads role definitions from a roles directory.
+//
+// Example:
+//
+//	roles, err := parser.ParseRoles("/workspace/roles")
 func (p *Parser) ParseRoles(roleDir string) (map[string]*Role, error) {
 	roleDir = p.resolvePath(roleDir)
 	if roleDir == "" || !p.exists(roleDir) || !p.isDir(roleDir) {
@@ -338,13 +358,25 @@ func (p *Parser) resolvePath(path string) string {
 	return joinPath(p.basePath, path)
 }
 
+// mediumOrLocal returns the configured storage medium or the OS filesystem.
 func (p *Parser) mediumOrLocal() coreio.Medium {
-	if p != nil && p.medium != nil {
-		return p.medium
+	if medium := p.configuredMedium(); medium != nil {
+		return medium
 	}
 	return coreio.Local
 }
 
+// configuredMedium returns the parser medium under read lock.
+func (p *Parser) configuredMedium() coreio.Medium {
+	if p == nil {
+		return nil
+	}
+	p.mediumMu.RLock()
+	defer p.mediumMu.RUnlock()
+	return p.medium
+}
+
+// readFile reads a file through the configured medium.
 func (p *Parser) readFile(path string) (string, error) {
 	medium := p.mediumOrLocal()
 	if medium == nil {
@@ -353,6 +385,7 @@ func (p *Parser) readFile(path string) (string, error) {
 	return coreio.Read(medium, path)
 }
 
+// exists checks for a path through the configured medium.
 func (p *Parser) exists(path string) bool {
 	medium := p.mediumOrLocal()
 	if medium == nil {
@@ -361,6 +394,7 @@ func (p *Parser) exists(path string) bool {
 	return medium.Exists(path)
 }
 
+// isDir reports whether a path is a directory in the configured medium.
 func (p *Parser) isDir(path string) bool {
 	medium := p.mediumOrLocal()
 	if medium == nil {
@@ -369,6 +403,7 @@ func (p *Parser) isDir(path string) bool {
 	return medium.IsDir(path)
 }
 
+// listDir lists directory entries through the configured medium.
 func (p *Parser) listDir(path string) ([]fs.DirEntry, error) {
 	medium := p.mediumOrLocal()
 	if medium == nil {
@@ -383,9 +418,14 @@ func (p *Parser) listDir(path string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
+// expandFilePattern expands wildcard paths that can be safely resolved locally.
 func (p *Parser) expandFilePattern(pattern string) ([]string, error) {
 	if !strings.ContainsAny(pattern, "*?[") {
 		return []string{pattern}, nil
+	}
+
+	if medium := p.configuredMedium(); medium != nil && !isDefaultLocalMedium(medium) {
+		return nil, coreerr.E("Parser.expandFilePattern", "wildcard patterns require the local filesystem medium", nil)
 	}
 
 	matches, err := filepath.Glob(pattern)
@@ -396,6 +436,27 @@ func (p *Parser) expandFilePattern(pattern string) ([]string, error) {
 	return matches, nil
 }
 
+// isDefaultLocalMedium reports whether a medium is the package-level local medium.
+func isDefaultLocalMedium(medium coreio.Medium) bool {
+	if medium == nil || coreio.Local == nil {
+		return medium == nil && coreio.Local == nil
+	}
+
+	mediumValue := reflect.ValueOf(medium)
+	localValue := reflect.ValueOf(coreio.Local)
+	if !mediumValue.IsValid() || !localValue.IsValid() || mediumValue.Type() != localValue.Type() {
+		return false
+	}
+	if mediumValue.Kind() != reflect.Pointer {
+		return false
+	}
+	if mediumValue.IsNil() || localValue.IsNil() {
+		return mediumValue.IsNil() && localValue.IsNil()
+	}
+	return mediumValue.Pointer() == localValue.Pointer()
+}
+
+// parseRoleAtPath loads a role from a concrete role directory.
 func (p *Parser) parseRoleAtPath(rolePath, roleName string) (*Role, error) {
 	tasks, defaults, roleVars, handlers, err := p.loadRoleDataFromPath(rolePath, "main.yml", "main.yml", "main.yml", "main.yml")
 	if err != nil {
@@ -510,6 +571,7 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 	return tasks, defaults, roleVars, tasksPath, nil
 }
 
+// loadRoleDataFromPath loads role files from a concrete directory path.
 func (p *Parser) loadRoleDataFromPath(rolePath string, tasksFrom string, defaultsFrom string, varsFrom string, handlersFrom string) ([]Task, map[string]any, map[string]any, []Task, error) {
 	if rolePath == "" {
 		return nil, nil, nil, nil, coreerr.E("Parser.ParseRoles", "role path required", nil)
@@ -589,6 +651,7 @@ func (p *Parser) loadRoleHandlers(name string, handlersFrom string) ([]Task, err
 	return handlers, nil
 }
 
+// loadRoleHandlersFromPath loads handler tasks from a concrete role directory.
 func (p *Parser) loadRoleHandlersFromPath(rolePath string, handlersFrom string) ([]Task, error) {
 	if handlersFrom == "" {
 		handlersFrom = "main.yml"

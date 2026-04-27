@@ -159,6 +159,10 @@ func (e *Executor) SetVar(key string, value any) {
 }
 
 // SetMedium configures the storage medium used by the embedded parser.
+//
+// Example:
+//
+//	executor.SetMedium(coreio.Local)
 func (e *Executor) SetMedium(medium coreio.Medium) {
 	if e == nil || e.parser == nil {
 		return
@@ -2859,6 +2863,7 @@ func isConditionBoundary(ch byte) bool {
 	}
 }
 
+// evalBinaryCondition evaluates recognised binary when-expression operators.
 func (e *Executor) evalBinaryCondition(cond string, host string, task *Task, locals map[string]any) (bool, bool) {
 	ops := []string{"not in", "contains", "<=", ">=", "==", "!=", "<", ">", "in"}
 	for _, op := range ops {
@@ -2870,7 +2875,7 @@ func (e *Executor) evalBinaryCondition(cond string, host string, task *Task, loc
 		leftValue, leftOK := e.resolveConditionOperandValue(left, host, task, locals)
 		rightValue, rightOK := e.resolveConditionOperandValue(right, host, task, locals)
 		if !leftOK || !rightOK {
-			return true, true
+			return false, true
 		}
 
 		switch op {
@@ -2898,11 +2903,13 @@ func (e *Executor) evalBinaryCondition(cond string, host string, task *Task, loc
 	return false, false
 }
 
+// splitBinaryCondition splits a condition around an operator outside quotes.
 func splitBinaryCondition(cond, op string) (string, string, bool) {
 	depth := 0
 	inSingle := false
 	inDouble := false
 	escaped := false
+	wordOp := isWordConditionOperator(op)
 
 	for i := 0; i <= len(cond)-len(op); i++ {
 		ch := cond[i]
@@ -2940,12 +2947,14 @@ func splitBinaryCondition(cond, op string) (string, string, bool) {
 			continue
 		}
 
-		if i > 0 && !isConditionBoundary(cond[i-1]) {
-			continue
-		}
 		end := i + len(op)
-		if end < len(cond) && !isConditionBoundary(cond[end]) {
-			continue
+		if wordOp {
+			if i > 0 && !isConditionBoundary(cond[i-1]) {
+				continue
+			}
+			if end < len(cond) && !isConditionBoundary(cond[end]) {
+				continue
+			}
 		}
 
 		left := corexTrimSpace(cond[:i])
@@ -2959,6 +2968,18 @@ func splitBinaryCondition(cond, op string) (string, string, bool) {
 	return "", "", false
 }
 
+// isWordConditionOperator reports whether an operator needs token boundaries.
+func isWordConditionOperator(op string) bool {
+	for i := 0; i < len(op); i++ {
+		ch := op[i]
+		if ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveConditionOperandValue resolves a condition operand to a native value.
 func (e *Executor) resolveConditionOperandValue(expr string, host string, task *Task, locals map[string]any) (any, bool) {
 	expr = corexTrimSpace(expr)
 	if expr == "" {
@@ -2992,6 +3013,7 @@ func (e *Executor) resolveConditionOperandValue(expr string, host string, task *
 	return expr, false
 }
 
+// templateConditionEqual compares condition operands using numeric coercion first.
 func templateConditionEqual(left, right any) bool {
 	if leftFloat, leftOK := templateFloat(left); leftOK {
 		if rightFloat, rightOK := templateFloat(right); rightOK {
@@ -3002,6 +3024,7 @@ func templateConditionEqual(left, right any) bool {
 	return reflect.DeepEqual(left, right) || templateStringify(left) == templateStringify(right)
 }
 
+// templateConditionCompare orders condition operands numerically or lexically.
 func templateConditionCompare(left, right any) int {
 	if leftFloat, leftOK := templateFloat(left); leftOK {
 		if rightFloat, rightOK := templateFloat(right); rightOK {
@@ -3028,6 +3051,7 @@ func templateConditionCompare(left, right any) int {
 	}
 }
 
+// templateConditionContains implements Ansible-style membership checks.
 func templateConditionContains(container, item any) bool {
 	if container == nil {
 		return false

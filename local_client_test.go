@@ -94,3 +94,19 @@ func TestLocalClient_Good_SetBecomeResetsStateWhenDisabled(t *testing.T) {
 	assert.Empty(t, user)
 	assert.Empty(t, password)
 }
+
+func TestAsyncClone_Good_DoesNotShareLocalClientState(t *testing.T) {
+	client := newLocalClient()
+	client.SetBecome(true, "admin", "secret")
+
+	cloned := cloneClientMap(map[string]sshExecutorClient{"host1": client})
+
+	clonedClient, ok := cloned["host1"].(*localClient)
+	require.True(t, ok)
+	assert.NotSame(t, client, clonedClient)
+
+	become, user, password := clonedClient.BecomeState()
+	assert.False(t, become)
+	assert.Empty(t, user)
+	assert.Empty(t, password)
+}

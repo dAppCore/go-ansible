@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	coreio "dappco.re/go/io"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -865,6 +866,19 @@ func TestParser_ParseVarsFiles_Good_GlobMerge(t *testing.T) {
 	assert.Equal(t, 1, vars["a"])
 	assert.Equal(t, "two", vars["b"])
 	assert.Equal(t, 3, vars["c"])
+}
+
+func TestParser_ParseVarsFiles_Bad_WildcardWithNonLocalMedium(t *testing.T) {
+	medium := coreio.NewMemoryMedium()
+	require.NoError(t, medium.EnsureDir("vars"))
+	require.NoError(t, medium.Write("vars/01.yml", "a: 1\n"))
+
+	p := NewParser("")
+	p.SetMedium(medium)
+	_, err := p.ParseVarsFiles("vars/*.yml")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "wildcard patterns require")
 }
 
 func TestParser_ParseRoles_Good_RoleDirectory(t *testing.T) {

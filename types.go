@@ -364,6 +364,7 @@ func mergeInventoryGroups(dst, src *InventoryGroup) {
 	}
 }
 
+// decodeInventoryHostVarsValue normalises top-level host_vars into host maps.
 func decodeInventoryHostVarsValue(value any) (map[string]map[string]any, error) {
 	if value == nil {
 		return nil, nil

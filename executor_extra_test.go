@@ -1724,6 +1724,19 @@ func TestExecutorExtra_ResolveExpr_Good_RegisteredVarFields(t *testing.T) {
 	assert.Equal(t, "false", e.resolveExpr("cmd_result.failed", "host1", nil))
 }
 
+func TestExecutorExtra_ResolveExpr_Good_BareRegisteredVar(t *testing.T) {
+	e := NewExecutor("/tmp")
+	result := &TaskResult{Stdout: "output text", RC: 0, Changed: true}
+	e.results["host1"] = map[string]*TaskResult{
+		"cmd_result": result,
+	}
+
+	value, ok := e.resolveExprValue("cmd_result", "host1", nil)
+
+	require.True(t, ok)
+	assert.Same(t, result, value)
+}
+
 func TestExecutorExtra_ResolveExpr_Good_TaskVars(t *testing.T) {
 	e := NewExecutor("/tmp")
 	task := &Task{
@@ -1805,11 +1818,14 @@ func TestExecutorExtra_EvalCondition_Good_BinaryOperators(t *testing.T) {
 
 	assert.True(t, e.evalCondition("count < limit", "host1"))
 	assert.True(t, e.evalCondition("count <= 2", "host1"))
+	assert.True(t, e.evalCondition("count<=2", "host1"))
+	assert.True(t, e.evalCondition("count!=limit", "host1"))
 	assert.True(t, e.evalCondition("limit >= count", "host1"))
 	assert.True(t, e.evalCondition("'web' in roles", "host1"))
 	assert.True(t, e.evalCondition("roles contains 'api'", "host1"))
 	assert.True(t, e.evalCondition("'db' not in roles", "host1"))
 	assert.False(t, e.evalCondition("count > limit", "host1"))
+	assert.False(t, e.evalCondition("count < missing_limit", "host1"))
 }
 
 // --- resolveExpr with filter pipe ---

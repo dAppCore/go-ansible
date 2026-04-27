@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	coreerr "dappco.re/go/log"
 )
 
 // localClient executes commands and file operations on the controller host.
@@ -84,17 +86,24 @@ func (c *localClient) RunScript(ctx context.Context, script string) (stdout, std
 func (c *localClient) Upload(_ context.Context, localReader io.Reader, remote string, mode os.FileMode) error {
 	content, err := io.ReadAll(localReader)
 	if err != nil {
-		return err
+		return coreerr.E("localClient.Upload", "read upload content", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(remote), 0o755); err != nil {
-		return err
+		return coreerr.E("localClient.Upload", "create remote directory", err)
 	}
-	return os.WriteFile(remote, content, mode)
+	if err := os.WriteFile(remote, content, mode); err != nil {
+		return coreerr.E("localClient.Upload", "write remote file", err)
+	}
+	return nil
 }
 
 func (c *localClient) Download(_ context.Context, remote string) ([]byte, error) {
-	return os.ReadFile(remote)
+	data, err := os.ReadFile(remote)
+	if err != nil {
+		return nil, coreerr.E("localClient.Download", "read remote file", err)
+	}
+	return data, nil
 }
 
 func (c *localClient) FileExists(_ context.Context, path string) (bool, error) {
@@ -105,7 +114,7 @@ func (c *localClient) FileExists(_ context.Context, path string) (bool, error) {
 	if os.IsNotExist(err) {
 		return false, nil
 	}
-	return false, err
+	return false, coreerr.E("localClient.FileExists", "stat path", err)
 }
 
 func (c *localClient) Stat(_ context.Context, path string) (map[string]any, error) {
@@ -114,7 +123,7 @@ func (c *localClient) Stat(_ context.Context, path string) (map[string]any, erro
 		if os.IsNotExist(err) {
 			return map[string]any{"exists": false}, nil
 		}
-		return nil, err
+		return nil, coreerr.E("localClient.Stat", "stat path", err)
 	}
 	return map[string]any{
 		"exists": true,
@@ -136,7 +145,7 @@ func runLocalShell(ctx context.Context, command, password string) (stdout, stder
 	if password != "" {
 		stdin, stdinErr := cmd.StdinPipe()
 		if stdinErr != nil {
-			return "", "", -1, stdinErr
+			return "", "", -1, coreerr.E("localClient.runLocalShell", "open stdin", stdinErr)
 		}
 		go func() {
 			defer func() { _ = stdin.Close() }()
@@ -155,7 +164,7 @@ func runLocalShell(ctx context.Context, command, password string) (stdout, stder
 		return stdout, stderr, exitErr.ExitCode(), nil
 	}
 
-	return stdout, stderr, -1, err
+	return stdout, stderr, -1, coreerr.E("localClient.runLocalShell", "execute command", err)
 }
 
 func wrapLocalBecomeCommand(command, user, password string) string {

@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// resolveExprValue evaluates a template expression and preserves native values.
 func (e *Executor) resolveExprValue(expr string, host string, task *Task) (any, bool) {
 	parts := splitTemplatePipeline(expr)
 	if len(parts) == 0 {
@@ -29,6 +30,7 @@ func (e *Executor) resolveExprValue(expr string, host string, task *Task) (any, 
 	return value, true
 }
 
+// resolveExprBaseValue resolves the first expression segment before filters run.
 func (e *Executor) resolveExprBaseValue(expr string, host string, task *Task) (any, bool) {
 	expr = corexTrimSpace(expr)
 	if expr == "" {
@@ -50,6 +52,10 @@ func (e *Executor) resolveExprBaseValue(expr string, host string, task *Task) (a
 		}
 	}
 
+	if result := e.getRegisteredVar(host, expr); result != nil {
+		return result, true
+	}
+
 	if value, ok := e.lookupExprValue(expr, host, task); ok {
 		return value, true
 	}
@@ -57,6 +63,7 @@ func (e *Executor) resolveExprBaseValue(expr string, host string, task *Task) (a
 	return nil, false
 }
 
+// applyFilterValue applies a supported Jinja-style filter to a native value.
 func (e *Executor) applyFilterValue(value any, filter string) any {
 	filter = corexTrimSpace(filter)
 
@@ -185,6 +192,7 @@ func (e *Executor) applyFilterValue(value any, filter string) any {
 	return value
 }
 
+// parseTemplateFilterLiteral parses a single literal argument from a filter call.
 func parseTemplateFilterLiteral(filter, name string) (any, bool) {
 	if !corexHasPrefix(filter, name+"(") || !corexHasSuffix(filter, ")") {
 		return nil, false
@@ -202,6 +210,7 @@ func parseTemplateFilterLiteral(filter, name string) (any, bool) {
 	return value, true
 }
 
+// templateStringify converts template values to Ansible-style strings.
 func templateStringify(value any) string {
 	switch v := value.(type) {
 	case nil:
@@ -221,6 +230,7 @@ func templateStringify(value any) string {
 	}
 }
 
+// isEmptyTemplateValue reports whether a value should trigger default filters.
 func isEmptyTemplateValue(value any) bool {
 	switch v := value.(type) {
 	case nil:
@@ -250,6 +260,7 @@ func isEmptyTemplateValue(value any) bool {
 	return false
 }
 
+// templateBool coerces common Ansible truthy values to bool.
 func templateBool(value any) bool {
 	switch v := value.(type) {
 	case bool:
@@ -286,6 +297,7 @@ func templateBool(value any) bool {
 	}
 }
 
+// templateInt coerces numeric template values to int.
 func templateInt(value any) (int, bool) {
 	switch v := value.(type) {
 	case int:
@@ -326,6 +338,7 @@ func templateInt(value any) (int, bool) {
 	return 0, false
 }
 
+// templateFloat coerces numeric template values to float64.
 func templateFloat(value any) (float64, bool) {
 	switch v := value.(type) {
 	case int:
@@ -362,6 +375,7 @@ func templateFloat(value any) (float64, bool) {
 	return 0, false
 }
 
+// templateLength returns the length used by the template length filter.
 func templateLength(value any) int {
 	switch v := value.(type) {
 	case nil:
@@ -391,6 +405,7 @@ func templateLength(value any) int {
 	}
 }
 
+// templateMinMax returns the smallest or largest item in a slice-like value.
 func templateMinMax(value any, wantMax bool) (any, bool) {
 	items, ok := anySliceFromValue(value)
 	if !ok || len(items) == 0 {
@@ -407,6 +422,7 @@ func templateMinMax(value any, wantMax bool) (any, bool) {
 	return best, true
 }
 
+// templateValueGreater compares values for min and max filters.
 func templateValueGreater(candidate, current any, wantMax bool) bool {
 	candidateFloat, candidateOK := templateFloat(candidate)
 	currentFloat, currentOK := templateFloat(current)

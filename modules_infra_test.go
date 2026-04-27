@@ -1380,10 +1380,9 @@ func TestModulesInfra_TemplateArgs_Good_InventoryHostname(t *testing.T) {
 	assert.Equal(t, "web1", result["hostname"])
 }
 
-func TestModulesInfra_EvalCondition_Good_UnknownDefaultsTrue(t *testing.T) {
+func TestModulesInfra_EvalCondition_Good_UnknownComparisonFailsClosed(t *testing.T) {
 	e := NewExecutor("/tmp")
-	// Unknown conditions default to true (permissive)
-	assert.True(t, e.evalCondition("some_complex_expression == 'value'", "host1"))
+	assert.False(t, e.evalCondition("some_complex_expression == 'value'", "host1"))
 }
 
 func TestModulesInfra_GetRegisteredVar_Good_DottedAccess(t *testing.T) {
