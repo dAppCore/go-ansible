@@ -52,10 +52,18 @@ type environmentSSHClient struct {
 	prefix string
 }
 
+// Run executes cmd over the wrapped SSH client with the configured
+// environment prefix prepended. Returns stdout, stderr, exit code, error.
+//
+//	stdout, stderr, code, err := c.Run(ctx, "uname -a")
 func (c *environmentSSHClient) Run(ctx context.Context, cmd string) (string, string, int, error) {
 	return c.sshExecutorClient.Run(ctx, c.prefix+cmd)
 }
 
+// RunScript executes script over the wrapped SSH client with the configured
+// environment prefix prepended. Returns stdout, stderr, exit code, error.
+//
+//	stdout, stderr, code, err := c.RunScript(ctx, "#!/bin/bash\necho hi")
 func (c *environmentSSHClient) RunScript(ctx context.Context, script string) (string, string, int, error) {
 	return c.sshExecutorClient.RunScript(ctx, c.prefix+script)
 }

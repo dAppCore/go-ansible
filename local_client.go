@@ -36,12 +36,22 @@ func newLocalClient() *localClient {
 	return &localClient{}
 }
 
+// BecomeState returns the current become flag, user, and password under
+// the lock. Used by playbook tasks to decide whether to wrap commands in
+// sudo.
+//
+//	become, user, pass := c.BecomeState()
 func (c *localClient) BecomeState() (bool, string, string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.become, c.becomeUser, c.becomePass
 }
 
+// SetBecome updates the become flag and credentials. When become is false,
+// any stored user/password is cleared. Empty user/password arguments are
+// ignored when become is true (so callers can update fields incrementally).
+//
+//	c.SetBecome(true, "ansible", "secret")
 func (c *localClient) SetBecome(become bool, user, password string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -59,10 +69,18 @@ func (c *localClient) SetBecome(become bool, user, password string) {
 	}
 }
 
+// Close is a no-op for the local client — there is no remote connection
+// to tear down. Kept on the interface to match SSH variants.
+//
+//	_ = c.Close()
 func (c *localClient) Close() error {
 	return nil
 }
 
+// Run executes cmd via local shell, optionally wrapped in sudo when
+// become is enabled. Returns stdout/stderr/exit-code/error.
+//
+//	out, _, code, err := c.Run(ctx, "uname -a")
 func (c *localClient) Run(ctx context.Context, cmd string) (stdout, stderr string, exitCode int, err error) {
 	c.mu.Lock()
 	become, becomeUser, becomePass := c.becomeStateLocked()
@@ -79,10 +97,17 @@ func (c *localClient) Run(ctx context.Context, cmd string) (stdout, stderr strin
 	return runLocalShell(ctx, command, "")
 }
 
+// RunScript executes a multi-line shell script as a local heredoc.
+//
+//	out, _, code, err := c.RunScript(ctx, "#!/bin/bash\necho hi")
 func (c *localClient) RunScript(ctx context.Context, script string) (stdout, stderr string, exitCode int, err error) {
 	return c.Run(ctx, "bash <<'ANSIBLE_SCRIPT_EOF'\n"+script+"\nANSIBLE_SCRIPT_EOF")
 }
 
+// Upload writes the contents of localReader into a file at remote with the
+// given permission mode. Creates parent directories as needed.
+//
+//	_ = c.Upload(ctx, bytes.NewReader(data), "/etc/foo.conf", 0o644)
 func (c *localClient) Upload(_ context.Context, localReader io.Reader, remote string, mode os.FileMode) error {
 	content, err := io.ReadAll(localReader)
 	if err != nil {
@@ -98,6 +123,11 @@ func (c *localClient) Upload(_ context.Context, localReader io.Reader, remote st
 	return nil
 }
 
+// Download reads the bytes of a local file path. Despite the name, the
+// "remote" is local — the localClient implements the SSHClient interface
+// transparently so playbooks targeting `connection: local` work unchanged.
+//
+//	data, err := c.Download(ctx, "/etc/foo.conf")
 func (c *localClient) Download(_ context.Context, remote string) ([]byte, error) {
 	data, err := os.ReadFile(remote)
 	if err != nil {
@@ -106,6 +136,11 @@ func (c *localClient) Download(_ context.Context, remote string) ([]byte, error)
 	return data, nil
 }
 
+// FileExists reports whether the given local path exists. Returns
+// (false, nil) for non-existent paths and (false, err) for stat failures
+// other than not-exist.
+//
+//	exists, err := c.FileExists(ctx, "/etc/foo.conf")
 func (c *localClient) FileExists(_ context.Context, path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -117,6 +152,11 @@ func (c *localClient) FileExists(_ context.Context, path string) (bool, error) {
 	return false, coreerr.E("localClient.FileExists", "stat path", err)
 }
 
+// Stat returns a map describing the path: at minimum {"exists": bool}, plus
+// "isdir" / "size" / "mode" / "mtime" when the file exists. Used by the
+// `stat` Ansible module.
+//
+//	info, err := c.Stat(ctx, "/etc/foo.conf")
 func (c *localClient) Stat(_ context.Context, path string) (map[string]any, error) {
 	info, err := os.Stat(path)
 	if err != nil {
