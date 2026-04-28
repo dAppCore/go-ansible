@@ -2491,7 +2491,7 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 				cached.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
 				return cached, nil
 			}
-			_ = cached.Close()
+			closeExecutorClient(cached)
 			delete(e.clients, host)
 		case *SSHClient:
 			if !desiredLocal &&
@@ -2503,7 +2503,7 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 				cached.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
 				return cached, nil
 			}
-			_ = cached.Close()
+			closeExecutorClient(cached)
 			delete(e.clients, host)
 		default:
 			client.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
@@ -4511,7 +4511,7 @@ func (e *Executor) resetConnection(host string) {
 	e.mu.Unlock()
 
 	if ok {
-		_ = client.Close()
+		closeExecutorClient(client)
 	}
 }
 
@@ -4525,9 +4525,18 @@ func (e *Executor) Close() {
 	defer e.mu.Unlock()
 
 	for _, client := range e.clients {
-		_ = client.Close()
+		closeExecutorClient(client)
 	}
 	e.clients = make(map[string]sshExecutorClient)
+}
+
+func closeExecutorClient(client sshExecutorClient) {
+	if client == nil {
+		return
+	}
+	if err := client.Close(); err != nil {
+		return
+	}
 }
 
 // TemplateFile processes a template file.

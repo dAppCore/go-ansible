@@ -40,7 +40,9 @@ func (e *Executor) launchDetachedAsyncTask(ctx context.Context, host string, hos
 			defer cancel()
 		}
 
-		_ = clone.runTaskOnHost(asyncCtx, host, cloneHosts, &cloneTask, clonePlay)
+		if err := clone.runTaskOnHost(asyncCtx, host, cloneHosts, &cloneTask, clonePlay); err != nil {
+			return
+		}
 	}()
 }
 

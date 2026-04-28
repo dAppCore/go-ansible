@@ -606,12 +606,16 @@ func (p *Parser) loadRoleDataFromPath(rolePath string, tasksFrom string, default
 
 	defaults := make(map[string]any)
 	if data, err := p.readFile(joinPath(rolePath, "defaults", defaultsFrom)); err == nil {
-		_ = yaml.Unmarshal([]byte(data), &defaults)
+		if err := yaml.Unmarshal([]byte(data), &defaults); err != nil {
+			defaults = make(map[string]any)
+		}
 	}
 
 	roleVars := make(map[string]any)
 	if data, err := p.readFile(joinPath(rolePath, "vars", varsFrom)); err == nil {
-		_ = yaml.Unmarshal([]byte(data), &roleVars)
+		if err := yaml.Unmarshal([]byte(data), &roleVars); err != nil {
+			roleVars = make(map[string]any)
+		}
 	}
 
 	handlers, err := p.loadRoleHandlersFromPath(rolePath, handlersFrom)

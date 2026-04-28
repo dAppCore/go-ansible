@@ -288,7 +288,9 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 
 	select {
 	case <-ctx.Done():
-		_ = session.Signal(ssh.SIGKILL)
+		if err := session.Signal(ssh.SIGKILL); err != nil && ctx.Err() == nil {
+			return "", "", -1, err
+		}
 		return "", "", -1, ctx.Err()
 	case err := <-done:
 		exitCode = 0

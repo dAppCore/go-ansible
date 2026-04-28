@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"dappco.re/go"
 	"dappco.re/go/ansible"
-	"dappco.re/go/core"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 	"gopkg.in/yaml.v3"
@@ -342,7 +342,7 @@ func diffOutputLines(diff map[string]any) []string {
 func runPlaybookCommand(opts core.Options) core.Result {
 	settings, err := buildPlaybookCommandSettings(opts, os.Args[1:])
 	if err != nil {
-		return core.Result{Value: err}
+		return core.Fail(err)
 	}
 
 	executor := ansible.NewExecutor(settings.basePath)
@@ -366,7 +366,7 @@ func runPlaybookCommand(opts core.Options) core.Result {
 		}
 
 		if !coreio.Local.Exists(inventoryPath) {
-			return core.Result{Value: coreerr.E("runPlaybookCommand", sprintf("inventory not found: %s", inventoryPath), nil)}
+			return core.Fail(coreerr.E("runPlaybookCommand", sprintf("inventory not found: %s", inventoryPath), nil))
 		}
 
 		if coreio.Local.IsDir(inventoryPath) {
@@ -380,7 +380,7 @@ func runPlaybookCommand(opts core.Options) core.Result {
 		}
 
 		if err := executor.SetInventory(inventoryPath); err != nil {
-			return core.Result{Value: coreerr.E("runPlaybookCommand", "load inventory", err)}
+			return core.Fail(coreerr.E("runPlaybookCommand", "load inventory", err))
 		}
 	}
 
@@ -452,19 +452,19 @@ func runPlaybookCommand(opts core.Options) core.Result {
 	print("Running playbook: %s", settings.playbookPath)
 
 	if err := executor.Run(ctx, settings.playbookPath); err != nil {
-		return core.Result{Value: coreerr.E("runPlaybookCommand", "playbook failed", err)}
+		return core.Fail(coreerr.E("runPlaybookCommand", "playbook failed", err))
 	}
 
 	print("")
 	print("Playbook completed in %s", time.Since(start).Round(time.Millisecond))
 
-	return core.Result{OK: true}
+	return core.Ok(nil)
 }
 
 func runSSHTestCommand(opts core.Options) core.Result {
 	positional := positionalArgs(opts)
 	if len(positional) < 1 {
-		return core.Result{Value: coreerr.E("runSSHTestCommand", "usage: ansible test <host>", nil)}
+		return core.Fail(coreerr.E("runSSHTestCommand", "usage: ansible test <host>", nil))
 	}
 	host := positional[0]
 
@@ -481,9 +481,13 @@ func runSSHTestCommand(opts core.Options) core.Result {
 
 	client, err := ansible.NewSSHClient(config)
 	if err != nil {
-		return core.Result{Value: coreerr.E("runSSHTestCommand", "create client", err)}
+		return core.Fail(coreerr.E("runSSHTestCommand", "create client", err))
 	}
-	defer func() { _ = client.Close() }()
+	defer func() {
+		if err := client.Close(); err != nil {
+			return
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -491,7 +495,7 @@ func runSSHTestCommand(opts core.Options) core.Result {
 	// Test connection
 	start := time.Now()
 	if err := client.Connect(ctx); err != nil {
-		return core.Result{Value: coreerr.E("runSSHTestCommand", "connect failed", err)}
+		return core.Fail(coreerr.E("runSSHTestCommand", "connect failed", err))
 	}
 	connectTime := time.Since(start)
 
@@ -538,5 +542,5 @@ func runSSHTestCommand(opts core.Options) core.Result {
 	print("")
 	print("SSH test passed")
 
-	return core.Result{OK: true}
+	return core.Ok(nil)
 }

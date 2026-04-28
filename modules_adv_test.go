@@ -2,11 +2,8 @@ package ansible
 
 import (
 	"context"
-	"testing"
+	core "dappco.re/go"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ============================================================
@@ -17,7 +14,7 @@ import (
 
 // --- user module ---
 
-func TestModulesAdv_ModuleUser_Good_CreateNewUser(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_CreateNewUser(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`id deploy >/dev/null 2>&1`, "", "no such user", 1)
 	mock.expectCommand(`useradd`, "", "", 0)
@@ -32,19 +29,19 @@ func TestModulesAdv_ModuleUser_Good_CreateNewUser(t *testing.T) {
 		"create_home": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("useradd"))
-	assert.True(t, mock.containsSubstring("-u 1500"))
-	assert.True(t, mock.containsSubstring("-g www-data"))
-	assert.True(t, mock.containsSubstring("-G docker,sudo"))
-	assert.True(t, mock.containsSubstring("-d /opt/deploy"))
-	assert.True(t, mock.containsSubstring("-s /bin/bash"))
-	assert.True(t, mock.containsSubstring("-m"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("useradd"))
+	core.AssertTrue(t, mock.containsSubstring("-u 1500"))
+	core.AssertTrue(t, mock.containsSubstring("-g www-data"))
+	core.AssertTrue(t, mock.containsSubstring("-G docker,sudo"))
+	core.AssertTrue(t, mock.containsSubstring("-d /opt/deploy"))
+	core.AssertTrue(t, mock.containsSubstring("-s /bin/bash"))
+	core.AssertTrue(t, mock.containsSubstring("-m"))
 }
 
-func TestModulesAdv_ModuleUser_Good_ModifyExistingUser(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_ModifyExistingUser(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// id returns success meaning user exists, so usermod branch is taken
 	mock.expectCommand(`id deploy >/dev/null 2>&1 && usermod`, "", "", 0)
@@ -54,14 +51,14 @@ func TestModulesAdv_ModuleUser_Good_ModifyExistingUser(t *testing.T) {
 		"shell": "/bin/zsh",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("usermod"))
-	assert.True(t, mock.containsSubstring("-s /bin/zsh"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("usermod"))
+	core.AssertTrue(t, mock.containsSubstring("-s /bin/zsh"))
 }
 
-func TestModulesAdv_ModuleUser_Good_GroupListInput(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_GroupListInput(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`id deploy >/dev/null 2>&1`, "", "no such user", 1)
 	mock.expectCommand(`useradd`, "", "", 0)
@@ -71,13 +68,13 @@ func TestModulesAdv_ModuleUser_Good_GroupListInput(t *testing.T) {
 		"groups": []any{"docker", "sudo"},
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("-G docker,sudo"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("-G docker,sudo"))
 }
 
-func TestModulesAdv_ModuleUser_Good_AppendSupplementaryGroups(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_AppendSupplementaryGroups(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`id deploy >/dev/null 2>&1 && usermod -a -G docker,sudo deploy \|\| useradd -G docker,sudo deploy`, "", "", 0)
 
@@ -88,14 +85,14 @@ func TestModulesAdv_ModuleUser_Good_AppendSupplementaryGroups(t *testing.T) {
 		"create_home": false,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`usermod -a -G docker,sudo deploy`))
-	assert.True(t, mock.hasExecuted(`useradd -G docker,sudo deploy`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`usermod -a -G docker,sudo deploy`))
+	core.AssertTrue(t, mock.hasExecuted(`useradd -G docker,sudo deploy`))
 }
 
-func TestModulesAdv_ModuleUser_Good_RemoveUser(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_RemoveUser(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`userdel -r deploy`, "", "", 0)
 
@@ -104,12 +101,12 @@ func TestModulesAdv_ModuleUser_Good_RemoveUser(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`userdel -r deploy`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`userdel -r deploy`))
 }
 
-func TestModulesAdv_ModuleUser_Good_SystemUser(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_SystemUser(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`id|useradd`, "", "", 0)
 
@@ -120,20 +117,20 @@ func TestModulesAdv_ModuleUser_Good_SystemUser(t *testing.T) {
 		"shell":       "/usr/sbin/nologin",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 	// system flag adds -r
-	assert.True(t, mock.containsSubstring("-r"))
-	assert.True(t, mock.containsSubstring("-s /usr/sbin/nologin"))
+	core.AssertTrue(t, mock.containsSubstring("-r"))
+	core.AssertTrue(t, mock.containsSubstring("-s /usr/sbin/nologin"))
 	// create_home=false means -m should NOT be present
 	// Actually, looking at the production code: getBoolArg(args, "create_home", true) — default is true
 	// We set it to false explicitly, so -m should NOT appear
 	cmd := mock.lastCommand()
-	assert.NotContains(t, cmd.Cmd, " -m ")
+	core.AssertNotContains(t, cmd.Cmd, " -m ")
 }
 
-func TestModulesAdv_ModuleUser_Good_NoOptsUsesSimpleForm(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_NoOptsUsesSimpleForm(t *core.T) {
 	// When no options are provided, uses the simple "id || useradd" form
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`id testuser >/dev/null 2>&1 || useradd testuser`, "", "", 0)
@@ -143,12 +140,12 @@ func TestModulesAdv_ModuleUser_Good_NoOptsUsesSimpleForm(t *testing.T) {
 		"create_home": false,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 }
 
-func TestModulesAdv_ModuleUser_Good_LocalModeUsesLocalCommands(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_LocalModeUsesLocalCommands(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`id localuser >/dev/null 2>&1 && lusermod`, "", "", 0)
 
@@ -160,16 +157,16 @@ func TestModulesAdv_ModuleUser_Good_LocalModeUsesLocalCommands(t *testing.T) {
 		"append": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("lusermod"))
-	assert.True(t, mock.containsSubstring("luseradd"))
-	assert.True(t, mock.containsSubstring("-s /bin/zsh"))
-	assert.True(t, mock.containsSubstring("-d /var/lib/localuser"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("lusermod"))
+	core.AssertTrue(t, mock.containsSubstring("luseradd"))
+	core.AssertTrue(t, mock.containsSubstring("-s /bin/zsh"))
+	core.AssertTrue(t, mock.containsSubstring("-d /var/lib/localuser"))
 }
 
-func TestModulesAdv_ModuleUser_Good_LocalModeRemovesLocalUser(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_LocalModeRemovesLocalUser(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`luserdel -r localuser`, "", "", 0)
 
@@ -179,13 +176,13 @@ func TestModulesAdv_ModuleUser_Good_LocalModeRemovesLocalUser(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`luserdel -r localuser`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`luserdel -r localuser`))
 }
 
-func TestModulesAdv_ModuleUser_Bad_MissingName(t *testing.T) {
+func TestModulesAdv_ModuleUser_Bad_MissingName(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -193,11 +190,11 @@ func TestModulesAdv_ModuleUser_Bad_MissingName(t *testing.T) {
 		"state": "present",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "name required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "name required")
 }
 
-func TestModulesAdv_ModuleUser_Good_CommandFailure(t *testing.T) {
+func TestModulesAdv_ModuleUser_Good_CommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`id|useradd|usermod`, "", "useradd: Permission denied", 1)
 
@@ -206,14 +203,14 @@ func TestModulesAdv_ModuleUser_Good_CommandFailure(t *testing.T) {
 		"shell": "/bin/bash",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "Permission denied")
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "Permission denied")
 }
 
 // --- hostname module ---
 
-func TestModulesAdv_ModuleHostname_Good_IdempotentWhenAlreadySet(t *testing.T) {
+func TestModulesAdv_ModuleHostname_Good_IdempotentWhenAlreadySet(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`^hostname$`, "web01\n", "", 0)
 
@@ -221,14 +218,14 @@ func TestModulesAdv_ModuleHostname_Good_IdempotentWhenAlreadySet(t *testing.T) {
 		"name": "web01",
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Changed)
-	assert.Equal(t, "hostname already set", result.Msg)
-	assert.True(t, mock.hasExecuted(`^hostname$`))
-	assert.False(t, mock.hasExecuted(`hostnamectl set-hostname`))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Changed)
+	core.AssertEqual(t, "hostname already set", result.Msg)
+	core.AssertTrue(t, mock.hasExecuted(`^hostname$`))
+	core.AssertFalse(t, mock.hasExecuted(`hostnamectl set-hostname`))
 }
 
-func TestModulesAdv_ModuleHostname_Good_ChangesWhenDifferent(t *testing.T) {
+func TestModulesAdv_ModuleHostname_Good_ChangesWhenDifferent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`^hostname$`, "old-host\n", "", 0)
 	mock.expectCommand(`hostnamectl set-hostname "new-host" \|\| hostname "new-host"`, "", "", 0)
@@ -238,15 +235,15 @@ func TestModulesAdv_ModuleHostname_Good_ChangesWhenDifferent(t *testing.T) {
 		"name": "new-host",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`^hostname$`))
-	assert.True(t, mock.hasExecuted(`hostnamectl set-hostname`))
-	assert.True(t, mock.hasExecuted(`sed -i`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`^hostname$`))
+	core.AssertTrue(t, mock.hasExecuted(`hostnamectl set-hostname`))
+	core.AssertTrue(t, mock.hasExecuted(`sed -i`))
 }
 
-func TestModulesAdv_ModuleHostname_Good_HostnameAlias(t *testing.T) {
+func TestModulesAdv_ModuleHostname_Good_HostnameAlias(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`^hostname$`, "old-host\n", "", 0)
 	mock.expectCommand(`hostnamectl set-hostname "alias-host" \|\| hostname "alias-host"`, "", "", 0)
@@ -256,16 +253,16 @@ func TestModulesAdv_ModuleHostname_Good_HostnameAlias(t *testing.T) {
 		"hostname": "alias-host",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`hostnamectl set-hostname`))
-	assert.True(t, mock.hasExecuted(`sed -i`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`hostnamectl set-hostname`))
+	core.AssertTrue(t, mock.hasExecuted(`sed -i`))
 }
 
 // --- group module ---
 
-func TestModulesAdv_ModuleGroup_Good_CreateNewGroup(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_CreateNewGroup(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// getent fails → groupadd runs
 	mock.expectCommand(`getent group appgroup`, "", "", 1)
@@ -275,14 +272,14 @@ func TestModulesAdv_ModuleGroup_Good_CreateNewGroup(t *testing.T) {
 		"name": "appgroup",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("groupadd"))
-	assert.True(t, mock.containsSubstring("appgroup"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("groupadd"))
+	core.AssertTrue(t, mock.containsSubstring("appgroup"))
 }
 
-func TestModulesAdv_ModuleGroup_Good_GroupAlreadyExists(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_GroupAlreadyExists(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// getent succeeds → groupadd skipped (|| short-circuits)
 	mock.expectCommand(`getent group docker >/dev/null 2>&1 || groupadd`, "", "", 0)
@@ -291,12 +288,12 @@ func TestModulesAdv_ModuleGroup_Good_GroupAlreadyExists(t *testing.T) {
 		"name": "docker",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 }
 
-func TestModulesAdv_ModuleGroup_Good_RemoveGroup(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_RemoveGroup(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`groupdel oldgroup`, "", "", 0)
 
@@ -305,12 +302,12 @@ func TestModulesAdv_ModuleGroup_Good_RemoveGroup(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`groupdel oldgroup`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`groupdel oldgroup`))
 }
 
-func TestModulesAdv_ModuleGroup_Good_SystemGroup(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_SystemGroup(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`getent group|groupadd`, "", "", 0)
 
@@ -319,13 +316,13 @@ func TestModulesAdv_ModuleGroup_Good_SystemGroup(t *testing.T) {
 		"system": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("-r"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("-r"))
 }
 
-func TestModulesAdv_ModuleGroup_Good_CustomGID(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_CustomGID(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`getent group|groupadd`, "", "", 0)
 
@@ -334,13 +331,13 @@ func TestModulesAdv_ModuleGroup_Good_CustomGID(t *testing.T) {
 		"gid":  "5000",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("-g 5000"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("-g 5000"))
 }
 
-func TestModulesAdv_ModuleGroup_Good_LocalGroup(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_LocalGroup(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`getent group localusers`, "", "", 1)
 	mock.expectCommand(`lgroupadd`, "", "", 0)
@@ -350,13 +347,13 @@ func TestModulesAdv_ModuleGroup_Good_LocalGroup(t *testing.T) {
 		"local": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("lgroupadd"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("lgroupadd"))
 }
 
-func TestModulesAdv_ModuleGroup_Good_LocalGroupRemove(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_LocalGroupRemove(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`lgroupdel localusers`, "", "", 0)
 
@@ -366,12 +363,12 @@ func TestModulesAdv_ModuleGroup_Good_LocalGroupRemove(t *testing.T) {
 		"local": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`lgroupdel localusers`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`lgroupdel localusers`))
 }
 
-func TestModulesAdv_ModuleGroup_Good_NonUniqueGID(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_NonUniqueGID(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`getent group|groupadd`, "", "", 0)
 
@@ -381,14 +378,14 @@ func TestModulesAdv_ModuleGroup_Good_NonUniqueGID(t *testing.T) {
 		"non_unique": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("-g 5000"))
-	assert.True(t, mock.containsSubstring("-o"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("-g 5000"))
+	core.AssertTrue(t, mock.containsSubstring("-o"))
 }
 
-func TestModulesAdv_ModuleGroup_Bad_MissingName(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Bad_MissingName(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -396,11 +393,11 @@ func TestModulesAdv_ModuleGroup_Bad_MissingName(t *testing.T) {
 		"state": "present",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "name required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "name required")
 }
 
-func TestModulesAdv_ModuleGroup_Good_CommandFailure(t *testing.T) {
+func TestModulesAdv_ModuleGroup_Good_CommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`getent group|groupadd`, "", "groupadd: Permission denied", 1)
 
@@ -408,13 +405,13 @@ func TestModulesAdv_ModuleGroup_Good_CommandFailure(t *testing.T) {
 		"name": "failgroup",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
 }
 
 // --- cron module ---
 
-func TestModulesAdv_ModuleCron_Good_AddCronJob(t *testing.T) {
+func TestModulesAdv_ModuleCron_Good_AddCronJob(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`crontab -u root`, "", "", 0)
 
@@ -423,16 +420,16 @@ func TestModulesAdv_ModuleCron_Good_AddCronJob(t *testing.T) {
 		"job":  "/usr/local/bin/backup.sh",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 	// Default schedule is * * * * *
-	assert.True(t, mock.containsSubstring("* * * * *"))
-	assert.True(t, mock.containsSubstring("/usr/local/bin/backup.sh"))
-	assert.True(t, mock.containsSubstring("# backup"))
+	core.AssertTrue(t, mock.containsSubstring("* * * * *"))
+	core.AssertTrue(t, mock.containsSubstring("/usr/local/bin/backup.sh"))
+	core.AssertTrue(t, mock.containsSubstring("# backup"))
 }
 
-func TestModulesAdv_ModuleCron_Good_RemoveCronJob(t *testing.T) {
+func TestModulesAdv_ModuleCron_Good_RemoveCronJob(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`crontab -u root -l`, "* * * * * /bin/backup # backup\n", "", 0)
 
@@ -442,12 +439,12 @@ func TestModulesAdv_ModuleCron_Good_RemoveCronJob(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.containsSubstring("grep -v"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.containsSubstring("grep -v"))
 }
 
-func TestModulesAdv_ModuleCron_Good_CustomSchedule(t *testing.T) {
+func TestModulesAdv_ModuleCron_Good_CustomSchedule(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`crontab -u root`, "", "", 0)
 
@@ -461,14 +458,14 @@ func TestModulesAdv_ModuleCron_Good_CustomSchedule(t *testing.T) {
 		"weekday": "0",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("30 2 1 6 0"))
-	assert.True(t, mock.containsSubstring("/opt/scripts/backup.sh"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("30 2 1 6 0"))
+	core.AssertTrue(t, mock.containsSubstring("/opt/scripts/backup.sh"))
 }
 
-func TestModulesAdv_ModuleCron_Good_CustomUser(t *testing.T) {
+func TestModulesAdv_ModuleCron_Good_CustomUser(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`crontab -u www-data`, "", "", 0)
 
@@ -480,14 +477,14 @@ func TestModulesAdv_ModuleCron_Good_CustomUser(t *testing.T) {
 		"hour":   "*/4",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("crontab -u www-data"))
-	assert.True(t, mock.containsSubstring("0 */4 * * *"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("crontab -u www-data"))
+	core.AssertTrue(t, mock.containsSubstring("0 */4 * * *"))
 }
 
-func TestModulesAdv_ModuleCron_Good_SpecialTime(t *testing.T) {
+func TestModulesAdv_ModuleCron_Good_SpecialTime(t *core.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
 	mock.expectCommand(`crontab -u root`, "", "", 0)
@@ -498,13 +495,13 @@ func TestModulesAdv_ModuleCron_Good_SpecialTime(t *testing.T) {
 		"special_time": "daily",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring(`@daily /usr/local/bin/backup.sh # daily-backup`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring(`@daily /usr/local/bin/backup.sh # daily-backup`))
 }
 
-func TestModulesAdv_ModuleCron_Good_BackupCreatesBackupFile(t *testing.T) {
+func TestModulesAdv_ModuleCron_Good_BackupCreatesBackupFile(t *core.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
 	mock.expectCommand(`crontab -u root`, "", "", 0)
@@ -518,22 +515,22 @@ func TestModulesAdv_ModuleCron_Good_BackupCreatesBackupFile(t *testing.T) {
 		"backup": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	require.NotNil(t, result.Data)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertNotNil(t, result.Data)
 	backupPath, ok := result.Data["backup_file"].(string)
-	require.True(t, ok)
-	assert.Contains(t, backupPath, "/tmp/ansible-cron-root-daily-backup.")
-	assert.Equal(t, 1, mock.uploadCount())
+	core.RequireTrue(t, ok)
+	core.AssertContains(t, backupPath, "/tmp/ansible-cron-root-daily-backup.")
+	core.AssertEqual(t, 1, mock.uploadCount())
 	lastUpload := mock.lastUpload()
-	require.NotNil(t, lastUpload)
-	assert.Equal(t, backupPath, lastUpload.Remote)
-	assert.Equal(t, []byte("0 0 * * * /usr/local/bin/backup.sh # daily-backup\n"), lastUpload.Content)
-	assert.True(t, mock.containsSubstring("crontab -u root -l"))
-	assert.True(t, mock.containsSubstring("crontab -u root"))
+	core.AssertNotNil(t, lastUpload)
+	core.AssertEqual(t, backupPath, lastUpload.Remote)
+	core.AssertEqual(t, []byte("0 0 * * * /usr/local/bin/backup.sh # daily-backup\n"), lastUpload.Content)
+	core.AssertTrue(t, mock.containsSubstring("crontab -u root -l"))
+	core.AssertTrue(t, mock.containsSubstring("crontab -u root"))
 }
 
-func TestModulesAdv_ModuleCron_Good_DisabledJobCommentsEntry(t *testing.T) {
+func TestModulesAdv_ModuleCron_Good_DisabledJobCommentsEntry(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`crontab -u root`, "", "", 0)
 
@@ -545,13 +542,13 @@ func TestModulesAdv_ModuleCron_Good_DisabledJobCommentsEntry(t *testing.T) {
 		"disabled": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring(`# 15 1 * * * /usr/local/bin/backup.sh # backup`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring(`# 15 1 * * * /usr/local/bin/backup.sh # backup`))
 }
 
-func TestModulesAdv_ModuleCron_Good_AbsentWithNoName(t *testing.T) {
+func TestModulesAdv_ModuleCron_Good_AbsentWithNoName(t *core.T) {
 	// Absent with no name — changed but no grep command
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -559,15 +556,15 @@ func TestModulesAdv_ModuleCron_Good_AbsentWithNoName(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 	// No commands should have run since name is empty
-	assert.Equal(t, 0, mock.commandCount())
+	core.AssertEqual(t, 0, mock.commandCount())
 }
 
 // --- authorized_key module ---
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_AddKey(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_AddKey(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
 	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
@@ -581,15 +578,15 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_AddKey(t *testing.T) {
 		"key":  testKey,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("mkdir -p"))
-	assert.True(t, mock.containsSubstring("chmod 700"))
-	assert.True(t, mock.containsSubstring("authorized_keys"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("mkdir -p"))
+	core.AssertTrue(t, mock.containsSubstring("chmod 700"))
+	core.AssertTrue(t, mock.containsSubstring("authorized_keys"))
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_ShortKeyDoesNotPanic(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_ShortKeyDoesNotPanic(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA short@host"
 	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
@@ -602,13 +599,13 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_ShortKeyDoesNotPanic(t *testing.T) 
 		"key":  testKey,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`grep -qF`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`grep -qF`))
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_RemoveKey(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_RemoveKey(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
 	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
@@ -620,13 +617,13 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_RemoveKey(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`sed -i`))
-	assert.True(t, mock.containsSubstring("authorized_keys"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`sed -i`))
+	core.AssertTrue(t, mock.containsSubstring("authorized_keys"))
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_KeyAlreadyExists(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_KeyAlreadyExists(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
 	mock.addFile("/home/deploy/.ssh/authorized_keys", []byte(testKey+"\n"))
@@ -637,13 +634,13 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_KeyAlreadyExists(t *testing.T) {
 		"key":  testKey,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Contains(t, result.Msg, "already up to date")
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertContains(t, result.Msg, "already up to date")
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_RewritesKeyOptionsAndComment(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_RewritesKeyOptionsAndComment(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA user@host"
 	authPath := "/home/deploy/.ssh/authorized_keys"
@@ -657,18 +654,18 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_RewritesKeyOptionsAndComment(t *tes
 		"comment":     "backup access",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`chmod 600`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`chmod 600`))
 
 	content, err := mock.Download(context.Background(), authPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(content), `command="/usr/local/bin/backup-only" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA backup access`)
-	assert.NotContains(t, string(content), testKey)
+	core.RequireNoError(t, err)
+	core.AssertContains(t, string(content), `command="/usr/local/bin/backup-only" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA backup access`)
+	core.AssertNotContains(t, string(content), testKey)
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *core.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
@@ -683,16 +680,16 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_ExclusiveRewritesFile(t *testing.T)
 		"exclusive": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 	content, err := mock.Download(context.Background(), "/home/deploy/.ssh/authorized_keys")
-	require.NoError(t, err)
-	assert.Equal(t, testKey+"\n", string(content))
-	assert.False(t, mock.hasExecuted(`grep -qF`))
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, testKey+"\n", string(content))
+	core.AssertFalse(t, mock.hasExecuted(`grep -qF`))
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_CustomPath(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_CustomPath(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
 	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
@@ -707,14 +704,14 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_CustomPath(t *testing.T) {
 		"path": "/srv/keys/deploy_keys",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("/srv/keys/deploy_keys"))
-	assert.True(t, mock.hasExecuted(`mkdir -p "/srv/keys"`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("/srv/keys/deploy_keys"))
+	core.AssertTrue(t, mock.hasExecuted(`mkdir -p "/srv/keys"`))
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_ManageDirDisabled(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_ManageDirDisabled(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... user@host"
 	mock.expectCommand(`getent passwd deploy`, "/home/deploy", "", 0)
@@ -728,13 +725,13 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_ManageDirDisabled(t *testing.T) {
 		"manage_dir": false,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.False(t, mock.hasExecuted(`mkdir -p`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, mock.hasExecuted(`mkdir -p`))
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Good_RootUserFallback(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Good_RootUserFallback(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	testKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT... admin@host"
 	// getent returns empty — falls back to /root for root user
@@ -748,24 +745,24 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_RootUserFallback(t *testing.T) {
 		"key":  testKey,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 	// Should use /root/.ssh/authorized_keys
-	assert.True(t, mock.containsSubstring("/root/.ssh"))
+	core.AssertTrue(t, mock.containsSubstring("/root/.ssh"))
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Bad_MissingUserAndKey(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Bad_MissingUserAndKey(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
 	_, err := moduleAuthorizedKeyWithClient(e, mock, map[string]any{})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "user and key required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "user and key required")
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Bad_MissingKey(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Bad_MissingKey(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -773,11 +770,11 @@ func TestModulesAdv_ModuleAuthorizedKey_Bad_MissingKey(t *testing.T) {
 		"user": "deploy",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "user and key required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "user and key required")
 }
 
-func TestModulesAdv_ModuleAuthorizedKey_Bad_MissingUser(t *testing.T) {
+func TestModulesAdv_ModuleAuthorizedKey_Bad_MissingUser(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -785,13 +782,13 @@ func TestModulesAdv_ModuleAuthorizedKey_Bad_MissingUser(t *testing.T) {
 		"key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcT...",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "user and key required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "user and key required")
 }
 
 // --- git module ---
 
-func TestModulesAdv_ModuleGit_Good_FreshClone(t *testing.T) {
+func TestModulesAdv_ModuleGit_Good_FreshClone(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// .git does not exist → fresh clone
 	mock.expectCommand(`git clone`, "", "", 0)
@@ -801,17 +798,17 @@ func TestModulesAdv_ModuleGit_Good_FreshClone(t *testing.T) {
 		"dest": "/opt/app",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`git clone`))
-	assert.True(t, mock.containsSubstring("https://github.com/example/app.git"))
-	assert.True(t, mock.containsSubstring("/opt/app"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`git clone`))
+	core.AssertTrue(t, mock.containsSubstring("https://github.com/example/app.git"))
+	core.AssertTrue(t, mock.containsSubstring("/opt/app"))
 	// Default version is HEAD
-	assert.True(t, mock.containsSubstring("git checkout"))
+	core.AssertTrue(t, mock.containsSubstring("git checkout"))
 }
 
-func TestModulesAdv_ModuleGit_Good_UpdateExisting(t *testing.T) {
+func TestModulesAdv_ModuleGit_Good_UpdateExisting(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// .git exists → fetch + checkout
 	mock.addFile("/opt/app/.git", []byte("gitdir"))
@@ -822,16 +819,16 @@ func TestModulesAdv_ModuleGit_Good_UpdateExisting(t *testing.T) {
 		"dest": "/opt/app",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`git fetch --all`))
-	assert.True(t, mock.containsSubstring("git checkout --force"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`git fetch --all`))
+	core.AssertTrue(t, mock.containsSubstring("git checkout --force"))
 	// Should NOT contain git clone
-	assert.False(t, mock.containsSubstring("git clone"))
+	core.AssertFalse(t, mock.containsSubstring("git clone"))
 }
 
-func TestModulesAdv_ModuleGit_Good_CustomVersion(t *testing.T) {
+func TestModulesAdv_ModuleGit_Good_CustomVersion(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`git clone`, "", "", 0)
 
@@ -841,13 +838,13 @@ func TestModulesAdv_ModuleGit_Good_CustomVersion(t *testing.T) {
 		"version": "v2.1.0",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("v2.1.0"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("v2.1.0"))
 }
 
-func TestModulesAdv_ModuleGit_Good_UpdateWithBranch(t *testing.T) {
+func TestModulesAdv_ModuleGit_Good_UpdateWithBranch(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/srv/myapp/.git", []byte("gitdir"))
 	mock.expectCommand(`git fetch --all && git checkout`, "", "", 0)
@@ -858,22 +855,22 @@ func TestModulesAdv_ModuleGit_Good_UpdateWithBranch(t *testing.T) {
 		"version": "develop",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.containsSubstring("develop"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.containsSubstring("develop"))
 }
 
-func TestModulesAdv_ModuleGit_Bad_MissingRepoAndDest(t *testing.T) {
+func TestModulesAdv_ModuleGit_Bad_MissingRepoAndDest(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
 	_, err := moduleGitWithClient(e, mock, map[string]any{})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "repo and dest required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "repo and dest required")
 }
 
-func TestModulesAdv_ModuleGit_Bad_MissingRepo(t *testing.T) {
+func TestModulesAdv_ModuleGit_Bad_MissingRepo(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -881,11 +878,11 @@ func TestModulesAdv_ModuleGit_Bad_MissingRepo(t *testing.T) {
 		"dest": "/opt/app",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "repo and dest required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "repo and dest required")
 }
 
-func TestModulesAdv_ModuleGit_Bad_MissingDest(t *testing.T) {
+func TestModulesAdv_ModuleGit_Bad_MissingDest(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -893,11 +890,11 @@ func TestModulesAdv_ModuleGit_Bad_MissingDest(t *testing.T) {
 		"repo": "https://github.com/example/app.git",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "repo and dest required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "repo and dest required")
 }
 
-func TestModulesAdv_ModuleGit_Good_CloneFailure(t *testing.T) {
+func TestModulesAdv_ModuleGit_Good_CloneFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`git clone`, "", "fatal: repository not found", 128)
 
@@ -906,18 +903,18 @@ func TestModulesAdv_ModuleGit_Good_CloneFailure(t *testing.T) {
 		"dest": "/opt/app",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "repository not found")
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "repository not found")
 }
 
 // --- unarchive module ---
 
-func TestModulesAdv_ModuleUnarchive_Good_ExtractTarGzLocal(t *testing.T) {
+func TestModulesAdv_ModuleUnarchive_Good_ExtractTarGzLocal(t *core.T) {
 	// Create a temporary "archive" file
 	tmpDir := t.TempDir()
 	archivePath := joinPath(tmpDir, "package.tar.gz")
-	require.NoError(t, writeTestFile(archivePath, []byte("fake-archive-content"), 0644))
+	core.RequireNoError(t, writeTestFile(archivePath, []byte("fake-archive-content"), 0644))
 
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`mkdir -p`, "", "", 0)
@@ -929,19 +926,19 @@ func TestModulesAdv_ModuleUnarchive_Good_ExtractTarGzLocal(t *testing.T) {
 		"dest": "/opt/app",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 	// Should have uploaded the file
-	assert.Equal(t, 1, mock.uploadCount())
-	assert.True(t, mock.containsSubstring("tar -xzf"))
-	assert.True(t, mock.containsSubstring("/opt/app"))
+	core.AssertEqual(t, 1, mock.uploadCount())
+	core.AssertTrue(t, mock.containsSubstring("tar -xzf"))
+	core.AssertTrue(t, mock.containsSubstring("/opt/app"))
 }
 
-func TestModulesAdv_ModuleUnarchive_Good_ExtractZipLocal(t *testing.T) {
+func TestModulesAdv_ModuleUnarchive_Good_ExtractZipLocal(t *core.T) {
 	tmpDir := t.TempDir()
 	archivePath := joinPath(tmpDir, "release.zip")
-	require.NoError(t, writeTestFile(archivePath, []byte("fake-zip-content"), 0644))
+	core.RequireNoError(t, writeTestFile(archivePath, []byte("fake-zip-content"), 0644))
 
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`mkdir -p`, "", "", 0)
@@ -953,14 +950,14 @@ func TestModulesAdv_ModuleUnarchive_Good_ExtractZipLocal(t *testing.T) {
 		"dest": "/opt/releases",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 1, mock.uploadCount())
-	assert.True(t, mock.containsSubstring("unzip -o"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 1, mock.uploadCount())
+	core.AssertTrue(t, mock.containsSubstring("unzip -o"))
 }
 
-func TestModulesAdv_ModuleUnarchive_Good_RemoteSource(t *testing.T) {
+func TestModulesAdv_ModuleUnarchive_Good_RemoteSource(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`mkdir -p`, "", "", 0)
 	mock.expectCommand(`tar -xzf`, "", "", 0)
@@ -971,15 +968,15 @@ func TestModulesAdv_ModuleUnarchive_Good_RemoteSource(t *testing.T) {
 		"remote_src": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 	// No upload should happen for remote sources
-	assert.Equal(t, 0, mock.uploadCount())
-	assert.True(t, mock.containsSubstring("tar -xzf"))
+	core.AssertEqual(t, 0, mock.uploadCount())
+	core.AssertTrue(t, mock.containsSubstring("tar -xzf"))
 }
 
-func TestModulesAdv_ModuleUnarchive_Good_TarXz(t *testing.T) {
+func TestModulesAdv_ModuleUnarchive_Good_TarXz(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`mkdir -p`, "", "", 0)
 	mock.expectCommand(`tar -xJf`, "", "", 0)
@@ -990,12 +987,12 @@ func TestModulesAdv_ModuleUnarchive_Good_TarXz(t *testing.T) {
 		"remote_src": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.containsSubstring("tar -xJf"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.containsSubstring("tar -xJf"))
 }
 
-func TestModulesAdv_ModuleUnarchive_Good_TarBz2(t *testing.T) {
+func TestModulesAdv_ModuleUnarchive_Good_TarBz2(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`mkdir -p`, "", "", 0)
 	mock.expectCommand(`tar -xjf`, "", "", 0)
@@ -1006,22 +1003,22 @@ func TestModulesAdv_ModuleUnarchive_Good_TarBz2(t *testing.T) {
 		"remote_src": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.containsSubstring("tar -xjf"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.containsSubstring("tar -xjf"))
 }
 
-func TestModulesAdv_ModuleUnarchive_Bad_MissingSrcAndDest(t *testing.T) {
+func TestModulesAdv_ModuleUnarchive_Bad_MissingSrcAndDest(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
 	_, err := moduleUnarchiveWithClient(e, mock, map[string]any{})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "src and dest required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "src and dest required")
 }
 
-func TestModulesAdv_ModuleUnarchive_Bad_MissingSrc(t *testing.T) {
+func TestModulesAdv_ModuleUnarchive_Bad_MissingSrc(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -1029,11 +1026,11 @@ func TestModulesAdv_ModuleUnarchive_Bad_MissingSrc(t *testing.T) {
 		"dest": "/opt/app",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "src and dest required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "src and dest required")
 }
 
-func TestModulesAdv_ModuleUnarchive_Bad_LocalFileNotFound(t *testing.T) {
+func TestModulesAdv_ModuleUnarchive_Bad_LocalFileNotFound(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 	mock.expectCommand(`mkdir -p`, "", "", 0)
@@ -1043,13 +1040,13 @@ func TestModulesAdv_ModuleUnarchive_Bad_LocalFileNotFound(t *testing.T) {
 		"dest": "/opt/app",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "read src")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "read src")
 }
 
 // --- pause module ---
 
-func TestModulesAdv_ModulePause_Good_WaitsForSeconds(t *testing.T) {
+func TestModulesAdv_ModulePause_Good_WaitsForSeconds(t *core.T) {
 	e := NewExecutor("/tmp")
 
 	start := time.Now()
@@ -1058,13 +1055,13 @@ func TestModulesAdv_ModulePause_Good_WaitsForSeconds(t *testing.T) {
 	})
 	elapsed := time.Since(start)
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Changed)
-	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Changed)
+	core.AssertGreaterOrEqual(t, elapsed, 900*time.Millisecond)
 }
 
-func TestModulesAdv_ModulePause_Good_PromptReturnsImmediatelyWithoutTTY(t *testing.T) {
+func TestModulesAdv_ModulePause_Good_PromptReturnsImmediatelyWithoutTTY(t *core.T) {
 	e := NewExecutor("/tmp")
 
 	start := time.Now()
@@ -1074,16 +1071,16 @@ func TestModulesAdv_ModulePause_Good_PromptReturnsImmediatelyWithoutTTY(t *testi
 	})
 	elapsed := time.Since(start)
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Changed)
-	assert.Equal(t, "Press enter to continue", result.Msg)
-	assert.Less(t, elapsed, 250*time.Millisecond)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Changed)
+	core.AssertEqual(t, "Press enter to continue", result.Msg)
+	core.AssertLess(t, elapsed, 250*time.Millisecond)
 }
 
 // --- wait_for module ---
 
-func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathPresent(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathPresent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/ready", []byte("ok"))
 
@@ -1091,13 +1088,13 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathPresent(t *testing.T) {
 		"path": "/tmp/ready",
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathAbsent(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathAbsent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/vanish", []byte("ok"))
 
@@ -1116,14 +1113,14 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathAbsent(t *testing.T) {
 	})
 	elapsed := time.Since(start)
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertGreaterOrEqual(t, elapsed, 150*time.Millisecond)
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathRegexMatch(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathRegexMatch(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/config", []byte("ready=false\n"))
 
@@ -1142,14 +1139,14 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathRegexMatch(t *testing.T) {
 	})
 	elapsed := time.Since(start)
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.GreaterOrEqual(t, elapsed, 150*time.Millisecond)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertGreaterOrEqual(t, elapsed, 150*time.Millisecond)
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_HonoursInitialDelay(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_HonoursInitialDelay(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/delayed", []byte("ready=false\n"))
 
@@ -1168,14 +1165,14 @@ func TestModulesAdv_ModuleWaitFor_Good_HonoursInitialDelay(t *testing.T) {
 	})
 	elapsed := time.Since(start)
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.GreaterOrEqual(t, elapsed, 1*time.Second)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertGreaterOrEqual(t, elapsed, 1*time.Second)
 }
 
-func TestModulesAdv_ModuleWaitFor_Bad_CustomTimeoutMessage(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Bad_CustomTimeoutMessage(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/config", []byte("ready=false\n"))
 
@@ -1186,13 +1183,13 @@ func TestModulesAdv_ModuleWaitFor_Bad_CustomTimeoutMessage(t *testing.T) {
 		"msg":          "service never became ready",
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.True(t, result.Failed)
-	assert.Equal(t, "service never became ready", result.Msg)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertTrue(t, result.Failed)
+	core.AssertEqual(t, "service never became ready", result.Msg)
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortAbsent(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortAbsent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`timeout 2 bash -c 'until ! nc -z 127.0.0.1 8080; do sleep 1; done'`, "", "", 0)
 
@@ -1203,14 +1200,14 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortAbsent(t *testing.T) {
 		"timeout": 2,
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`until ! nc -z 127.0.0.1 8080`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`until ! nc -z 127.0.0.1 8080`))
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortStopped(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortStopped(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`timeout 2 bash -c 'until ! nc -z 127.0.0.1 8080; do sleep 1; done'`, "", "", 0)
 
@@ -1221,14 +1218,14 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortStopped(t *testing.T) {
 		"timeout": 2,
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`until ! nc -z 127.0.0.1 8080`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`until ! nc -z 127.0.0.1 8080`))
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortDrained(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortDrained(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`timeout 2 bash -c 'until ! ss -Htan state established`, "", "", 0)
 
@@ -1239,14 +1236,14 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPortDrained(t *testing.T) {
 		"timeout": 2,
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`ss -Htan state established`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`ss -Htan state established`))
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInterval(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInterval(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/slow-ready", []byte("ready=false\n"))
 
@@ -1266,14 +1263,14 @@ func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInterval(t *testing.T) {
 	})
 	elapsed := time.Since(start)
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.GreaterOrEqual(t, elapsed, 2*time.Second)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertGreaterOrEqual(t, elapsed, 2*time.Second)
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInPortLoop(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInPortLoop(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`timeout 5 bash -c 'until nc -z 127.0.0.1 8080; do sleep 3; done'`, "", "", 0)
 
@@ -1285,14 +1282,14 @@ func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInPortLoop(t *testing.T) {
 		"sleep":   3,
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`sleep 3`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`sleep 3`))
 }
 
-func TestModulesAdv_ModuleWaitFor_Good_AcceptsStringNumericArgs(t *testing.T) {
+func TestModulesAdv_ModuleWaitFor_Good_AcceptsStringNumericArgs(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`timeout 0 bash -c 'until ! nc -z 127.0.0.1 8080; do sleep 1; done'`, "", "", 0)
 
@@ -1303,11 +1300,11 @@ func TestModulesAdv_ModuleWaitFor_Good_AcceptsStringNumericArgs(t *testing.T) {
 		"timeout": "0",
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`until ! nc -z 127.0.0.1 8080`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`until ! nc -z 127.0.0.1 8080`))
 }
 
 // --- wait_for_connection module ---
@@ -1323,7 +1320,7 @@ func (c *deadlineAwareMockClient) Run(ctx context.Context, cmd string) (string, 
 	return c.MockSSHClient.Run(ctx, cmd)
 }
 
-func TestModulesAdv_ModuleWaitForConnection_Good_ReturnsWhenHostIsReachable(t *testing.T) {
+func TestModulesAdv_ModuleWaitForConnection_Good_ReturnsWhenHostIsReachable(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`^true$`, "", "", 0)
 
@@ -1334,14 +1331,14 @@ func TestModulesAdv_ModuleWaitForConnection_Good_ReturnsWhenHostIsReachable(t *t
 		},
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`^true$`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`^true$`))
 }
 
-func TestModulesAdv_ModuleWaitForConnection_Good_UsesConnectTimeout(t *testing.T) {
+func TestModulesAdv_ModuleWaitForConnection_Good_UsesConnectTimeout(t *core.T) {
 	e := NewExecutor("/tmp")
 	client := &deadlineAwareMockClient{MockSSHClient: NewMockSSHClient()}
 
@@ -1350,16 +1347,16 @@ func TestModulesAdv_ModuleWaitForConnection_Good_UsesConnectTimeout(t *testing.T
 		"connect_timeout": 1,
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.True(t, client.hasExecuted(`^true$`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertTrue(t, client.hasExecuted(`^true$`))
 }
 
-func TestModulesAdv_ModuleWaitForConnection_Bad_ImmediateFailure(t *testing.T) {
+func TestModulesAdv_ModuleWaitForConnection_Bad_ImmediateFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
-	mock.expectCommandError(`^true$`, assert.AnError)
+	mock.expectCommandError(`^true$`, core.AnError)
 
 	result, err := executeModuleWithMock(e, mock, "host1", &Task{
 		Module: "ansible.builtin.wait_for_connection",
@@ -1368,19 +1365,19 @@ func TestModulesAdv_ModuleWaitForConnection_Bad_ImmediateFailure(t *testing.T) {
 		},
 	})
 
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, assert.AnError.Error())
-	assert.True(t, mock.hasExecuted(`^true$`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, core.AnError.Error())
+	core.AssertTrue(t, mock.hasExecuted(`^true$`))
 }
 
 // --- include_vars module ---
 
-func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *core.T) {
 	dir := t.TempDir()
 	varsPath := joinPath(dir, "vars.yml")
-	require.NoError(t, writeTestFile(varsPath, []byte("app_name: demo\napp_port: 8080\nnested:\n  enabled: true\n"), 0644))
+	core.RequireNoError(t, writeTestFile(varsPath, []byte("app_name: demo\napp_port: 8080\nnested:\n  enabled: true\n"), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1388,25 +1385,25 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadSingleFile(t *testing.T) {
 		"file": varsPath,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Contains(t, result.Msg, varsPath)
-	require.NotNil(t, result.Data)
-	require.Contains(t, result.Data, "ansible_included_var_files")
-	assert.Equal(t, []string{varsPath}, result.Data["ansible_included_var_files"])
-	assert.Equal(t, "demo", e.vars["app_name"])
-	assert.Equal(t, 8080, e.vars["app_port"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertContains(t, result.Msg, varsPath)
+	core.AssertNotNil(t, result.Data)
+	core.AssertContains(t, result.Data, "ansible_included_var_files")
+	core.AssertEqual(t, []string{varsPath}, result.Data["ansible_included_var_files"])
+	core.AssertEqual(t, "demo", e.vars["app_name"])
+	core.AssertEqual(t, 8080, e.vars["app_port"])
 
 	nested, ok := e.vars["nested"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, true, nested["enabled"])
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, true, nested["enabled"])
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_LoadJSONFileByDefault(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_LoadJSONFileByDefault(t *core.T) {
 	dir := t.TempDir()
 	varsPath := joinPath(dir, "vars.json")
-	require.NoError(t, writeTestFile(varsPath, []byte(`{"app_name":"demo","app_port":8080}`), 0644))
+	core.RequireNoError(t, writeTestFile(varsPath, []byte(`{"app_name":"demo","app_port":8080}`), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1414,17 +1411,17 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadJSONFileByDefault(t *testing.T) {
 		"file": varsPath,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Equal(t, "demo", e.vars["app_name"])
-	assert.Equal(t, 8080, e.vars["app_port"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, "demo", e.vars["app_name"])
+	core.AssertEqual(t, 8080, e.vars["app_port"])
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_CustomExtensionsFilter(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_CustomExtensionsFilter(t *core.T) {
 	dir := t.TempDir()
-	require.NoError(t, writeTestFile(joinPath(dir, "01-ignored.yml"), []byte("ignored_value: false\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "02-selected.vars"), []byte("selected_value: included\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "01-ignored.yml"), []byte("ignored_value: false\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "02-selected.vars"), []byte("selected_value: included\n"), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1433,19 +1430,19 @@ func TestModulesAdv_ModuleIncludeVars_Good_CustomExtensionsFilter(t *testing.T) 
 		"extensions": []any{"vars"},
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, "included", e.vars["selected_value"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, "included", e.vars["selected_value"])
 	_, hasIgnored := e.vars["ignored_value"]
-	assert.False(t, hasIgnored)
-	assert.Contains(t, result.Msg, joinPath(dir, "02-selected.vars"))
-	assert.NotContains(t, result.Msg, joinPath(dir, "01-ignored.yml"))
+	core.AssertFalse(t, hasIgnored)
+	core.AssertContains(t, result.Msg, joinPath(dir, "02-selected.vars"))
+	core.AssertNotContains(t, result.Msg, joinPath(dir, "01-ignored.yml"))
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_LoadExtensionlessFilesWhenRequested(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_LoadExtensionlessFilesWhenRequested(t *core.T) {
 	dir := t.TempDir()
-	require.NoError(t, writeTestFile(joinPath(dir, "vars"), []byte("app_name: demo\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "ignored.txt"), []byte("ignored_value: true\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "vars"), []byte("app_name: demo\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "ignored.txt"), []byte("ignored_value: true\n"), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1454,19 +1451,19 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadExtensionlessFilesWhenRequested(t
 		"extensions": []any{"", "yml", "yaml", "json"},
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, "demo", e.vars["app_name"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, "demo", e.vars["app_name"])
 	_, hasIgnored := e.vars["ignored_value"]
-	assert.False(t, hasIgnored)
-	assert.Contains(t, result.Msg, joinPath(dir, "vars"))
-	assert.NotContains(t, result.Msg, joinPath(dir, "ignored.txt"))
+	core.AssertFalse(t, hasIgnored)
+	core.AssertContains(t, result.Msg, joinPath(dir, "vars"))
+	core.AssertNotContains(t, result.Msg, joinPath(dir, "ignored.txt"))
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *core.T) {
 	dir := t.TempDir()
-	require.NoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("app_name: demo\nnested:\n  a: 1\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "02-override.yaml"), []byte("app_port: 8080\nnested:\n  b: 2\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("app_name: demo\nnested:\n  a: 1\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "02-override.yaml"), []byte("app_port: 8080\nnested:\n  b: 2\n"), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1475,29 +1472,29 @@ func TestModulesAdv_ModuleIncludeVars_Good_LoadDirectoryWithMerge(t *testing.T) 
 		"hash_behaviour": "merge",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Contains(t, result.Msg, joinPath(dir, "01-base.yml"))
-	assert.Contains(t, result.Msg, joinPath(dir, "02-override.yaml"))
-	require.NotNil(t, result.Data)
-	assert.Equal(t, []string{
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertContains(t, result.Msg, joinPath(dir, "01-base.yml"))
+	core.AssertContains(t, result.Msg, joinPath(dir, "02-override.yaml"))
+	core.AssertNotNil(t, result.Data)
+	core.AssertEqual(t, []string{
 		joinPath(dir, "01-base.yml"),
 		joinPath(dir, "02-override.yaml"),
 	}, result.Data["ansible_included_var_files"])
-	assert.Equal(t, "demo", e.vars["app_name"])
-	assert.Equal(t, 8080, e.vars["app_port"])
+	core.AssertEqual(t, "demo", e.vars["app_name"])
+	core.AssertEqual(t, 8080, e.vars["app_port"])
 
 	nested, ok := e.vars["nested"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, 1, nested["a"])
-	assert.Equal(t, 2, nested["b"])
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, 1, nested["a"])
+	core.AssertEqual(t, 2, nested["b"])
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_ResolvesRelativePathsAgainstBasePath(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_ResolvesRelativePathsAgainstBasePath(t *core.T) {
 	dir := t.TempDir()
-	require.NoError(t, writeTestFile(joinPath(dir, "vars.yml"), []byte("app_name: demo\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "vars", "01-extra.yaml"), []byte("app_port: 8080\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "vars.yml"), []byte("app_name: demo\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "vars", "01-extra.yaml"), []byte("app_port: 8080\n"), 0644))
 
 	e := NewExecutor(dir)
 
@@ -1506,19 +1503,19 @@ func TestModulesAdv_ModuleIncludeVars_Good_ResolvesRelativePathsAgainstBasePath(
 		"dir":  "vars",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Contains(t, result.Msg, "vars.yml")
-	assert.Contains(t, result.Msg, joinPath(dir, "vars", "01-extra.yaml"))
-	assert.Equal(t, "demo", e.vars["app_name"])
-	assert.Equal(t, 8080, e.vars["app_port"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertContains(t, result.Msg, "vars.yml")
+	core.AssertContains(t, result.Msg, joinPath(dir, "vars", "01-extra.yaml"))
+	core.AssertEqual(t, "demo", e.vars["app_name"])
+	core.AssertEqual(t, 8080, e.vars["app_port"])
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_RecursesIntoNestedDirectories(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_RecursesIntoNestedDirectories(t *core.T) {
 	dir := t.TempDir()
-	require.NoError(t, writeTestFile(joinPath(dir, "01-root.yml"), []byte("root_value: root\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "nested", "02-child.yaml"), []byte("child_value: child\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "nested", "deep", "03-grandchild.yml"), []byte("grandchild_value: grandchild\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "01-root.yml"), []byte("root_value: root\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "nested", "02-child.yaml"), []byte("child_value: child\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "nested", "deep", "03-grandchild.yml"), []byte("grandchild_value: grandchild\n"), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1526,21 +1523,21 @@ func TestModulesAdv_ModuleIncludeVars_Good_RecursesIntoNestedDirectories(t *test
 		"dir": dir,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, "root", e.vars["root_value"])
-	assert.Equal(t, "child", e.vars["child_value"])
-	assert.Equal(t, "grandchild", e.vars["grandchild_value"])
-	assert.Contains(t, result.Msg, joinPath(dir, "01-root.yml"))
-	assert.Contains(t, result.Msg, joinPath(dir, "nested", "02-child.yaml"))
-	assert.Contains(t, result.Msg, joinPath(dir, "nested", "deep", "03-grandchild.yml"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, "root", e.vars["root_value"])
+	core.AssertEqual(t, "child", e.vars["child_value"])
+	core.AssertEqual(t, "grandchild", e.vars["grandchild_value"])
+	core.AssertContains(t, result.Msg, joinPath(dir, "01-root.yml"))
+	core.AssertContains(t, result.Msg, joinPath(dir, "nested", "02-child.yaml"))
+	core.AssertContains(t, result.Msg, joinPath(dir, "nested", "deep", "03-grandchild.yml"))
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_RespectsDepthLimit(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_RespectsDepthLimit(t *core.T) {
 	dir := t.TempDir()
-	require.NoError(t, writeTestFile(joinPath(dir, "01-root.yml"), []byte("root_value: root\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "nested", "02-child.yaml"), []byte("child_value: child\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "nested", "deep", "03-grandchild.yml"), []byte("grandchild_value: grandchild\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "01-root.yml"), []byte("root_value: root\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "nested", "02-child.yaml"), []byte("child_value: child\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "nested", "deep", "03-grandchild.yml"), []byte("grandchild_value: grandchild\n"), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1549,20 +1546,20 @@ func TestModulesAdv_ModuleIncludeVars_Good_RespectsDepthLimit(t *testing.T) {
 		"depth": 1,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, "root", e.vars["root_value"])
-	assert.Equal(t, "child", e.vars["child_value"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, "root", e.vars["root_value"])
+	core.AssertEqual(t, "child", e.vars["child_value"])
 	_, hasGrandchild := e.vars["grandchild_value"]
-	assert.False(t, hasGrandchild)
-	assert.NotContains(t, result.Msg, joinPath(dir, "nested", "deep", "03-grandchild.yml"))
+	core.AssertFalse(t, hasGrandchild)
+	core.AssertNotContains(t, result.Msg, joinPath(dir, "nested", "deep", "03-grandchild.yml"))
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_FiltersFilesMatching(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_FiltersFilesMatching(t *core.T) {
 	dir := t.TempDir()
-	require.NoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("base_value: base\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "02-extra.yaml"), []byte("extra_value: extra\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "notes.txt"), []byte("ignored: true\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("base_value: base\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "02-extra.yaml"), []byte("extra_value: extra\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "notes.txt"), []byte("ignored: true\n"), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1571,20 +1568,20 @@ func TestModulesAdv_ModuleIncludeVars_Good_FiltersFilesMatching(t *testing.T) {
 		"files_matching": `^02-.*\.ya?ml$`,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, "extra", e.vars["extra_value"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, "extra", e.vars["extra_value"])
 	_, hasBase := e.vars["base_value"]
-	assert.False(t, hasBase)
-	assert.Contains(t, result.Msg, joinPath(dir, "02-extra.yaml"))
-	assert.NotContains(t, result.Msg, joinPath(dir, "01-base.yml"))
+	core.AssertFalse(t, hasBase)
+	core.AssertContains(t, result.Msg, joinPath(dir, "02-extra.yaml"))
+	core.AssertNotContains(t, result.Msg, joinPath(dir, "01-base.yml"))
 }
 
-func TestModulesAdv_ModuleIncludeVars_Good_IgnoresNamedFiles(t *testing.T) {
+func TestModulesAdv_ModuleIncludeVars_Good_IgnoresNamedFiles(t *core.T) {
 	dir := t.TempDir()
-	require.NoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("base_value: base\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "02-skip.yml"), []byte("skip_value: skipped\n"), 0644))
-	require.NoError(t, writeTestFile(joinPath(dir, "nested", "02-skip.yml"), []byte("nested_skip_value: skipped\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "01-base.yml"), []byte("base_value: base\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "02-skip.yml"), []byte("skip_value: skipped\n"), 0644))
+	core.RequireNoError(t, writeTestFile(joinPath(dir, "nested", "02-skip.yml"), []byte("nested_skip_value: skipped\n"), 0644))
 
 	e := NewExecutor("/tmp")
 
@@ -1593,21 +1590,21 @@ func TestModulesAdv_ModuleIncludeVars_Good_IgnoresNamedFiles(t *testing.T) {
 		"ignore_files": []any{"02-skip.yml"},
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, "base", e.vars["base_value"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, "base", e.vars["base_value"])
 	_, hasSkip := e.vars["skip_value"]
-	assert.False(t, hasSkip)
+	core.AssertFalse(t, hasSkip)
 	_, hasNestedSkip := e.vars["nested_skip_value"]
-	assert.False(t, hasNestedSkip)
-	assert.Contains(t, result.Msg, joinPath(dir, "01-base.yml"))
-	assert.NotContains(t, result.Msg, joinPath(dir, "02-skip.yml"))
-	assert.NotContains(t, result.Msg, joinPath(dir, "nested", "02-skip.yml"))
+	core.AssertFalse(t, hasNestedSkip)
+	core.AssertContains(t, result.Msg, joinPath(dir, "01-base.yml"))
+	core.AssertNotContains(t, result.Msg, joinPath(dir, "02-skip.yml"))
+	core.AssertNotContains(t, result.Msg, joinPath(dir, "nested", "02-skip.yml"))
 }
 
 // --- sysctl module ---
 
-func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {
+func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`sysctl -w net.ipv4.ip_forward=1`, "", "", 0)
 	mock.expectCommand(`grep -q .*net.ipv4.ip_forward`, "", "", 0)
@@ -1619,14 +1616,14 @@ func TestModulesAdv_ModuleSysctl_Good_ReloadsAfterPersisting(t *testing.T) {
 		"reload": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`sysctl -w net.ipv4.ip_forward=1`))
-	assert.True(t, mock.hasExecuted(`sysctl -p`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`sysctl -w net.ipv4.ip_forward=1`))
+	core.AssertTrue(t, mock.hasExecuted(`sysctl -p`))
 }
 
-func TestModulesAdv_ModuleSysctl_Good_IgnoreErrorsAddsSysctlFlag(t *testing.T) {
+func TestModulesAdv_ModuleSysctl_Good_IgnoreErrorsAddsSysctlFlag(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`sysctl -e -w net.ipv4.ip_forward=1`, "", "", 0)
 	mock.expectCommand(`grep -q .*net.ipv4.ip_forward`, "", "", 0)
@@ -1639,14 +1636,14 @@ func TestModulesAdv_ModuleSysctl_Good_IgnoreErrorsAddsSysctlFlag(t *testing.T) {
 		"ignoreerrors": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`sysctl -e -w net.ipv4.ip_forward=1`))
-	assert.True(t, mock.hasExecuted(`sysctl -e -p`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`sysctl -e -w net.ipv4.ip_forward=1`))
+	core.AssertTrue(t, mock.hasExecuted(`sysctl -e -p`))
 }
 
-func TestModulesAdv_ModuleSysctl_Good_UsesCustomSysctlFile(t *testing.T) {
+func TestModulesAdv_ModuleSysctl_Good_UsesCustomSysctlFile(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`sed -i '/net\\.ipv4\\.ip_forward/d' .*custom\.conf`, "", "", 0)
 
@@ -1656,15 +1653,15 @@ func TestModulesAdv_ModuleSysctl_Good_UsesCustomSysctlFile(t *testing.T) {
 		"sysctl_file": "/etc/sysctl.d/custom.conf",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`sed -i '/net\\.ipv4\\.ip_forward/d' .*custom\.conf`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`sed -i '/net\\.ipv4\\.ip_forward/d' .*custom\.conf`))
 }
 
 // --- uri module ---
 
-func TestModulesAdv_ModuleURI_Good_GetRequestDefault(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_GetRequestDefault(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*https://example.com/api/health`, "OK\n200", "", 0)
 
@@ -1672,15 +1669,15 @@ func TestModulesAdv_ModuleURI_Good_GetRequestDefault(t *testing.T) {
 		"url": "https://example.com/api/health",
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed) // URI module does not set changed
-	assert.Equal(t, 200, result.RC)
-	assert.Equal(t, 200, result.Data["status"])
-	assert.True(t, mock.containsSubstring("-L"))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed) // URI module does not set changed
+	core.AssertEqual(t, 200, result.RC)
+	core.AssertEqual(t, 200, result.Data["status"])
+	core.AssertTrue(t, mock.containsSubstring("-L"))
 }
 
-func TestModulesAdv_ModuleURI_Good_DisablesRedirectFollowing(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_DisablesRedirectFollowing(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*https://example.com/api/health`, "OK\n200", "", 0)
 
@@ -1689,16 +1686,16 @@ func TestModulesAdv_ModuleURI_Good_DisablesRedirectFollowing(t *testing.T) {
 		"follow_redirects": "none",
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.False(t, result.Changed)
-	assert.Equal(t, 200, result.RC)
-	assert.Equal(t, 200, result.Data["status"])
-	assert.True(t, mock.containsSubstring("--max-redirs 0"))
-	assert.False(t, mock.containsSubstring("-L"))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertFalse(t, result.Changed)
+	core.AssertEqual(t, 200, result.RC)
+	core.AssertEqual(t, 200, result.Data["status"])
+	core.AssertTrue(t, mock.containsSubstring("--max-redirs 0"))
+	core.AssertFalse(t, mock.containsSubstring("-L"))
 }
 
-func TestModulesAdv_ModuleURI_Good_PostWithBodyAndHeaders(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_PostWithBodyAndHeaders(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// Use a broad pattern since header order in map iteration is non-deterministic
 	mock.expectCommand(`curl.*api\.example\.com`, "{\"id\":1}\n201", "", 0)
@@ -1714,16 +1711,16 @@ func TestModulesAdv_ModuleURI_Good_PostWithBodyAndHeaders(t *testing.T) {
 		},
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 201, result.RC)
-	assert.True(t, mock.containsSubstring("-X POST"))
-	assert.True(t, mock.containsSubstring("-d"))
-	assert.True(t, mock.containsSubstring("Content-Type"))
-	assert.True(t, mock.containsSubstring("Authorization"))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 201, result.RC)
+	core.AssertTrue(t, mock.containsSubstring("-X POST"))
+	core.AssertTrue(t, mock.containsSubstring("-d"))
+	core.AssertTrue(t, mock.containsSubstring("Content-Type"))
+	core.AssertTrue(t, mock.containsSubstring("Authorization"))
 }
 
-func TestModulesAdv_ModuleURI_Good_UsesBasicAuthFlags(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_UsesBasicAuthFlags(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*secure\.example\.com`, "OK\n200", "", 0)
 
@@ -1734,14 +1731,14 @@ func TestModulesAdv_ModuleURI_Good_UsesBasicAuthFlags(t *testing.T) {
 		"force_basic_auth": true,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 200, result.RC)
-	assert.True(t, mock.hasExecuted(`-u .*apiuser:apipass`))
-	assert.True(t, mock.hasExecuted(`--basic`))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 200, result.RC)
+	core.AssertTrue(t, mock.hasExecuted(`-u .*apiuser:apipass`))
+	core.AssertTrue(t, mock.hasExecuted(`--basic`))
 }
 
-func TestModulesAdv_ModuleURI_Good_UsesUnixSocket(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_UsesUnixSocket(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*http://localhost/_ping`, "OK\n200", "", 0)
 
@@ -1750,13 +1747,13 @@ func TestModulesAdv_ModuleURI_Good_UsesUnixSocket(t *testing.T) {
 		"unix_socket": "/var/run/docker.sock",
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 200, result.RC)
-	assert.True(t, mock.hasExecuted(`--unix-socket '/var/run/docker.sock'`))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 200, result.RC)
+	core.AssertTrue(t, mock.hasExecuted(`--unix-socket '/var/run/docker.sock'`))
 }
 
-func TestModulesAdv_ModuleURI_Good_DisablesProxyUsage(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_DisablesProxyUsage(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*https://example.com/api/health`, "OK\n200", "", 0)
 
@@ -1765,15 +1762,15 @@ func TestModulesAdv_ModuleURI_Good_DisablesProxyUsage(t *testing.T) {
 		"use_proxy": false,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 200, result.RC)
-	assert.True(t, mock.hasExecuted(`--noproxy`))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 200, result.RC)
+	core.AssertTrue(t, mock.hasExecuted(`--noproxy`))
 }
 
-func TestModulesAdv_ModuleURI_Good_UsesSourceFileBody(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_UsesSourceFileBody(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
-	require.NoError(t, mock.Upload(context.Background(), newReader("alpha=1&beta=2"), "/tmp/request-body.txt", 0644))
+	core.RequireNoError(t, mock.Upload(context.Background(), newReader("alpha=1&beta=2"), "/tmp/request-body.txt", 0644))
 	mock.expectCommand(`curl.*form\.example\.com`, "created\n201", "", 0)
 
 	result, err := moduleURIWithClient(e, mock, map[string]any{
@@ -1784,14 +1781,14 @@ func TestModulesAdv_ModuleURI_Good_UsesSourceFileBody(t *testing.T) {
 		"status_code": 201,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 201, result.RC)
-	assert.True(t, mock.containsSubstring(`-d "alpha=1&beta=2"`))
-	assert.False(t, mock.containsSubstring("Content-Type: application/json"))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 201, result.RC)
+	core.AssertTrue(t, mock.containsSubstring(`-d "alpha=1&beta=2"`))
+	core.AssertFalse(t, mock.containsSubstring("Content-Type: application/json"))
 }
 
-func TestModulesAdv_ModuleURI_Good_FormURLEncodedBody(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_FormURLEncodedBody(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*form\.example\.com`, "created\n201", "", 0)
 
@@ -1806,14 +1803,14 @@ func TestModulesAdv_ModuleURI_Good_FormURLEncodedBody(t *testing.T) {
 		"status_code": 201,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 201, result.RC)
-	assert.True(t, mock.containsSubstring(`-d "name=Alice+Example&scope=read&scope=write"`))
-	assert.True(t, mock.containsSubstring("Content-Type: application/x-www-form-urlencoded"))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 201, result.RC)
+	core.AssertTrue(t, mock.containsSubstring(`-d "name=Alice+Example&scope=read&scope=write"`))
+	core.AssertTrue(t, mock.containsSubstring("Content-Type: application/x-www-form-urlencoded"))
 }
 
-func TestModulesAdv_ModuleURI_Good_FormMultipartBody(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_FormMultipartBody(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*form\.example\.com`, "created\n201", "", 0)
 
@@ -1828,17 +1825,17 @@ func TestModulesAdv_ModuleURI_Good_FormMultipartBody(t *testing.T) {
 		"status_code": 201,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 201, result.RC)
-	assert.True(t, mock.containsSubstring(`-F "name=Alice Example"`))
-	assert.True(t, mock.containsSubstring(`-F "scope=read"`))
-	assert.True(t, mock.containsSubstring(`-F "scope=write"`))
-	assert.False(t, mock.containsSubstring("Content-Type: application/json"))
-	assert.False(t, mock.containsSubstring("Content-Type: application/x-www-form-urlencoded"))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 201, result.RC)
+	core.AssertTrue(t, mock.containsSubstring(`-F "name=Alice Example"`))
+	core.AssertTrue(t, mock.containsSubstring(`-F "scope=read"`))
+	core.AssertTrue(t, mock.containsSubstring(`-F "scope=write"`))
+	core.AssertFalse(t, mock.containsSubstring("Content-Type: application/json"))
+	core.AssertFalse(t, mock.containsSubstring("Content-Type: application/x-www-form-urlencoded"))
 }
 
-func TestModulesAdv_ModuleURI_Good_WrongStatusCode(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_WrongStatusCode(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "Not Found\n404", "", 0)
 
@@ -1846,25 +1843,25 @@ func TestModulesAdv_ModuleURI_Good_WrongStatusCode(t *testing.T) {
 		"url": "https://example.com/missing",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed) // Expected 200, got 404
-	assert.Equal(t, 404, result.RC)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed) // Expected 200, got 404
+	core.AssertEqual(t, 404, result.RC)
 }
 
-func TestModulesAdv_ModuleURI_Good_CurlCommandFailure(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_CurlCommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
-	mock.expectCommandError(`curl`, assert.AnError)
+	mock.expectCommandError(`curl`, core.AnError)
 
 	result, err := moduleURIWithClient(e, mock, map[string]any{
 		"url": "https://unreachable.example.com",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, assert.AnError.Error())
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, core.AnError.Error())
 }
 
-func TestModulesAdv_ModuleURI_Good_CustomExpectedStatus(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_CustomExpectedStatus(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "\n204", "", 0)
 
@@ -1874,12 +1871,12 @@ func TestModulesAdv_ModuleURI_Good_CustomExpectedStatus(t *testing.T) {
 		"status_code": 204,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 204, result.RC)
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 204, result.RC)
 }
 
-func TestModulesAdv_ModuleURI_Good_ReturnContent(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_ReturnContent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "{\"ok\":true}\n200", "", 0)
 
@@ -1889,14 +1886,14 @@ func TestModulesAdv_ModuleURI_Good_ReturnContent(t *testing.T) {
 		"status_code":    200,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	require.NotNil(t, result.Data)
-	assert.Equal(t, "{\"ok\":true}", result.Data["content"])
-	assert.Equal(t, 200, result.Data["status"])
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertNotNil(t, result.Data)
+	core.AssertEqual(t, "{\"ok\":true}", result.Data["content"])
+	core.AssertEqual(t, 200, result.Data["status"])
 }
 
-func TestModulesAdv_ModuleURI_Good_WritesResponseToDest(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_WritesResponseToDest(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "{\"ok\":true}\n200", "", 0)
 
@@ -1905,18 +1902,18 @@ func TestModulesAdv_ModuleURI_Good_WritesResponseToDest(t *testing.T) {
 		"dest": "/tmp/api-status.json",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	require.NotNil(t, result.Data)
-	assert.Equal(t, "/tmp/api-status.json", result.Data["dest"])
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertNotNil(t, result.Data)
+	core.AssertEqual(t, "/tmp/api-status.json", result.Data["dest"])
 
 	content, err := mock.Download(context.Background(), "/tmp/api-status.json")
-	require.NoError(t, err)
-	assert.Equal(t, []byte("{\"ok\":true}"), content)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, []byte("{\"ok\":true}"), content)
 }
 
-func TestModulesAdv_ModuleURI_Good_JSONBodyFormat(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_JSONBodyFormat(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "{\"created\":true}\n201", "", 0)
 
@@ -1930,14 +1927,14 @@ func TestModulesAdv_ModuleURI_Good_JSONBodyFormat(t *testing.T) {
 		"status_code": 201,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 201, result.RC)
-	assert.True(t, mock.containsSubstring(`-d "{\"name\":\"test\"}"`))
-	assert.True(t, mock.containsSubstring("Content-Type: application/json"))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 201, result.RC)
+	core.AssertTrue(t, mock.containsSubstring(`-d "{\"name\":\"test\"}"`))
+	core.AssertTrue(t, mock.containsSubstring("Content-Type: application/json"))
 }
 
-func TestModulesAdv_ModuleURI_Good_TimeoutAndInsecureSkipVerify(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_TimeoutAndInsecureSkipVerify(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "OK\n200", "", 0)
 
@@ -1947,14 +1944,14 @@ func TestModulesAdv_ModuleURI_Good_TimeoutAndInsecureSkipVerify(t *testing.T) {
 		"validate_certs": false,
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 200, result.RC)
-	assert.True(t, mock.containsSubstring("-k"))
-	assert.True(t, mock.containsSubstring("--max-time 15"))
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 200, result.RC)
+	core.AssertTrue(t, mock.containsSubstring("-k"))
+	core.AssertTrue(t, mock.containsSubstring("--max-time 15"))
 }
 
-func TestModulesAdv_ModuleURI_Good_MultipleExpectedStatuses(t *testing.T) {
+func TestModulesAdv_ModuleURI_Good_MultipleExpectedStatuses(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "\n202", "", 0)
 
@@ -1963,13 +1960,13 @@ func TestModulesAdv_ModuleURI_Good_MultipleExpectedStatuses(t *testing.T) {
 		"status_code": []any{200, 202, 204},
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 202, result.RC)
-	assert.Equal(t, 202, result.Data["status"])
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 202, result.RC)
+	core.AssertEqual(t, 202, result.Data["status"])
 }
 
-func TestModulesAdv_ModuleURI_Bad_MissingURL(t *testing.T) {
+func TestModulesAdv_ModuleURI_Bad_MissingURL(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -1977,13 +1974,13 @@ func TestModulesAdv_ModuleURI_Bad_MissingURL(t *testing.T) {
 		"method": "GET",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "url required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "url required")
 }
 
 // --- ufw module ---
 
-func TestModulesAdv_ModuleUFW_Good_AllowRuleWithPort(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_AllowRuleWithPort(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw allow 443/tcp`, "Rule added", "", 0)
 
@@ -1992,13 +1989,13 @@ func TestModulesAdv_ModuleUFW_Good_AllowRuleWithPort(t *testing.T) {
 		"port": "443",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw allow 443/tcp`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw allow 443/tcp`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_EnableFirewall(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_EnableFirewall(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw --force enable`, "Firewall is active", "", 0)
 
@@ -2006,13 +2003,13 @@ func TestModulesAdv_ModuleUFW_Good_EnableFirewall(t *testing.T) {
 		"state": "enabled",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw --force enable`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw --force enable`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_DenyRuleWithProto(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_DenyRuleWithProto(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw deny 53/udp`, "Rule added", "", 0)
 
@@ -2022,13 +2019,13 @@ func TestModulesAdv_ModuleUFW_Good_DenyRuleWithProto(t *testing.T) {
 		"proto": "udp",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw deny 53/udp`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw deny 53/udp`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_ResetFirewall(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_ResetFirewall(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw --force reset`, "Resetting", "", 0)
 
@@ -2036,13 +2033,13 @@ func TestModulesAdv_ModuleUFW_Good_ResetFirewall(t *testing.T) {
 		"state": "reset",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw --force reset`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw --force reset`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_DisableFirewall(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_DisableFirewall(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw disable`, "Firewall stopped", "", 0)
 
@@ -2050,13 +2047,13 @@ func TestModulesAdv_ModuleUFW_Good_DisableFirewall(t *testing.T) {
 		"state": "disabled",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw disable`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw disable`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_ReloadFirewall(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_ReloadFirewall(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw reload`, "Firewall reloaded", "", 0)
 
@@ -2064,13 +2061,13 @@ func TestModulesAdv_ModuleUFW_Good_ReloadFirewall(t *testing.T) {
 		"state": "reloaded",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw reload`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw reload`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_LimitRule(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_LimitRule(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw limit 22/tcp`, "Rule added", "", 0)
 
@@ -2079,13 +2076,13 @@ func TestModulesAdv_ModuleUFW_Good_LimitRule(t *testing.T) {
 		"port": "22",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw limit 22/tcp`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw limit 22/tcp`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_DeleteRule(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_DeleteRule(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw delete allow 443/tcp`, "Rule deleted", "", 0)
 
@@ -2095,13 +2092,13 @@ func TestModulesAdv_ModuleUFW_Good_DeleteRule(t *testing.T) {
 		"delete": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw delete allow 443/tcp`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw delete allow 443/tcp`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_LoggingMode(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_LoggingMode(t *core.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
 	mock.expectCommand(`ufw logging high`, "Logging enabled\n", "", 0)
@@ -2115,14 +2112,14 @@ func TestModulesAdv_ModuleUFW_Good_LoggingMode(t *testing.T) {
 
 	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
 
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw logging high`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw logging high`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_BuiltinAliasDispatch(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_BuiltinAliasDispatch(t *core.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
 	mock.expectCommand(`ufw --force enable`, "", "", 0)
@@ -2136,14 +2133,14 @@ func TestModulesAdv_ModuleUFW_Good_BuiltinAliasDispatch(t *testing.T) {
 
 	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
 
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`ufw --force enable`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`ufw --force enable`))
 }
 
-func TestModulesAdv_ModuleUFW_Good_StateCommandFailure(t *testing.T) {
+func TestModulesAdv_ModuleUFW_Good_StateCommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`ufw --force enable`, "", "ERROR: problem running ufw", 1)
 
@@ -2151,13 +2148,13 @@ func TestModulesAdv_ModuleUFW_Good_StateCommandFailure(t *testing.T) {
 		"state": "enabled",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
 }
 
 // --- docker_compose module ---
 
-func TestModulesAdv_ModuleDockerCompose_Good_StatePresent(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Good_StatePresent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose up -d`, "Creating container_1\nCreating container_2\n", "", 0)
 
@@ -2166,14 +2163,14 @@ func TestModulesAdv_ModuleDockerCompose_Good_StatePresent(t *testing.T) {
 		"state":       "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`docker compose up -d`))
-	assert.True(t, mock.containsSubstring("/opt/myapp"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`docker compose up -d`))
+	core.AssertTrue(t, mock.containsSubstring("/opt/myapp"))
 }
 
-func TestModulesAdv_ModuleDockerCompose_Good_StateAbsent(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Good_StateAbsent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose down`, "Removing container_1\n", "", 0)
 
@@ -2182,13 +2179,13 @@ func TestModulesAdv_ModuleDockerCompose_Good_StateAbsent(t *testing.T) {
 		"state":       "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`docker compose down`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`docker compose down`))
 }
 
-func TestModulesAdv_ModuleDockerCompose_Good_StateStopped(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Good_StateStopped(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose stop`, "Stopping container_1\n", "", 0)
 
@@ -2197,13 +2194,13 @@ func TestModulesAdv_ModuleDockerCompose_Good_StateStopped(t *testing.T) {
 		"state":       "stopped",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`docker compose stop`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`docker compose stop`))
 }
 
-func TestModulesAdv_ModuleDockerCompose_Good_AlreadyUpToDate(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Good_AlreadyUpToDate(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose up -d`, "Container myapp-web-1  Up to date\n", "", 0)
 
@@ -2212,12 +2209,12 @@ func TestModulesAdv_ModuleDockerCompose_Good_AlreadyUpToDate(t *testing.T) {
 		"state":       "present",
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Changed) // "Up to date" in stdout → changed=false
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Changed) // "Up to date" in stdout → changed=false
+	core.AssertFalse(t, result.Failed)
 }
 
-func TestModulesAdv_ModuleDockerCompose_Good_StateRestarted(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Good_StateRestarted(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose restart`, "Restarting container_1\n", "", 0)
 
@@ -2226,13 +2223,13 @@ func TestModulesAdv_ModuleDockerCompose_Good_StateRestarted(t *testing.T) {
 		"state":       "restarted",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`docker compose restart`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`docker compose restart`))
 }
 
-func TestModulesAdv_ModuleDockerCompose_Bad_MissingProjectSrc(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Bad_MissingProjectSrc(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -2240,11 +2237,11 @@ func TestModulesAdv_ModuleDockerCompose_Bad_MissingProjectSrc(t *testing.T) {
 		"state": "present",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "project_src required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "project_src required")
 }
 
-func TestModulesAdv_ModuleDockerCompose_Good_CommandFailure(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Good_CommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose up -d`, "", "Error response from daemon", 1)
 
@@ -2253,12 +2250,12 @@ func TestModulesAdv_ModuleDockerCompose_Good_CommandFailure(t *testing.T) {
 		"state":       "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "Error response from daemon")
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "Error response from daemon")
 }
 
-func TestModulesAdv_ModuleDockerCompose_Good_DefaultStateIsPresent(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Good_DefaultStateIsPresent(t *core.T) {
 	// When no state is specified, default is "present"
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose up -d`, "Starting\n", "", 0)
@@ -2267,13 +2264,13 @@ func TestModulesAdv_ModuleDockerCompose_Good_DefaultStateIsPresent(t *testing.T)
 		"project_src": "/opt/app",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`docker compose up -d`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`docker compose up -d`))
 }
 
-func TestModulesAdv_ModuleDockerCompose_Good_ProjectNameAndFiles(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Good_ProjectNameAndFiles(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d`, "Starting\n", "", 0)
 
@@ -2283,13 +2280,13 @@ func TestModulesAdv_ModuleDockerCompose_Good_ProjectNameAndFiles(t *testing.T) {
 		"files":        []any{"docker-compose.yml", "docker-compose.prod.yml"},
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d"))
 }
 
-func TestModulesAdv_ModuleDockerCompose_Production_Good_AlreadyUpToDate(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Production_Good_AlreadyUpToDate(t *core.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
 	mock.expectCommand(`docker compose up -d`, "Container myapp-web-1  Up to date\n", "", 0)
@@ -2299,13 +2296,13 @@ func TestModulesAdv_ModuleDockerCompose_Production_Good_AlreadyUpToDate(t *testi
 		"state":       "present",
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Equal(t, "Container myapp-web-1  Up to date\n", result.Stdout)
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, "Container myapp-web-1  Up to date\n", result.Stdout)
 }
 
-func TestModulesAdv_ModuleDockerCompose_Production_Good_ProjectNameAndFiles(t *testing.T) {
+func TestModulesAdv_ModuleDockerCompose_Production_Good_ProjectNameAndFiles(t *core.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
 	mock.expectCommand(`docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d`, "Starting\n", "", 0)
@@ -2316,15 +2313,15 @@ func TestModulesAdv_ModuleDockerCompose_Production_Good_ProjectNameAndFiles(t *t
 		"files":        []any{"docker-compose.yml", "docker-compose.prod.yml"},
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`docker compose -p 'demo-app' -f 'docker-compose.yml' -f 'docker-compose.prod.yml' up -d`))
 }
 
 // --- Cross-module dispatch tests for advanced modules ---
 
-func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchUser(t *testing.T) {
+func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchUser(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`id|useradd|usermod`, "", "", 0)
 
@@ -2338,11 +2335,11 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchUser(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 }
 
-func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchGroup(t *testing.T) {
+func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchGroup(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`getent group|groupadd`, "", "", 0)
 
@@ -2355,11 +2352,11 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchGroup(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 }
 
-func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchCron(t *testing.T) {
+func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchCron(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`crontab`, "", "", 0)
 
@@ -2373,11 +2370,11 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchCron(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 }
 
-func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchGit(t *testing.T) {
+func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchGit(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`git clone`, "", "", 0)
 
@@ -2391,11 +2388,11 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchGit(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 }
 
-func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchURI(t *testing.T) {
+func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchURI(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "OK\n200", "", 0)
 
@@ -2408,11 +2405,11 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchURI(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Failed)
 }
 
-func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerCompose(t *testing.T) {
+func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerCompose(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose up -d`, "Creating\n", "", 0)
 
@@ -2426,11 +2423,11 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerCompose(t *testing.
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 }
 
-func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerComposeV2(t *testing.T) {
+func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerComposeV2(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`docker compose up -d`, "Creating\n", "", 0)
 
@@ -2444,12 +2441,12 @@ func TestModulesAdv_ExecuteModuleWithMock_Good_DispatchDockerComposeV2(t *testin
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 }
 
-func TestModulesAdv_ExecuteModule_Good_DispatchBuiltinDockerCompose(t *testing.T) {
+func TestModulesAdv_ExecuteModule_Good_DispatchBuiltinDockerCompose(t *core.T) {
 	e := NewExecutor("/tmp")
 	mock := NewMockSSHClient()
 	mock.expectCommand(`docker compose up -d`, "Creating\n", "", 0)
@@ -2464,16 +2461,16 @@ func TestModulesAdv_ExecuteModule_Good_DispatchBuiltinDockerCompose(t *testing.T
 
 	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
 
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`docker compose up -d`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`docker compose up -d`))
 }
 
 // --- reboot module ---
 
-func TestModulesAdv_ModuleReboot_Good_WaitsForTestCommand(t *testing.T) {
+func TestModulesAdv_ModuleReboot_Good_WaitsForTestCommand(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`sleep 2 && shutdown -r now 'Maintenance window' &`, "", "", 0)
 	mock.expectCommand(`sleep 3`, "", "", 0)
@@ -2487,16 +2484,16 @@ func TestModulesAdv_ModuleReboot_Good_WaitsForTestCommand(t *testing.T) {
 		"test_command":      "whoami",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, "Reboot initiated", result.Msg)
-	assert.Equal(t, 3, mock.commandCount())
-	assert.True(t, mock.hasExecuted(`sleep 2 && shutdown -r now 'Maintenance window' &`))
-	assert.True(t, mock.hasExecuted(`sleep 3`))
-	assert.True(t, mock.hasExecuted(`whoami`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, "Reboot initiated", result.Msg)
+	core.AssertEqual(t, 3, mock.commandCount())
+	core.AssertTrue(t, mock.hasExecuted(`sleep 2 && shutdown -r now 'Maintenance window' &`))
+	core.AssertTrue(t, mock.hasExecuted(`sleep 3`))
+	core.AssertTrue(t, mock.hasExecuted(`whoami`))
 }
 
-func TestModulesAdv_ModuleReboot_Good_CustomRebootCommand(t *testing.T) {
+func TestModulesAdv_ModuleReboot_Good_CustomRebootCommand(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`sleep 1 && /sbin/reboot`, "", "", 0)
 	mock.expectCommand(`whoami`, "root\n", "", 0)
@@ -2507,15 +2504,15 @@ func TestModulesAdv_ModuleReboot_Good_CustomRebootCommand(t *testing.T) {
 		"reboot_timeout":   5,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, "Reboot initiated", result.Msg)
-	assert.Equal(t, 2, mock.commandCount())
-	assert.True(t, mock.hasExecuted(`sleep 1 && /sbin/reboot`))
-	assert.True(t, mock.hasExecuted(`whoami`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, "Reboot initiated", result.Msg)
+	core.AssertEqual(t, 2, mock.commandCount())
+	core.AssertTrue(t, mock.hasExecuted(`sleep 1 && /sbin/reboot`))
+	core.AssertTrue(t, mock.hasExecuted(`whoami`))
 }
 
-func TestModulesAdv_ModuleReboot_Bad_TimesOutWaitingForTestCommand(t *testing.T) {
+func TestModulesAdv_ModuleReboot_Bad_TimesOutWaitingForTestCommand(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`shutdown -r now 'Reboot initiated by Ansible' &`, "", "", 0)
 	mock.expectCommand(`whoami`, "", "host unreachable", 1)
@@ -2525,24 +2522,24 @@ func TestModulesAdv_ModuleReboot_Bad_TimesOutWaitingForTestCommand(t *testing.T)
 		"test_command":   "whoami",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "timed out")
-	assert.Equal(t, "host unreachable", result.Stderr)
-	assert.Equal(t, 1, result.RC)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "timed out")
+	core.AssertEqual(t, "host unreachable", result.Stderr)
+	core.AssertEqual(t, 1, result.RC)
 }
 
-func TestModulesAdv_ModuleReboot_Bad_ReportsInitialShutdownFailure(t *testing.T) {
+func TestModulesAdv_ModuleReboot_Bad_ReportsInitialShutdownFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`shutdown -r now 'Reboot initiated by Ansible' &`, "", "permission denied", 1)
 
 	result, err := e.moduleReboot(context.Background(), mock, map[string]any{})
 
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Failed)
-	assert.Equal(t, "permission denied", result.Msg)
-	assert.Equal(t, 1, result.RC)
-	assert.Equal(t, 1, mock.commandCount())
-	assert.False(t, mock.hasExecuted(`whoami`))
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, result)
+	core.AssertTrue(t, result.Failed)
+	core.AssertEqual(t, "permission denied", result.Msg)
+	core.AssertEqual(t, 1, result.RC)
+	core.AssertEqual(t, 1, mock.commandCount())
+	core.AssertFalse(t, mock.hasExecuted(`whoami`))
 }

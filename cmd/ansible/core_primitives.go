@@ -4,7 +4,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"dappco.re/go/core"
+	"dappco.re/go"
 )
 
 func absPath(path string) string {

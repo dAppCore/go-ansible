@@ -1,15 +1,15 @@
 package ansiblecmd
 
 import (
-	"dappco.re/go/core"
+	"dappco.re/go"
 )
 
 // Register registers the `ansible` command and its `ansible/test` subcommand.
 //
 // Example:
 //
-//	var app core.Core
-//	Register(&app)
+//	app := core.New()
+//	Register(app)
 func Register(c *core.Core) {
 	c.Command("ansible", core.Command{
 		Description: "Run Ansible playbooks natively (no Python required)",

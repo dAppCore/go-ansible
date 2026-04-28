@@ -2,13 +2,10 @@ package ansible
 
 import (
 	"context"
+	core "dappco.re/go"
 	"io"
 	"io/fs"
 	"sync"
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type becomeRecordingClient struct {
@@ -75,7 +72,7 @@ func (c *becomeRecordingClient) Close() error {
 	return nil
 }
 
-func TestExecutor_RunTaskOnHost_Good_TaskBecomeFalseOverridesPlayBecome(t *testing.T) {
+func TestExecutor_RunTaskOnHost_Good_TaskBecomeFalseOverridesPlayBecome(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
@@ -97,15 +94,15 @@ func TestExecutor_RunTaskOnHost_Good_TaskBecomeFalseOverridesPlayBecome(t *testi
 		Become: func() *bool { v := false; return &v }(),
 	}
 
-	require.NoError(t, e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, play))
-	require.Len(t, client.runBecomeSeen, 1)
-	assert.False(t, client.runBecomeSeen[0])
-	assert.True(t, client.become)
-	assert.Equal(t, "admin", client.becomeUser)
-	assert.Equal(t, "secret", client.becomePass)
+	core.RequireNoError(t, e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, play))
+	core.AssertLen(t, client.runBecomeSeen, 1)
+	core.AssertFalse(t, client.runBecomeSeen[0])
+	core.AssertTrue(t, client.become)
+	core.AssertEqual(t, "admin", client.becomeUser)
+	core.AssertEqual(t, "secret", client.becomePass)
 }
 
-func TestExecutor_RunTaskOnHost_Good_TaskBecomeUsesInventoryPassword(t *testing.T) {
+func TestExecutor_RunTaskOnHost_Good_TaskBecomeUsesInventoryPassword(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
@@ -129,9 +126,9 @@ func TestExecutor_RunTaskOnHost_Good_TaskBecomeUsesInventoryPassword(t *testing.
 		Become: func() *bool { v := true; return &v }(),
 	}
 
-	require.NoError(t, e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, play))
-	require.Len(t, client.runBecomeSeen, 1)
-	assert.True(t, client.runBecomeSeen[0])
-	require.Len(t, client.runBecomePass, 1)
-	assert.Equal(t, "secret", client.runBecomePass[0])
+	core.RequireNoError(t, e.runTaskOnHost(context.Background(), "host1", []string{"host1"}, task, play))
+	core.AssertLen(t, client.runBecomeSeen, 1)
+	core.AssertTrue(t, client.runBecomeSeen[0])
+	core.AssertLen(t, client.runBecomePass, 1)
+	core.AssertEqual(t, "secret", client.runBecomePass[0])
 }
