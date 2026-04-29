@@ -3,7 +3,6 @@ package ansible
 import (
 	"context"
 	core "dappco.re/go"
-	"os"
 )
 
 // ============================================================
@@ -94,7 +93,7 @@ func TestExecutorExtra_ModulePing_Good_CustomData(t *core.T) {
 	core.AssertEqual(t, "hello", result.Data["ping"])
 }
 
-func TestExecutorExtra_ModuleSetFact_Good_ReturnsStructuredFacts(t *core.T) {
+func TestExecutorExtra_moduleSetFact_Good_ReturnsStructuredFacts(t *core.T) {
 	e := NewExecutor("/tmp")
 
 	result, err := e.moduleSetFact("host1", map[string]any{
@@ -210,7 +209,7 @@ func TestExecutorExtra_ModuleAssert_Good_MultipleConditions(t *core.T) {
 
 // --- moduleSetFact ---
 
-func TestExecutorExtra_ModuleSetFact_Good(t *core.T) {
+func TestExecutorExtra_moduleSetFact_Good(t *core.T) {
 	e := NewExecutor("/tmp")
 
 	result, err := e.moduleSetFact("host1", map[string]any{
@@ -225,7 +224,7 @@ func TestExecutorExtra_ModuleSetFact_Good(t *core.T) {
 	core.AssertEqual(t, "production", e.hostVars["host1"]["deploy_env"])
 }
 
-func TestExecutorExtra_ModuleSetFact_Good_SkipsCacheable(t *core.T) {
+func TestExecutorExtra_moduleSetFact_Good_SkipsCacheable(t *core.T) {
 	e := NewExecutor("/tmp")
 
 	e.moduleSetFact("host1", map[string]any{
@@ -239,7 +238,7 @@ func TestExecutorExtra_ModuleSetFact_Good_SkipsCacheable(t *core.T) {
 	core.AssertFalse(t, hasCacheable)
 }
 
-func TestExecutorExtra_ModuleSetFact_Good_HostScopedLookup(t *core.T) {
+func TestExecutorExtra_moduleSetFact_Good_HostScopedLookup(t *core.T) {
 	e := NewExecutor("/tmp")
 
 	_, err := e.moduleSetFact("host1", map[string]any{
@@ -251,7 +250,7 @@ func TestExecutorExtra_ModuleSetFact_Good_HostScopedLookup(t *core.T) {
 	core.AssertEqual(t, "{{ build_id }}", e.templateString("{{ build_id }}", "host2", nil))
 }
 
-func TestExecutorExtra_ModuleSetFact_Good_ExposesAnsibleFacts(t *core.T) {
+func TestExecutorExtra_moduleSetFact_Good_ExposesAnsibleFacts(t *core.T) {
 	e := NewExecutor("/tmp")
 
 	_, err := e.moduleSetFact("host1", map[string]any{
@@ -365,7 +364,7 @@ func TestExecutorExtra_ModuleAddHost_Good_ThroughDispatcher(t *core.T) {
 
 // --- moduleGroupBy ---
 
-func TestExecutorExtra_ModuleGroupBy_Good(t *core.T) {
+func TestExecutorExtra_moduleGroupBy_Good(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
@@ -386,7 +385,7 @@ func TestExecutorExtra_ModuleGroupBy_Good(t *core.T) {
 	core.AssertEqual(t, []string{"web1"}, GetHosts(e.inventory, "debian"))
 }
 
-func TestExecutorExtra_ModuleGroupBy_Good_ThroughDispatcher(t *core.T) {
+func TestExecutorExtra_moduleGroupBy_Good_ThroughDispatcher(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	task := &Task{
 		Module: "group_by",
@@ -451,7 +450,7 @@ func TestExecutorExtra_ModuleIncludeVars_Good_Empty(t *core.T) {
 
 // --- moduleMeta ---
 
-func TestExecutorExtra_ModuleMeta_Good(t *core.T) {
+func TestExecutorExtra_moduleMeta_Good(t *core.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleMeta(map[string]any{"_raw_params": "flush_handlers"})
 
@@ -461,7 +460,7 @@ func TestExecutorExtra_ModuleMeta_Good(t *core.T) {
 	core.AssertEqual(t, "flush_handlers", result.Data["action"])
 }
 
-func TestExecutorExtra_ModuleMeta_Good_ExplicitActionField(t *core.T) {
+func TestExecutorExtra_moduleMeta_Good_ExplicitActionField(t *core.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleMeta(map[string]any{"action": "refresh_inventory"})
 
@@ -471,7 +470,7 @@ func TestExecutorExtra_ModuleMeta_Good_ExplicitActionField(t *core.T) {
 	core.AssertEqual(t, "refresh_inventory", result.Data["action"])
 }
 
-func TestExecutorExtra_ModuleMeta_Good_ClearFacts(t *core.T) {
+func TestExecutorExtra_moduleMeta_Good_ClearFacts(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.facts["host1"] = &Facts{Hostname: "web01"}
 
@@ -483,7 +482,7 @@ func TestExecutorExtra_ModuleMeta_Good_ClearFacts(t *core.T) {
 	core.AssertEqual(t, "clear_facts", result.Data["action"])
 }
 
-func TestExecutorExtra_ModuleMeta_Good_ResetConnection(t *core.T) {
+func TestExecutorExtra_moduleMeta_Good_ResetConnection(t *core.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleMeta(map[string]any{"_raw_params": "reset_connection"})
 
@@ -493,7 +492,7 @@ func TestExecutorExtra_ModuleMeta_Good_ResetConnection(t *core.T) {
 	core.AssertEqual(t, "reset_connection", result.Data["action"])
 }
 
-func TestExecutorExtra_ModuleMeta_Good_EndHost(t *core.T) {
+func TestExecutorExtra_moduleMeta_Good_EndHost(t *core.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleMeta(map[string]any{"_raw_params": "end_host"})
 
@@ -503,7 +502,7 @@ func TestExecutorExtra_ModuleMeta_Good_EndHost(t *core.T) {
 	core.AssertEqual(t, "end_host", result.Data["action"])
 }
 
-func TestExecutorExtra_ModuleMeta_Good_EndBatch(t *core.T) {
+func TestExecutorExtra_moduleMeta_Good_EndBatch(t *core.T) {
 	e := NewExecutor("/tmp")
 	result, err := e.moduleMeta(map[string]any{"_raw_params": "end_batch"})
 
@@ -1045,7 +1044,7 @@ func TestExecutorExtra_SetInventory_Good(t *core.T) {
 func TestExecutorExtra_SetInventory_Good_Directory(t *core.T) {
 	dir := t.TempDir()
 	inventoryDir := joinPath(dir, "inventory")
-	core.RequireNoError(t, os.MkdirAll(inventoryDir, 0755))
+	core.RequireTrue(t, core.MkdirAll(inventoryDir, 0755).OK)
 
 	invPath := joinPath(inventoryDir, "inventory.yml")
 	yaml := `all:
@@ -1846,7 +1845,7 @@ func TestExecutorExtra_ResolveExpr_Good_WithFilter(t *core.T) {
 func TestExecutorExtra_ResolveExpr_Good_CommonFilters(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.vars["name"] = "Hello"
-	e.vars["path"] = "/tmp/example/nginx.conf"
+	e.vars[pathArgKey] = "/tmp/example/nginx.conf"
 	e.vars["parts"] = []string{"a", "b"}
 	e.vars["csv"] = "a,b,c"
 	e.vars["count"] = "42"

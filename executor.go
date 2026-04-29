@@ -5,32 +5,28 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"io"
 	"io/fs"
 	"maps"
 	mathrand "math/rand"
-	"os"
-	"path"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 	"gopkg.in/yaml.v3"
 )
 
-var errEndPlay = errors.New("end play")
-var errEndHost = errors.New("end host")
-var errEndBatch = errors.New("end batch")
-var errEndRole = errors.New("end role")
-var errTaskFailed = errors.New("task failed")
+var errEndPlay = core.NewError("end play")
+var errEndHost = core.NewError("end host")
+var errEndBatch = core.NewError("end batch")
+var errEndRole = core.NewError("end role")
+var errTaskFailed = core.NewError("task failed")
 
 // sshExecutorClient is the client contract used by the executor.
 type sshExecutorClient interface {
@@ -131,7 +127,9 @@ func NewExecutor(basePath string) *Executor {
 // Example:
 //
 //	err := executor.SetInventory("/workspace/inventory.yml")
-func (e *Executor) SetInventory(path string) error {
+func (e *Executor) SetInventory(
+	path string,
+) error {
 	inv, err := e.parser.ParseInventory(path)
 	if err != nil {
 		return err
@@ -281,7 +279,7 @@ func inventoryHostnameShort(host string) string {
 		return ""
 	}
 
-	short, _, ok := strings.Cut(host, ".")
+	short, _, ok := cut(host, ".")
 	if ok && short != "" {
 		return short
 	}
@@ -423,7 +421,9 @@ func collectHostGroupNames(group *InventoryGroup, host, name string, names map[s
 // Example:
 //
 //	err := executor.Run(context.Background(), "/workspace/playbooks/site.yml")
-func (e *Executor) Run(ctx context.Context, playbookPath string) error {
+func (e *Executor) Run(
+	ctx context.Context, playbookPath string,
+) error {
 	plays, err := e.parser.ParsePlaybook(playbookPath)
 	if err != nil {
 		return coreerr.E("Executor.Run", "parse playbook", err)
@@ -439,7 +439,9 @@ func (e *Executor) Run(ctx context.Context, playbookPath string) error {
 }
 
 // runPlay executes a single play.
-func (e *Executor) runPlay(ctx context.Context, play *Play) error {
+func (e *Executor) runPlay(
+	ctx context.Context, play *Play,
+) error {
 	if e.OnPlayStart != nil {
 		e.OnPlayStart(play)
 	}
@@ -490,7 +492,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		e.batchFailedHosts = make(map[string]bool)
 		runSection := func(fn func() error) error {
 			if err := fn(); err != nil {
-				if errors.Is(err, errEndPlay) || errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndPlay) || core.Is(err, errEndBatch) {
 					return err
 				}
 				if play.ForceHandlers {
@@ -521,10 +523,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := runSection(func() error {
 				return e.runTaskOnHosts(ctx, batch, &task, play)
 			}); err != nil {
-				if errors.Is(err, errEndPlay) {
+				if core.Is(err, errEndPlay) {
 					return nil
 				}
-				if errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndBatch) {
 					goto nextBatch
 				}
 				return err
@@ -536,10 +538,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := runSection(func() error {
 				return e.runRole(ctx, batch, &roleRef, play, nil)
 			}); err != nil {
-				if errors.Is(err, errEndPlay) {
+				if core.Is(err, errEndPlay) {
 					return nil
 				}
-				if errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndBatch) {
 					goto nextBatch
 				}
 				return err
@@ -551,10 +553,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := runSection(func() error {
 				return e.runTaskOnHosts(ctx, batch, &task, play)
 			}); err != nil {
-				if errors.Is(err, errEndPlay) {
+				if core.Is(err, errEndPlay) {
 					return nil
 				}
-				if errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndBatch) {
 					goto nextBatch
 				}
 				return err
@@ -566,10 +568,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := runSection(func() error {
 				return e.runTaskOnHosts(ctx, batch, &task, play)
 			}); err != nil {
-				if errors.Is(err, errEndPlay) {
+				if core.Is(err, errEndPlay) {
 					return nil
 				}
-				if errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndBatch) {
 					goto nextBatch
 				}
 				return err
@@ -578,10 +580,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 		// Run notified handlers for this batch.
 		if err := e.runNotifiedHandlers(ctx, batch, play); err != nil {
-			if errors.Is(err, errEndPlay) {
+			if core.Is(err, errEndPlay) {
 				return nil
 			}
-			if errors.Is(err, errEndBatch) {
+			if core.Is(err, errEndBatch) {
 				goto nextBatch
 			}
 			return err
@@ -595,7 +597,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 // loadPlayVarsFiles loads any play-level vars_files entries and merges them
 // into the play's Vars map before execution begins.
-func (e *Executor) loadPlayVarsFiles(play *Play) error {
+func (e *Executor) loadPlayVarsFiles(
+	play *Play,
+) error {
 	if play == nil {
 		return nil
 	}
@@ -744,7 +748,7 @@ func resolveSerialBatchSizes(serial any, total int) []int {
 			return []int{total}
 		}
 		if corexHasSuffix(s, "%") {
-			percent, err := strconv.Atoi(strings.TrimSuffix(s, "%"))
+			percent, err := strconv.Atoi(trimSuffix(s, "%"))
 			if err == nil && percent > 0 {
 				size := (total*percent + 99) / 100
 				if size < 1 {
@@ -795,7 +799,9 @@ func resolveSerialBatchSizes(serial any, total int) []int {
 }
 
 // runRole executes a role on hosts.
-func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef, play *Play, inheritedWhen any) error {
+func (e *Executor) runRole(
+	ctx context.Context, hosts []string, roleRef *RoleRef, play *Play, inheritedWhen any,
+) error {
 	oldVars := make(map[string]any, len(e.vars))
 	for k, v := range e.vars {
 		oldVars[k] = v
@@ -856,7 +862,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 			effectiveTask.When = mergeConditions(inheritedWhen, effectiveTask.When)
 		}
 		if err := e.runTaskOnHosts(ctx, eligibleHosts, &effectiveTask, play); err != nil {
-			if errors.Is(err, errEndRole) {
+			if core.Is(err, errEndRole) {
 				e.vars = oldVars
 				return nil
 			}
@@ -873,7 +879,9 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	return nil
 }
 
-func (e *Executor) attachRoleHandlers(roleName, handlersFrom string, play *Play) error {
+func (e *Executor) attachRoleHandlers(
+	roleName, handlersFrom string, play *Play,
+) error {
 	if play == nil || roleName == "" {
 		return nil
 	}
@@ -902,7 +910,9 @@ func (e *Executor) attachRoleHandlers(roleName, handlersFrom string, play *Play)
 }
 
 // runTaskOnHosts runs a task on all hosts.
-func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runTaskOnHosts(
+	ctx context.Context, hosts []string, task *Task, play *Play,
+) error {
 	// Check tags
 	if !e.matchesTags(effectiveTaskTags(task, play)) {
 		return nil
@@ -940,10 +950,10 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 			continue
 		}
 		if err := e.runTaskOnHost(ctx, host, hosts, task, play); err != nil {
-			if errors.Is(err, errEndHost) {
+			if core.Is(err, errEndHost) {
 				continue
 			}
-			if errors.Is(err, errTaskFailed) {
+			if core.Is(err, errTaskFailed) {
 				if play != nil && play.AnyErrorsFatal {
 					return err
 				}
@@ -1042,7 +1052,9 @@ func (e *Executor) copyRegisteredResultToHosts(hosts []string, sourceHost, regis
 }
 
 // runTaskOnHost runs a task on a single host.
-func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runTaskOnHost(
+	ctx context.Context, host string, hosts []string, task *Task, play *Play,
+) error {
 	if e.isHostEnded(host) {
 		return nil
 	}
@@ -1233,7 +1245,9 @@ func (e *Executor) markBatchHostFailed(host string) {
 	e.batchFailedHosts[host] = true
 }
 
-func (e *Executor) checkMaxFailPercentage(play *Play, hosts []string) error {
+func (e *Executor) checkMaxFailPercentage(
+	play *Play, hosts []string,
+) error {
 	if play == nil || play.MaxFailPercent <= 0 || len(hosts) == 0 {
 		return nil
 	}
@@ -1278,7 +1292,9 @@ func redactTaskResult(result *TaskResult) *TaskResult {
 	return &redacted
 }
 
-func taskFailureError(task *Task, result *TaskResult) error {
+func taskFailureError(
+	task *Task, result *TaskResult,
+) error {
 	if task != nil && task.NoLog {
 		return coreerr.E("Executor.runTaskOnHost", "task failed", errTaskFailed)
 	}
@@ -1365,7 +1381,9 @@ func shouldRetryTask(task *Task, host string, e *Executor, result *TaskResult) b
 }
 
 // runLoop handles task loops.
-func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play, start time.Time) error {
+func (e *Executor) runLoop(
+	ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play, start time.Time,
+) error {
 	var (
 		items []any
 		err   error
@@ -1737,7 +1755,7 @@ func parseSubelementsSpec(loop any) (any, string, bool, bool) {
 		}
 		return v[0], v[1], parseSubelementsSkipMissingStrings(v[2:]), true
 	case string:
-		parts := strings.Fields(v)
+		parts := fields(v)
 		if len(parts) < 2 {
 			return nil, "", false, false
 		}
@@ -1770,15 +1788,15 @@ func parseSkipMissingValue(value any) bool {
 	case bool:
 		return v
 	case string:
-		trimmed := strings.TrimSpace(v)
+		trimmed := trimSpace(v)
 		if trimmed == "" {
 			return false
 		}
 		if trimmed == "skip_missing" {
 			return true
 		}
-		if strings.HasPrefix(trimmed, "skip_missing=") {
-			return getBoolArg(map[string]any{"skip_missing": strings.TrimPrefix(trimmed, "skip_missing=")}, "skip_missing", false)
+		if hasPrefix(trimmed, "skip_missing=") {
+			return getBoolArg(map[string]any{"skip_missing": trimPrefix(trimmed, "skip_missing=")}, "skip_missing", false)
 		}
 		return getBoolArg(map[string]any{"skip_missing": trimmed}, "skip_missing", false)
 	case map[string]any:
@@ -1882,29 +1900,33 @@ func parseSequenceSpec(loop any) (*sequenceSpec, error) {
 	return spec, nil
 }
 
-func parseSequenceSpecString(spec *sequenceSpec, raw string) error {
-	fields := strings.Fields(strings.ReplaceAll(raw, ",", " "))
+func parseSequenceSpecString(
+	spec *sequenceSpec, raw string,
+) error {
+	fields := fields(replaceAll(raw, ",", " "))
 	for _, field := range fields {
-		parts := strings.SplitN(field, "=", 2)
+		parts := splitN(field, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
 
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
+		key := trimSpace(parts[0])
+		value := trimSpace(parts[1])
 		if err := applySequenceSpecValue(spec, key, value); err != nil {
 			return err
 		}
 	}
 
-	if spec.start == 0 && !strings.Contains(raw, "start=") {
+	if spec.start == 0 && !contains(raw, "start=") {
 		spec.start = 0
 	}
 
 	return nil
 }
 
-func parseSequenceSpecMap(spec *sequenceSpec, values map[string]any) error {
+func parseSequenceSpecMap(
+	spec *sequenceSpec, values map[string]any,
+) error {
 	for key, value := range values {
 		if err := applySequenceSpecValue(spec, key, value); err != nil {
 			return err
@@ -1913,8 +1935,10 @@ func parseSequenceSpecMap(spec *sequenceSpec, values map[string]any) error {
 	return nil
 }
 
-func applySequenceSpecValue(spec *sequenceSpec, key string, value any) error {
-	switch lower(strings.TrimSpace(key)) {
+func applySequenceSpecValue(
+	spec *sequenceSpec, key string, value any,
+) error {
+	switch lower(trimSpace(key)) {
 	case "start":
 		n, ok := sequenceSpecInt(value)
 		if !ok {
@@ -1972,7 +1996,7 @@ func sequenceSpecInt(value any) (int, bool) {
 	case uint64:
 		return int(v), true
 	case string:
-		n, err := strconv.Atoi(strings.TrimSpace(v))
+		n, err := strconv.Atoi(trimSpace(v))
 		if err == nil {
 			return n, true
 		}
@@ -2014,16 +2038,13 @@ func formatSequenceValue(format string, value int) string {
 
 func (e *Executor) resolveFileGlob(pattern string) ([]any, error) {
 	candidates := []string{pattern}
-	if e.parser != nil && e.parser.basePath != "" && !path.IsAbs(pattern) {
+	if e.parser != nil && e.parser.basePath != "" && !pathIsAbs(pattern) {
 		candidates = append([]string{joinPath(e.parser.basePath, pattern)}, candidates...)
 	}
 
 	var matches []string
 	for _, candidate := range candidates {
-		globMatches, err := filepath.Glob(candidate)
-		if err != nil {
-			return nil, coreerr.E("Executor.resolveFileGlob", "glob pattern "+pattern, err)
-		}
+		globMatches := pathGlob(candidate)
 		if len(globMatches) > 0 {
 			matches = append(matches, globMatches...)
 			break
@@ -2092,7 +2113,9 @@ func isCheckModeSafeTask(task *Task) bool {
 }
 
 // runBlock handles block/rescue/always.
-func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runBlock(
+	ctx context.Context, hosts []string, task *Task, play *Play,
+) error {
 	var blockErr error
 	var rescueErr error
 
@@ -2177,7 +2200,9 @@ func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, pla
 }
 
 // runIncludeTasks handles include_tasks/import_tasks.
-func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runIncludeTasks(
+	ctx context.Context, hosts []string, task *Task, play *Play,
+) error {
 	path := task.IncludeTasks
 	if path == "" {
 		path = task.ImportTasks
@@ -2249,7 +2274,9 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 }
 
 // runIncludeRole handles include_role/import_role.
-func (e *Executor) runIncludeRole(ctx context.Context, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runIncludeRole(
+	ctx context.Context, hosts []string, task *Task, play *Play,
+) error {
 	if len(hosts) == 0 {
 		return nil
 	}
@@ -2545,7 +2572,9 @@ func (e *Executor) resolveLocalPath(path string) string {
 }
 
 // gatherFacts collects facts from a host.
-func (e *Executor) gatherFacts(ctx context.Context, host string, play *Play) error {
+func (e *Executor) gatherFacts(
+	ctx context.Context, host string, play *Play,
+) error {
 	client, err := e.getClient(host, play)
 	if err != nil {
 		return err
@@ -2835,7 +2864,7 @@ func splitLogicalCondition(cond, op string) (string, string, bool) {
 			continue
 		}
 
-		if depth != 0 || !strings.HasPrefix(cond[i:], op) {
+		if depth != 0 || !hasPrefix(cond[i:], op) {
 			continue
 		}
 
@@ -2951,7 +2980,7 @@ func splitBinaryCondition(cond, op string) (string, string, bool) {
 			continue
 		}
 
-		if depth != 0 || !strings.HasPrefix(cond[i:], op) {
+		if depth != 0 || !hasPrefix(cond[i:], op) {
 			continue
 		}
 
@@ -3066,7 +3095,7 @@ func templateConditionContains(container, item any) bool {
 	}
 
 	if containerStr, ok := container.(string); ok {
-		return strings.Contains(containerStr, templateStringify(item))
+		return contains(containerStr, templateStringify(item))
 	}
 
 	if items, ok := anySliceFromValue(container); ok {
@@ -3094,7 +3123,7 @@ func templateConditionContains(container, item any) bool {
 		return false
 	}
 
-	return strings.Contains(templateStringify(container), templateStringify(item))
+	return contains(templateStringify(container), templateStringify(item))
 }
 
 func (e *Executor) lookupConditionValue(name string, host string, task *Task, locals map[string]any) (any, bool) {
@@ -3383,8 +3412,8 @@ func splitTemplatePipeline(expr string) []string {
 	}
 
 	parts := make([]string, 0, 4)
+	current := newBuilder()
 	var (
-		current  strings.Builder
 		depth    int
 		inSingle bool
 		inDouble bool
@@ -3666,7 +3695,7 @@ func parseRegexReplaceFilter(filter string) (string, string, bool) {
 		return "", "", false
 	}
 
-	args := strings.TrimSpace(filter[len("regex_replace(") : len(filter)-1])
+	args := trimSpace(filter[len("regex_replace(") : len(filter)-1])
 	parts := splitFilterArgs(args)
 	if len(parts) < 2 {
 		return "", "", false
@@ -3680,9 +3709,9 @@ func splitFilterArgs(args string) []string {
 		return nil
 	}
 
+	current := newBuilder()
 	var (
 		parts    []string
-		current  strings.Builder
 		inSingle bool
 		inDouble bool
 		escaped  bool
@@ -3703,7 +3732,7 @@ func splitFilterArgs(args string) []string {
 			current.WriteRune(r)
 			inDouble = !inDouble
 		case r == ',' && !inSingle && !inDouble:
-			part := strings.TrimSpace(current.String())
+			part := trimSpace(current.String())
 			if part != "" {
 				parts = append(parts, part)
 			}
@@ -3713,7 +3742,7 @@ func splitFilterArgs(args string) []string {
 		}
 	}
 
-	if tail := strings.TrimSpace(current.String()); tail != "" {
+	if tail := trimSpace(current.String()); tail != "" {
 		parts = append(parts, tail)
 	}
 
@@ -3754,7 +3783,7 @@ func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool)
 	}
 
 	lookupType := normalizeLookupName(match[1])
-	arg := strings.TrimSpace(match[2])
+	arg := trimSpace(match[2])
 	arg, quoted := unquoteLookupArg(arg)
 
 	switch lookupType {
@@ -3776,7 +3805,7 @@ func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool)
 	case "pipe":
 		stdout, _, rc, err := runLocalShell(context.Background(), arg, "")
 		if err == nil && rc == 0 {
-			return strings.TrimRight(stdout, "\r\n"), true
+			return trimRightCutset(stdout, "\r\n"), true
 		}
 	case "vars":
 		if value, ok := e.lookupConditionValue(arg, host, task, nil); ok {
@@ -3801,7 +3830,7 @@ func normalizeLookupName(name string) string {
 		return ""
 	}
 
-	if idx := strings.LastIndex(name, "."); idx >= 0 {
+	if idx := stringLastIndex(name, "."); idx >= 0 {
 		return name[idx+1:]
 	}
 
@@ -3853,8 +3882,11 @@ func (e *Executor) lookupFirstFound(arg string, quoted bool, host string, task *
 
 	for _, candidate := range candidates {
 		resolvedPath := e.resolveLocalPath(candidate)
-		if info, err := os.Stat(resolvedPath); err == nil && !info.IsDir() {
-			return resolvedPath, true
+		if stat := core.Stat(resolvedPath); stat.OK {
+			info := stat.Value.(core.FsFileInfo)
+			if !info.IsDir() {
+				return resolvedPath, true
+			}
 		}
 	}
 
@@ -3912,7 +3944,7 @@ func (e *Executor) lookupPassword(arg string, host string, task *Task) (string, 
 	resolvedPath := e.resolveLocalPath(spec.path)
 	if resolvedPath != "/dev/null" {
 		if data, err := coreio.Local.Read(resolvedPath); err == nil {
-			return strings.TrimRight(data, "\r\n"), true
+			return trimRightCutset(data, "\r\n"), true
 		}
 	}
 
@@ -3943,7 +3975,7 @@ func (e *Executor) resolveLookupPasswordValue(value string, host string, task *T
 		return sprintf("%v", resolved)
 	}
 
-	if strings.Contains(value, "{{") {
+	if contains(value, "{{") {
 		return e.templateString(value, host, task)
 	}
 
@@ -3963,13 +3995,13 @@ func parsePasswordLookupSpec(arg string) passwordLookupSpec {
 		chars:  passwordLookupCharset("ascii_letters,digits"),
 	}
 
-	fields := strings.Fields(arg)
+	fields := fields(arg)
 	for _, field := range fields {
-		key, value, ok := strings.Cut(field, "=")
+		key, value, ok := cut(field, "=")
 		if ok {
-			switch lower(strings.TrimSpace(key)) {
+			switch lower(trimSpace(key)) {
 			case "length":
-				if n, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && n > 0 {
+				if n, err := strconv.Atoi(trimSpace(value)); err == nil && n > 0 {
 					spec.length = n
 				}
 			case "chars":
@@ -3995,7 +4027,7 @@ func passwordLookupCharset(value string) string {
 		return ""
 	}
 
-	var chars strings.Builder
+	chars := newBuilder()
 	seen := make(map[rune]bool)
 	appendChars := func(set string) {
 		for _, r := range set {
@@ -4007,8 +4039,8 @@ func passwordLookupCharset(value string) string {
 		}
 	}
 
-	for _, token := range strings.Split(value, ",") {
-		switch lower(strings.TrimSpace(token)) {
+	for _, token := range split(value, ",") {
+		switch lower(trimSpace(token)) {
 		case "ascii_letters":
 			appendChars("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 		case "ascii_lowercase":
@@ -4206,7 +4238,7 @@ func resolveDefaultLoopValue(filters []string) (any, bool) {
 			continue
 		}
 
-		raw := strings.TrimSpace(filter[len("default(") : len(filter)-1])
+		raw := trimSpace(filter[len("default(") : len(filter)-1])
 		if raw == "" {
 			return []any{}, true
 		}
@@ -4228,7 +4260,7 @@ func extractSingleTemplateExpression(value string) (string, bool) {
 		return "", false
 	}
 
-	inner := strings.TrimSpace(match[1])
+	inner := trimSpace(match[1])
 	if inner == "" {
 		return "", false
 	}
@@ -4323,7 +4355,9 @@ func (e *Executor) handleNotify(notify any) {
 
 // runNotifiedHandlers executes any handlers that have been notified and then
 // clears the notification state for those handlers.
-func (e *Executor) runNotifiedHandlers(ctx context.Context, hosts []string, play *Play) error {
+func (e *Executor) runNotifiedHandlers(
+	ctx context.Context, hosts []string, play *Play,
+) error {
 	if play == nil || len(play.Handlers) == 0 {
 		return nil
 	}
@@ -4378,7 +4412,9 @@ func handlerMatchesNotifications(handler *Task, pending map[string]bool) bool {
 
 // handleMetaAction applies module meta side effects after the task result has
 // been recorded and callbacks have fired.
-func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []string, play *Play, result *TaskResult) error {
+func (e *Executor) handleMetaAction(
+	ctx context.Context, host string, hosts []string, play *Play, result *TaskResult,
+) error {
 	if result == nil || result.Data == nil {
 		return nil
 	}
@@ -4433,7 +4469,7 @@ func (e *Executor) clearHostErrors() {
 }
 
 // refreshInventory reloads inventory from the last configured source.
-func (e *Executor) refreshInventory() error {
+func (e *Executor) refreshInventory() (err error) {
 	e.mu.RLock()
 	path := e.inventoryPath
 	e.mu.RUnlock()

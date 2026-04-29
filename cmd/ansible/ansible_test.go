@@ -1,11 +1,6 @@
 package ansiblecmd
 
-import (
-	"os"
-	"path/filepath"
-
-	"dappco.re/go"
-)
+import "dappco.re/go"
 
 func TestExtraVars_Good_RepeatableAndCommaSeparated(t *core.T) {
 	opts := core.NewOptions(
@@ -111,8 +106,8 @@ func TestExtraVars_Good_SupportsStructuredYAMLAndJSON(t *core.T) {
 
 func TestExtraVars_Good_LoadsFileReferences(t *core.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "vars.yml")
-	core.RequireNoError(t, os.WriteFile(path, []byte("deploy_env: prod\nrelease: 42\n"), 0644))
+	path := joinPath(dir, "vars.yml")
+	core.RequireTrue(t, core.WriteFile(path, []byte("deploy_env: prod\nrelease: 42\n"), 0644).OK)
 
 	opts := core.NewOptions(
 		core.Option{Key: "extra-vars", Value: "@" + path},
@@ -177,8 +172,8 @@ func TestVerbosityLevel_Good_PreservesExplicitNumericLevel(t *core.T) {
 
 func TestBuildPlaybookCommandSettings_Good_AppliesFlags(t *core.T) {
 	dir := t.TempDir()
-	playbookPath := filepath.Join(dir, "site.yml")
-	core.RequireNoError(t, os.WriteFile(playbookPath, []byte("- hosts: all\n  tasks: []\n"), 0644))
+	playbookPath := joinPath(dir, "site.yml")
+	core.RequireTrue(t, core.WriteFile(playbookPath, []byte("- hosts: all\n  tasks: []\n"), 0644).OK)
 
 	opts := core.NewOptions(
 		core.Option{Key: "_arg", Value: playbookPath},
@@ -206,8 +201,8 @@ func TestBuildPlaybookCommandSettings_Good_AppliesFlags(t *core.T) {
 
 func TestBuildPlaybookCommandSettings_Good_MergesRepeatedListFlags(t *core.T) {
 	dir := t.TempDir()
-	playbookPath := filepath.Join(dir, "site.yml")
-	core.RequireNoError(t, os.WriteFile(playbookPath, []byte("- hosts: all\n  tasks: []\n"), 0644))
+	playbookPath := joinPath(dir, "site.yml")
+	core.RequireTrue(t, core.WriteFile(playbookPath, []byte("- hosts: all\n  tasks: []\n"), 0644).OK)
 
 	opts := core.NewOptions(
 		core.Option{Key: "_arg", Value: playbookPath},
@@ -236,9 +231,9 @@ func TestBuildPlaybookCommandSettings_Bad_MissingPlaybook(t *core.T) {
 
 func TestDiffOutputLines_Good_IncludesPathAndBeforeAfter(t *core.T) {
 	lines := diffOutputLines(map[string]any{
-		"path":   "/etc/nginx/conf.d/app.conf",
-		"before": "server_name=old.example.com;",
-		"after":  "server_name=web01.example.com;",
+		pathArgKey: "/etc/nginx/conf.d/app.conf",
+		"before":   "server_name=old.example.com;",
+		"after":    "server_name=web01.example.com;",
 	})
 
 	core.AssertEqual(t, []string{

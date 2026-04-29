@@ -1,14 +1,11 @@
 package ansible
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"io/fs"
-	"path"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -708,7 +705,7 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 	var backupPath string
 	if backup && hasBefore {
 		backupPath = sprintf("%s.%s.bak", dest, time.Now().UTC().Format("20060102T150405Z"))
-		if err := client.Upload(context.Background(), bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+		if err := client.Upload(context.Background(), newReader(before), backupPath, 0600); err != nil {
 			return nil, err
 		}
 	}
@@ -735,9 +732,9 @@ func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any
 			result.Data = make(map[string]any)
 		}
 		result.Data["diff"] = map[string]any{
-			"path":   dest,
-			"before": before,
-			"after":  string(content),
+			pathArgKey: dest,
+			"before":   before,
+			"after":    string(content),
 		}
 	}
 	return result, nil
@@ -776,7 +773,7 @@ func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string
 	var backupPath string
 	if backup && hasBefore {
 		backupPath = sprintf("%s.%s.bak", dest, time.Now().UTC().Format("20060102T150405Z"))
-		if err := client.Upload(context.Background(), bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+		if err := client.Upload(context.Background(), newReader(before), backupPath, 0600); err != nil {
 			return nil, err
 		}
 	}
@@ -795,16 +792,16 @@ func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string
 			result.Data = make(map[string]any)
 		}
 		result.Data["diff"] = map[string]any{
-			"path":   dest,
-			"before": before,
-			"after":  content,
+			pathArgKey: dest,
+			"before":   before,
+			"after":    content,
 		}
 	}
 	return result, nil
 }
 
 func moduleFileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
@@ -889,7 +886,7 @@ func moduleFileWithClient(_ *Executor, client sshFileRunner, args map[string]any
 }
 
 func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
@@ -920,7 +917,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 		}
 
 		backupPath = sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
-		if err := client.Upload(context.Background(), bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+		if err := client.Upload(context.Background(), newReader(before), backupPath, 0600); err != nil {
 			return err
 		}
 		return nil
@@ -928,7 +925,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 
 	if state == "absent" {
 		if searchString != "" {
-			if before == "" || !strings.Contains(before, searchString) {
+			if before == "" || !contains(before, searchString) {
 				return &TaskResult{Changed: false}, nil
 			}
 			if err := ensureBackup(); err != nil {
@@ -938,7 +935,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 			if !changed {
 				return &TaskResult{Changed: false}, nil
 			}
-			if err := client.Upload(context.Background(), bytes.NewReader([]byte(updated)), path, 0600); err != nil {
+			if err := client.Upload(context.Background(), newReader(updated), path, 0600); err != nil {
 				return nil, err
 			}
 			result := &TaskResult{Changed: true}
@@ -950,9 +947,9 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 					result.Data = make(map[string]any)
 				}
 				result.Data["diff"] = map[string]any{
-					"path":   path,
-					"before": before,
-					"after":  after,
+					pathArgKey: path,
+					"before":   before,
+					"after":    after,
 				}
 			}
 			return result, nil
@@ -981,7 +978,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 					if err := ensureBackup(); err != nil {
 						return nil, err
 					}
-					if err := client.Upload(context.Background(), bytes.NewReader([]byte(updated)), path, 0600); err != nil {
+					if err := client.Upload(context.Background(), newReader(updated), path, 0600); err != nil {
 						return nil, err
 					}
 					result := &TaskResult{Changed: true}
@@ -993,9 +990,9 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 							result.Data = make(map[string]any)
 						}
 						result.Data["diff"] = map[string]any{
-							"path":   path,
-							"before": before,
-							"after":  after,
+							pathArgKey: path,
+							"before":   before,
+							"after":    after,
 						}
 					}
 					return result, nil
@@ -1014,7 +1011,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 			updated := line
 			if before != "" {
 				updated = before
-				if updated != "" && !strings.HasSuffix(updated, "\n") {
+				if updated != "" && !hasSuffix(updated, "\n") {
 					updated += "\n"
 				}
 				updated += line
@@ -1022,7 +1019,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 			if before == "" && line != "" {
 				updated = line + "\n"
 			}
-			if err := client.Upload(context.Background(), bytes.NewReader([]byte(updated)), path, 0600); err != nil {
+			if err := client.Upload(context.Background(), newReader(updated), path, 0600); err != nil {
 				return nil, err
 			}
 			result := &TaskResult{Changed: true}
@@ -1034,9 +1031,9 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 					result.Data = make(map[string]any)
 				}
 				result.Data["diff"] = map[string]any{
-					"path":   path,
-					"before": before,
-					"after":  after,
+					pathArgKey: path,
+					"before":   before,
+					"after":    after,
 				}
 			}
 			return result, nil
@@ -1103,9 +1100,9 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 			result.Data = make(map[string]any)
 		}
 		result.Data["diff"] = map[string]any{
-			"path":   path,
-			"before": before,
-			"after":  after,
+			pathArgKey: path,
+			"before":   before,
+			"after":    after,
 		}
 	}
 
@@ -1113,7 +1110,7 @@ func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[stri
 }
 
 func moduleBlockinfileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
@@ -1139,7 +1136,7 @@ func moduleBlockinfileWithClient(_ *Executor, client sshFileRunner, args map[str
 		before, hasBefore := mockRemoteFileText(client, path)
 		if hasBefore {
 			backupPath = sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
-			if err := client.Upload(context.Background(), bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+			if err := client.Upload(context.Background(), newReader(before), backupPath, 0600); err != nil {
 				return nil, err
 			}
 		}
@@ -1196,9 +1193,9 @@ BLOCK_EOF
 			result.Data = make(map[string]any)
 		}
 		result.Data["diff"] = map[string]any{
-			"path":   path,
-			"before": before,
-			"after":  after,
+			pathArgKey: path,
+			"before":   before,
+			"after":    after,
 		}
 	}
 
@@ -1288,7 +1285,7 @@ func mockBuildLineinfileInsertCommand(path, line, anchor string, after, firstMat
 }
 
 func moduleStatWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		return nil, mockError("moduleStatWithClient", "stat: path required")
 	}
@@ -1544,7 +1541,7 @@ func modulePipWithClient(_ *Executor, client sshRunner, args map[string]any) (*T
 	extraArgs := getStringArg(args, "extra_args", "")
 
 	if virtualenv != "" && executable == "pip3" {
-		executable = path.Join(virtualenv, "bin", "pip")
+		executable = joinPath(virtualenv, "bin", "pip")
 	}
 
 	var cmd string
@@ -1746,7 +1743,7 @@ func moduleCronWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 		if err != nil {
 			return nil, err
 		}
-		if rc == 0 && strings.TrimSpace(stdout) != "" {
+		if rc == 0 && trimSpace(stdout) != "" {
 			backupName := user
 			if backupName == "" {
 				backupName = "root"
@@ -1755,8 +1752,8 @@ func moduleCronWithClient(_ *Executor, client sshRunner, args map[string]any) (*
 				backupName += "-" + name
 			}
 			backupName = sanitizeBackupToken(backupName)
-			backupPath = path.Join("/tmp", sprintf("ansible-cron-%s.%s.bak", backupName, time.Now().UTC().Format("20060102T150405Z")))
-			if err := client.Upload(context.Background(), bytes.NewReader([]byte(stdout)), backupPath, 0600); err != nil {
+			backupPath = joinPath("/tmp", sprintf("ansible-cron-%s.%s.bak", backupName, time.Now().UTC().Format("20060102T150405Z")))
+			if err := client.Upload(context.Background(), newReader(stdout), backupPath, 0600); err != nil {
 				return nil, err
 			}
 		}
@@ -1809,7 +1806,7 @@ func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[strin
 	state := getStringArg(args, "state", "present")
 	exclusive := getBoolArg(args, "exclusive", false)
 	manageDir := getBoolArg(args, "manage_dir", true)
-	pathArg := getStringArg(args, "path", "")
+	pathArg := getStringArg(args, pathArgKey, "")
 
 	if user == "" || key == "" {
 		return nil, mockError("moduleAuthorizedKeyWithClient", "authorized_key: user and key required")

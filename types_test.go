@@ -1005,3 +1005,72 @@ func TestTypes_KnownModules_Good_ContainsExpected(t *core.T) {
 		core.AssertContains(t, KnownModules, mod, core.Sprintf("expected short-form module %s", mod))
 	}
 }
+
+// --- File-aware public symbol triplets ---
+
+func TestTypes_Play_UnmarshalYAML_Good(t *core.T) {
+	var play Play
+	err := yaml.Unmarshal([]byte("hosts: all\nansible.builtin.import_playbook: child.yml\n"), &play)
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "all", play.Hosts)
+	core.AssertEqual(t, "child.yml", play.ImportPlaybook)
+}
+
+func TestTypes_Play_UnmarshalYAML_Bad(t *core.T) {
+	var play Play
+	err := yaml.Unmarshal([]byte("hosts: ["), &play)
+	core.AssertError(t, err)
+	core.AssertEmpty(t, play.Hosts)
+}
+
+func TestTypes_Play_UnmarshalYAML_Ugly(t *core.T) {
+	var play Play
+	err := yaml.Unmarshal([]byte("hosts: localhost\ngather_facts: false\n"), &play)
+	core.AssertNoError(t, err)
+	core.AssertNotNil(t, play.GatherFacts)
+	core.AssertFalse(t, *play.GatherFacts)
+}
+
+func TestTypes_RoleRef_UnmarshalYAML_Good(t *core.T) {
+	var ref RoleRef
+	err := yaml.Unmarshal([]byte("web\n"), &ref)
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "web", ref.Role)
+}
+
+func TestTypes_RoleRef_UnmarshalYAML_Bad(t *core.T) {
+	var ref RoleRef
+	err := yaml.Unmarshal([]byte("- web\n"), &ref)
+	core.AssertError(t, err)
+	core.AssertEmpty(t, ref.Role)
+}
+
+func TestTypes_RoleRef_UnmarshalYAML_Ugly(t *core.T) {
+	var ref RoleRef
+	err := yaml.Unmarshal([]byte("name: db\ntags: [setup]\n"), &ref)
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "db", ref.Role)
+	core.AssertEqual(t, []string{"setup"}, ref.Tags)
+}
+
+func TestTypes_Inventory_UnmarshalYAML_Good(t *core.T) {
+	var inv Inventory
+	err := yaml.Unmarshal([]byte("all:\n  hosts:\n    web1: {}\n"), &inv)
+	core.AssertNoError(t, err)
+	core.AssertContains(t, inv.All.Hosts, "web1")
+}
+
+func TestTypes_Inventory_UnmarshalYAML_Bad(t *core.T) {
+	var inv Inventory
+	err := yaml.Unmarshal([]byte("all: ["), &inv)
+	core.AssertError(t, err)
+	core.AssertNil(t, inv.All)
+}
+
+func TestTypes_Inventory_UnmarshalYAML_Ugly(t *core.T) {
+	var inv Inventory
+	err := yaml.Unmarshal([]byte("web:\n  hosts:\n    web1: {}\nhost_vars:\n  web1:\n    role: app\n"), &inv)
+	core.AssertNoError(t, err)
+	core.AssertContains(t, inv.All.Children, "web")
+	core.AssertEqual(t, "app", inv.HostVars["web1"]["role"])
+}

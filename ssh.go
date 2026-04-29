@@ -1,7 +1,6 @@
 package ansible
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"io/fs"
@@ -9,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 	"golang.org/x/crypto/ssh"
@@ -87,7 +87,9 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 // Example:
 //
 //	_ = client.Connect(context.Background())
-func (c *SSHClient) Connect(ctx context.Context) error {
+func (c *SSHClient) Connect(
+	ctx context.Context,
+) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -200,7 +202,7 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 // Example:
 //
 //	_ = client.Close()
-func (c *SSHClient) Close() error {
+func (c *SSHClient) Close() (err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -239,9 +241,10 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 	}
 	defer func() { _ = session.Close() }()
 
-	var stdoutBuf, stderrBuf bytes.Buffer
-	session.Stdout = &stdoutBuf
-	session.Stderr = &stderrBuf
+	stdoutBuf := core.NewBuffer()
+	stderrBuf := core.NewBuffer()
+	session.Stdout = stdoutBuf
+	session.Stderr = stderrBuf
 
 	// Apply become if needed
 	if c.become {
@@ -321,7 +324,9 @@ func (c *SSHClient) RunScript(ctx context.Context, script string) (stdout, stder
 // Example:
 //
 //	err := client.Upload(context.Background(), newReader("hello"), "/tmp/hello.txt", 0644)
-func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error {
+func (c *SSHClient) Upload(
+	ctx context.Context, local io.Reader, remote string, mode fs.FileMode,
+) error {
 	if err := c.Connect(ctx); err != nil {
 		return err
 	}
@@ -360,8 +365,8 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 		return coreerr.E("ssh.Upload", "stdin pipe", err)
 	}
 
-	var stderrBuf bytes.Buffer
-	session2.Stderr = &stderrBuf
+	stderrBuf := core.NewBuffer()
+	session2.Stderr = stderrBuf
 
 	if c.become {
 		becomeUser := c.becomeUser

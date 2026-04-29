@@ -858,11 +858,11 @@ func TestModulesInfra_Facts_Good_UbuntuParsing(t *core.T) {
 
 	stdout, _, _, _ = mock.Run(nil, "cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID)=' | head -2")
 	for _, line := range splitLines(stdout) {
-		if hasPrefix(line, "ID=") {
-			facts.Distribution = trimQuotes(trimPrefix(line, "ID="))
+		if hasFactPrefix(line, "ID=") {
+			facts.Distribution = trimQuotes(trimFactPrefix(line, "ID="))
 		}
-		if hasPrefix(line, "VERSION_ID=") {
-			facts.Version = trimQuotes(trimPrefix(line, "VERSION_ID="))
+		if hasFactPrefix(line, "VERSION_ID=") {
+			facts.Version = trimQuotes(trimFactPrefix(line, "VERSION_ID="))
 		}
 	}
 
@@ -894,11 +894,11 @@ func TestModulesInfra_Facts_Good_CentOSParsing(t *core.T) {
 
 	osRelease := "ID=centos\nVERSION_ID=\"8\"\n"
 	for _, line := range splitLines(osRelease) {
-		if hasPrefix(line, "ID=") {
-			facts.Distribution = trimQuotes(trimPrefix(line, "ID="))
+		if hasFactPrefix(line, "ID=") {
+			facts.Distribution = trimQuotes(trimFactPrefix(line, "ID="))
 		}
-		if hasPrefix(line, "VERSION_ID=") {
-			facts.Version = trimQuotes(trimPrefix(line, "VERSION_ID="))
+		if hasFactPrefix(line, "VERSION_ID=") {
+			facts.Version = trimQuotes(trimFactPrefix(line, "VERSION_ID="))
 		}
 	}
 
@@ -911,11 +911,11 @@ func TestModulesInfra_Facts_Good_AlpineParsing(t *core.T) {
 
 	osRelease := "ID=alpine\nVERSION_ID=3.19.1\n"
 	for _, line := range splitLines(osRelease) {
-		if hasPrefix(line, "ID=") {
-			facts.Distribution = trimQuotes(trimPrefix(line, "ID="))
+		if hasFactPrefix(line, "ID=") {
+			facts.Distribution = trimQuotes(trimFactPrefix(line, "ID="))
 		}
-		if hasPrefix(line, "VERSION_ID=") {
-			facts.Version = trimQuotes(trimPrefix(line, "VERSION_ID="))
+		if hasFactPrefix(line, "VERSION_ID=") {
+			facts.Version = trimQuotes(trimFactPrefix(line, "VERSION_ID="))
 		}
 	}
 
@@ -928,11 +928,11 @@ func TestModulesInfra_Facts_Good_DebianParsing(t *core.T) {
 
 	osRelease := "ID=debian\nVERSION_ID=\"12\"\n"
 	for _, line := range splitLines(osRelease) {
-		if hasPrefix(line, "ID=") {
-			facts.Distribution = trimQuotes(trimPrefix(line, "ID="))
+		if hasFactPrefix(line, "ID=") {
+			facts.Distribution = trimQuotes(trimFactPrefix(line, "ID="))
 		}
-		if hasPrefix(line, "VERSION_ID=") {
-			facts.Version = trimQuotes(trimPrefix(line, "VERSION_ID="))
+		if hasFactPrefix(line, "VERSION_ID=") {
+			facts.Version = trimQuotes(trimFactPrefix(line, "VERSION_ID="))
 		}
 	}
 
@@ -1181,9 +1181,9 @@ func TestModulesInfra_ModuleArchive_Good_CreateZipArchive(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleArchiveWithClient(e, mock, map[string]any{
-		"path":   []any{"/etc/nginx/nginx.conf", "/etc/hosts"},
-		"dest":   "/tmp/configs.zip",
-		"format": "zip",
+		pathArgKey: []any{"/etc/nginx/nginx.conf", "/etc/hosts"},
+		"dest":     "/tmp/configs.zip",
+		"format":   "zip",
 	})
 
 	core.RequireNoError(t, err)
@@ -1333,7 +1333,7 @@ func TestModulesInfra_Idempotency_Good_ServiceStatChanged(t *core.T) {
 	mock.addStat("/etc/config.conf", map[string]any{"exists": true, "isdir": false})
 
 	result, err := moduleStatWithClient(nil, mock, map[string]any{
-		"path": "/etc/config.conf",
+		pathArgKey: "/etc/config.conf",
 	})
 	core.RequireNoError(t, err)
 
@@ -1349,7 +1349,7 @@ func TestModulesInfra_Idempotency_Good_StatFileNotFound(t *core.T) {
 
 	// No stat info added — will return exists=false from mock
 	result, err := moduleStatWithClient(nil, mock, map[string]any{
-		"path": "/nonexistent/file",
+		pathArgKey: "/nonexistent/file",
 	})
 	core.RequireNoError(t, err)
 
@@ -1454,14 +1454,14 @@ func trimQuotes(s string) string {
 	return s
 }
 
-func trimPrefix(s, prefix string) string {
+func trimFactPrefix(s, prefix string) string {
 	if len(s) >= len(prefix) && s[:len(prefix)] == prefix {
 		return s[len(prefix):]
 	}
 	return s
 }
 
-func hasPrefix(s, prefix string) bool {
+func hasFactPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 

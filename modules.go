@@ -2,27 +2,21 @@ package ansible
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"io/fs"
 	"net/url"
-	"os"
-	"path"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 	"gopkg.in/yaml.v3"
@@ -289,9 +283,9 @@ func remoteFileText(ctx context.Context, client sshExecutorClient, path string) 
 
 func fileDiffData(path, before, after string) map[string]any {
 	return map[string]any{
-		"path":   path,
-		"before": before,
-		"after":  after,
+		pathArgKey: path,
+		"before":   before,
+		"after":    after,
 	}
 }
 
@@ -302,7 +296,7 @@ func backupRemoteFile(ctx context.Context, client sshExecutorClient, path string
 	}
 
 	backupPath := sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
-	if err := client.Upload(ctx, bytes.NewReader([]byte(before)), backupPath, 0600); err != nil {
+	if err := client.Upload(ctx, newReader(before), backupPath, 0600); err != nil {
 		return "", true, err
 	}
 
@@ -314,7 +308,7 @@ func backupCronTab(ctx context.Context, client sshExecutorClient, user, name str
 	if err != nil {
 		return "", coreerr.E("Executor.moduleCron", "backup crontab", err)
 	}
-	if rc != 0 || strings.TrimSpace(stdout) == "" {
+	if rc != 0 || trimSpace(stdout) == "" {
 		return "", nil
 	}
 
@@ -327,8 +321,8 @@ func backupCronTab(ctx context.Context, client sshExecutorClient, user, name str
 	}
 	backupName = sanitizeBackupToken(backupName)
 
-	backupPath := path.Join("/tmp", sprintf("ansible-cron-%s.%s.bak", backupName, time.Now().UTC().Format("20060102T150405Z")))
-	if err := client.Upload(ctx, bytes.NewReader([]byte(stdout)), backupPath, 0600); err != nil {
+	backupPath := joinPath("/tmp", sprintf("ansible-cron-%s.%s.bak", backupName, time.Now().UTC().Format("20060102T150405Z")))
+	if err := client.Upload(ctx, newReader(stdout), backupPath, 0600); err != nil {
 		return "", coreerr.E("Executor.moduleCron", "backup crontab", err)
 	}
 
@@ -340,7 +334,7 @@ func sanitizeBackupToken(value string) string {
 		return "default"
 	}
 
-	var b strings.Builder
+	b := newBuilder()
 	b.Grow(len(value))
 	lastDash := false
 	for _, r := range value {
@@ -359,7 +353,7 @@ func sanitizeBackupToken(value string) string {
 		}
 	}
 
-	token := strings.Trim(b.String(), "-")
+	token := trimCutset(b.String(), "-")
 	if token == "" {
 		return "default"
 	}
@@ -571,12 +565,12 @@ func shouldSkipCommandModule(ctx context.Context, client sshExecutorClient, args
 }
 
 func resolveCommandModulePath(filePath, chdir string) string {
-	filePath = strings.TrimSpace(filePath)
-	if filePath == "" || path.IsAbs(filePath) || chdir == "" {
+	filePath = trimSpace(filePath)
+	if filePath == "" || pathIsAbs(filePath) || chdir == "" {
 		return filePath
 	}
 
-	return path.Join(chdir, filePath)
+	return joinPath(chdir, filePath)
 }
 
 func (e *Executor) moduleRaw(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
@@ -802,7 +796,7 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 }
 
 func (e *Executor) moduleFile(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
@@ -887,7 +881,7 @@ func (e *Executor) moduleFile(ctx context.Context, client sshExecutorClient, arg
 }
 
 func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
@@ -934,7 +928,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 
 	if state == "absent" {
 		if searchString != "" {
-			if !hasBefore || !strings.Contains(before, searchString) {
+			if !hasBefore || !contains(before, searchString) {
 				return &TaskResult{Changed: false}, nil
 			}
 			if err := ensureBackup(); err != nil {
@@ -1022,7 +1016,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 			updated := line
 			if hasBefore {
 				updated = before
-				if updated != "" && !strings.HasSuffix(updated, "\n") {
+				if updated != "" && !hasSuffix(updated, "\n") {
 					updated += "\n"
 				}
 				updated += line
@@ -1121,7 +1115,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 }
 
 func (e *Executor) moduleReplace(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
@@ -1163,7 +1157,7 @@ func (e *Executor) moduleReplace(ctx context.Context, client sshExecutorClient, 
 		}
 	}
 
-	if err := client.Upload(ctx, bytes.NewReader([]byte(after)), path, 0644); err != nil {
+	if err := client.Upload(ctx, newReader(after), path, 0644); err != nil {
 		return nil, coreerr.E("Executor.moduleReplace", "upload replacement", err)
 	}
 
@@ -1187,7 +1181,7 @@ func fileContainsExactLine(content, line string) bool {
 		return false
 	}
 
-	for _, candidate := range strings.Split(content, "\n") {
+	for _, candidate := range split(content, "\n") {
 		if candidate == line {
 			return true
 		}
@@ -1269,13 +1263,13 @@ func replaceFirstLineContaining(content, needle, line string) (string, bool) {
 		return content, false
 	}
 
-	lines := strings.Split(content, "\n")
+	lines := split(content, "\n")
 	changed := false
 	for i, current := range lines {
 		if changed {
 			continue
 		}
-		if strings.Contains(current, needle) {
+		if contains(current, needle) {
 			lines[i] = line
 			changed = true
 		}
@@ -1292,11 +1286,11 @@ func removeLinesContaining(content, needle string) (string, bool) {
 		return content, false
 	}
 
-	lines := strings.Split(content, "\n")
+	lines := split(content, "\n")
 	kept := make([]string, 0, len(lines))
 	removed := false
 	for _, current := range lines {
-		if strings.Contains(current, needle) {
+		if contains(current, needle) {
 			removed = true
 			continue
 		}
@@ -1332,7 +1326,7 @@ func buildLineinfileInsertCommand(path, line, anchor string, after, firstMatch b
 }
 
 func (e *Executor) moduleStat(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		return nil, coreerr.E("Executor.moduleStat", "path required", nil)
 	}
@@ -1349,7 +1343,7 @@ func (e *Executor) moduleStat(ctx context.Context, client sshExecutorClient, arg
 }
 
 func (e *Executor) moduleSlurp(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "src", "")
 	}
@@ -1444,7 +1438,7 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 		}
 	}
 
-	if err := client.Upload(ctx, bytes.NewReader(content), dest, mode); err != nil {
+	if err := client.Upload(ctx, core.NewBuffer(content), dest, mode); err != nil {
 		return nil, err
 	}
 
@@ -1454,7 +1448,7 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 func resolveGetURLChecksumValue(ctx context.Context, client sshExecutorClient, checksumSpec, dest string) (string, error) {
 	algorithm := "sha256"
 	expected := checksumSpec
-	if idx := strings.Index(checksumSpec, ":"); idx > 0 {
+	if idx := stringIndex(checksumSpec, ":"); idx > 0 {
 		candidateAlgorithm := lower(corexTrimSpace(checksumSpec[:idx]))
 		if isChecksumAlgorithm(candidateAlgorithm) {
 			algorithm = candidateAlgorithm
@@ -1467,7 +1461,7 @@ func resolveGetURLChecksumValue(ctx context.Context, client sshExecutorClient, c
 		return "", coreerr.E("Executor.moduleGetURL", "checksum required", nil)
 	}
 
-	if strings.Contains(expected, "://") {
+	if contains(expected, "://") {
 		cmd := sprintf("curl -fsSL %q || wget -q -O - %q", expected, expected)
 		stdout, stderr, rc, err := client.Run(ctx, cmd)
 		if err != nil || rc != 0 {
@@ -1483,7 +1477,7 @@ func resolveGetURLChecksumValue(ctx context.Context, client sshExecutorClient, c
 		}
 	}
 
-	return sprintf("%s:%s", algorithm, strings.ToLower(expected)), nil
+	return sprintf("%s:%s", algorithm, lower(expected)), nil
 }
 
 func isChecksumAlgorithm(value string) bool {
@@ -1496,16 +1490,16 @@ func isChecksumAlgorithm(value string) bool {
 }
 
 func parseGetURLChecksumFile(content, dest, algorithm string) (string, error) {
-	lines := strings.Split(content, "\n")
-	base := path.Base(dest)
+	lines := split(content, "\n")
+	base := pathBase(dest)
 
 	for _, line := range lines {
-		fields := strings.Fields(line)
+		fields := fields(line)
 		if len(fields) == 0 {
 			continue
 		}
 
-		candidate := strings.ToLower(fields[0])
+		candidate := lower(fields[0])
 		if !isHexDigest(candidate) {
 			continue
 		}
@@ -1515,20 +1509,20 @@ func parseGetURLChecksumFile(content, dest, algorithm string) (string, error) {
 		}
 
 		for _, field := range fields[1:] {
-			cleaned := strings.TrimPrefix(field, "*")
-			cleaned = path.Base(strings.TrimSpace(cleaned))
-			if cleaned == base || cleaned == path.Base(dest) {
+			cleaned := trimPrefix(field, "*")
+			cleaned = pathBase(trimSpace(cleaned))
+			if cleaned == base || cleaned == pathBase(dest) {
 				return candidate, nil
 			}
 		}
 	}
 
 	for _, line := range lines {
-		fields := strings.Fields(line)
+		fields := fields(line)
 		if len(fields) == 0 {
 			continue
 		}
-		candidate := strings.ToLower(fields[0])
+		candidate := lower(fields[0])
 		if isHexDigest(candidate) {
 			return candidate, nil
 		}
@@ -1552,13 +1546,15 @@ func isHexDigest(value string) bool {
 	return true
 }
 
-func verifyGetURLChecksum(content []byte, checksumValue string) error {
-	checksumValue = strings.ToLower(corexTrimSpace(checksumValue))
+func verifyGetURLChecksum(
+	content []byte, checksumValue string,
+) error {
+	checksumValue = lower(corexTrimSpace(checksumValue))
 	if checksumValue == "" {
 		return coreerr.E("Executor.moduleGetURL", "checksum required", nil)
 	}
 
-	parts := strings.SplitN(checksumValue, ":", 2)
+	parts := splitN(checksumValue, ":", 2)
 	algorithm := "sha256"
 	expected := checksumValue
 	if len(parts) == 2 {
@@ -1566,7 +1562,7 @@ func verifyGetURLChecksum(content []byte, checksumValue string) error {
 		expected = corexTrimSpace(parts[1])
 	}
 
-	expected = strings.ToLower(corexTrimSpace(expected))
+	expected = lower(corexTrimSpace(expected))
 	if expected == "" {
 		return coreerr.E("Executor.moduleGetURL", "checksum required", nil)
 	}
@@ -1790,7 +1786,7 @@ func (e *Executor) modulePip(ctx context.Context, client sshExecutorClient, args
 	extraArgs := getStringArg(args, "extra_args", "")
 
 	if virtualenv != "" && executable == "pip3" {
-		executable = path.Join(virtualenv, "bin", "pip")
+		executable = joinPath(virtualenv, "bin", "pip")
 	}
 
 	var cmd string
@@ -2220,11 +2216,14 @@ func renderURIBody(body any, bodyFormat string) (string, error) {
 		case []byte:
 			return string(v), nil
 		default:
-			data, err := json.Marshal(v)
-			if err != nil {
-				return "", err
+			result := core.JSONMarshal(v)
+			if !result.OK {
+				if err, ok := result.Value.(error); ok {
+					return "", err
+				}
+				return "", core.NewError("marshal uri body")
 			}
-			return string(data), nil
+			return string(result.Value.([]byte)), nil
 		}
 	case "form-urlencoded", "form_urlencoded", "form":
 		return renderURIBodyFormEncoded(body), nil
@@ -2722,20 +2721,32 @@ func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskR
 		}
 	}
 
-	if prompt != "" && os.Stdin != nil {
-		if stat, err := os.Stdin.Stat(); err == nil && (stat.Mode()&os.ModeCharDevice) != 0 {
-			if echo {
-				_, _ = fmt.Fprintln(os.Stdout, prompt)
-			} else {
-				_, _ = fmt.Fprint(os.Stdout, prompt)
-			}
+	if prompt != "" {
+		stdin := core.Stdin()
+		statter, ok := stdin.(interface {
+			Stat() (core.FsFileInfo, error)
+		})
+		if ok {
+			if stat, err := statter.Stat(); err == nil && (stat.Mode()&core.ModeCharDevice) != 0 {
+				if echo {
+					if r := core.WriteString(core.Stdout(), prompt+"\n"); !r.OK {
+						err, _ := r.Value.(error)
+						return nil, err
+					}
+				} else {
+					if r := core.WriteString(core.Stdout(), prompt); !r.OK {
+						err, _ := r.Value.(error)
+						return nil, err
+					}
+				}
 
-			reader := bufio.NewReader(os.Stdin)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
-				_, _ = reader.ReadString('\n')
+				reader := bufio.NewReader(stdin)
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				default:
+					_, _ = reader.ReadString('\n')
+				}
 			}
 		}
 	}
@@ -2882,7 +2893,7 @@ func findInventoryHost(group *InventoryGroup, name string) *Host {
 
 func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
 	port := getIntArg(args, "port", 0)
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	host := getStringArg(args, "host", "127.0.0.1")
 	state := getStringArg(args, "state", "started")
 	searchRegex := getStringArg(args, "search_regex", "")
@@ -3198,7 +3209,7 @@ func (e *Executor) moduleArchive(ctx context.Context, client sshExecutorClient, 
 }
 
 func archivePaths(args map[string]any) []string {
-	raw, ok := args["path"]
+	raw, ok := args[pathArgKey]
 	if !ok {
 		raw, ok = args["paths"]
 	}
@@ -3256,7 +3267,7 @@ func prefixCommandStdin(cmd, stdin string, addNewline bool) string {
 }
 
 func shellSingleQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+	return "'" + replaceAll(value, "'", `'"'"'`) + "'"
 }
 
 // --- Helpers ---
@@ -3532,7 +3543,7 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 }
 
 func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, "path", "")
+	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
@@ -3769,10 +3780,12 @@ func normalizeIncludeVarsExtensionList(values []string) []string {
 }
 
 func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extensions []string, ignoreFiles []string) ([]string, error) {
-	info, err := os.Stat(dir)
-	if err != nil {
+	stat := core.Stat(dir)
+	if !stat.OK {
+		err, _ := stat.Value.(error)
 		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
 	}
+	info := stat.Value.(core.FsFileInfo)
 	if !info.IsDir() {
 		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir: not a directory", nil)
 	}
@@ -3784,10 +3797,11 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extens
 
 	var matcher *regexp.Regexp
 	if filesMatching != "" {
-		matcher, err = regexp.Compile(filesMatching)
-		if err != nil {
-			return nil, coreerr.E("Executor.moduleIncludeVars", "compile files_matching", err)
+		compiled, compileErr := regexp.Compile(filesMatching)
+		if compileErr != nil {
+			return nil, coreerr.E("Executor.moduleIncludeVars", "compile files_matching", compileErr)
 		}
+		matcher = compiled
 	}
 
 	var files []string
@@ -3806,10 +3820,12 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extens
 		current := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 
-		entries, err := os.ReadDir(current.path)
-		if err != nil {
+		entriesResult := core.ReadDir(core.DirFS(current.path), ".")
+		if !entriesResult.OK {
+			err, _ := entriesResult.Value.(error)
 			return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
 		}
+		entries := entriesResult.Value.([]core.FsDirEntry)
 
 		for i := len(entries) - 1; i >= 0; i-- {
 			entry := entries[i]
@@ -3825,7 +3841,7 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extens
 			if ignored[entry.Name()] {
 				continue
 			}
-			ext := lower(filepath.Ext(entry.Name()))
+			ext := lower(core.PathExt(entry.Name()))
 			if !allowed[ext] {
 				continue
 			}
@@ -4221,7 +4237,7 @@ func filterFactsMap(facts map[string]any, patterns []string) map[string]any {
 	filtered := make(map[string]any)
 	for key, value := range facts {
 		for _, pattern := range patterns {
-			matched, err := path.Match(pattern, key)
+			matched, err := pathMatch(pattern, key)
 			if err != nil {
 				matched = pattern == key
 			}
@@ -4460,7 +4476,7 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 	state := getStringArg(args, "state", "present")
 	exclusive := getBoolArg(args, "exclusive", false)
 	manageDir := getBoolArg(args, "manage_dir", true)
-	pathArg := getStringArg(args, "path", "")
+	pathArg := getStringArg(args, pathArgKey, "")
 	keyOptions := getStringArg(args, "key_options", "")
 	comment := getStringArg(args, "comment", "")
 
@@ -4588,7 +4604,7 @@ func authorizedKeyBase(line string) string {
 		return ""
 	}
 
-	fields := strings.Fields(line)
+	fields := fields(line)
 	for i, field := range fields {
 		if isAuthorizedKeyType(field) {
 			if i+1 >= len(fields) {
@@ -4602,9 +4618,9 @@ func authorizedKeyBase(line string) string {
 }
 
 func isAuthorizedKeyType(value string) bool {
-	return strings.HasPrefix(value, "ssh-") ||
-		strings.HasPrefix(value, "ecdsa-") ||
-		strings.HasPrefix(value, "sk-")
+	return hasPrefix(value, "ssh-") ||
+		hasPrefix(value, "ecdsa-") ||
+		hasPrefix(value, "sk-")
 }
 
 func authorizedKeyContainsBase(content, base string) bool {
@@ -4612,7 +4628,7 @@ func authorizedKeyContainsBase(content, base string) bool {
 		return false
 	}
 
-	for _, line := range strings.Split(content, "\n") {
+	for _, line := range split(content, "\n") {
 		if authorizedKeyBase(line) == base {
 			return true
 		}
@@ -4631,7 +4647,7 @@ func rewriteAuthorizedKeyContent(content, base, line string) (string, bool) {
 		base = authorizedKeyBase(line)
 	}
 
-	lines := strings.Split(content, "\n")
+	lines := split(content, "\n")
 	matches := 0
 	exactMatches := 0
 	for _, current := range lines {

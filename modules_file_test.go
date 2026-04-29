@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"regexp"
-	"strings"
 	"sync"
 )
 
@@ -30,7 +29,7 @@ func (c *diffFileClient) Run(_ context.Context, cmd string) (string, string, int
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if strings.Contains(cmd, `|| echo `) && strings.Contains(cmd, `grep -qxF `) {
+	if contains(cmd, `|| echo `) && contains(cmd, `grep -qxF `) {
 		re := regexp.MustCompile(`grep -qxF "([^"]*)" "([^"]*)" \|\| echo "([^"]*)" >> "([^"]*)"`)
 		match := re.FindStringSubmatch(cmd)
 		if len(match) == 5 {
@@ -38,8 +37,8 @@ func (c *diffFileClient) Run(_ context.Context, cmd string) (string, string, int
 			path := match[4]
 			if c.files[path] == "" {
 				c.files[path] = line + "\n"
-			} else if !strings.Contains(c.files[path], line+"\n") && c.files[path] != line {
-				if !strings.HasSuffix(c.files[path], "\n") {
+			} else if !contains(c.files[path], line+"\n") && c.files[path] != line {
+				if !hasSuffix(c.files[path], "\n") {
 					c.files[path] += "\n"
 				}
 				c.files[path] += line + "\n"
@@ -47,25 +46,25 @@ func (c *diffFileClient) Run(_ context.Context, cmd string) (string, string, int
 		}
 	}
 
-	if strings.Contains(cmd, `sed -i '/`) && strings.Contains(cmd, `/d' `) {
+	if contains(cmd, `sed -i '/`) && contains(cmd, `/d' `) {
 		re := regexp.MustCompile(`sed -i '/([^']*)/d' "([^"]*)"`)
 		match := re.FindStringSubmatch(cmd)
 		if len(match) == 3 {
 			pattern := match[1]
 			path := match[2]
-			lines := strings.Split(c.files[path], "\n")
+			lines := split(c.files[path], "\n")
 			out := make([]string, 0, len(lines))
 			for _, line := range lines {
 				if line == "" {
 					continue
 				}
-				if strings.Contains(line, pattern) {
+				if contains(line, pattern) {
 					continue
 				}
 				out = append(out, line)
 			}
 			if len(out) > 0 {
-				c.files[path] = strings.Join(out, "\n") + "\n"
+				c.files[path] = join("\n", out) + "\n"
 			} else {
 				c.files[path] = ""
 			}
@@ -353,8 +352,8 @@ func TestModulesFile_ModuleFile_Good_StateDirectory(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/var/lib/app",
-		"state": "directory",
+		pathArgKey: "/var/lib/app",
+		"state":    "directory",
 	})
 
 	core.RequireNoError(t, err)
@@ -369,9 +368,9 @@ func TestModulesFile_ModuleFile_Good_StateDirectoryCustomMode(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/opt/data",
-		"state": "directory",
-		"mode":  "0700",
+		pathArgKey: "/opt/data",
+		"state":    "directory",
+		"mode":     "0700",
 	})
 
 	core.RequireNoError(t, err)
@@ -383,8 +382,8 @@ func TestModulesFile_ModuleFile_Good_StateAbsent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/tmp/old-dir",
-		"state": "absent",
+		pathArgKey: "/tmp/old-dir",
+		"state":    "absent",
 	})
 
 	core.RequireNoError(t, err)
@@ -396,8 +395,8 @@ func TestModulesFile_ModuleFile_Good_StateTouch(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/var/log/app.log",
-		"state": "touch",
+		pathArgKey: "/var/log/app.log",
+		"state":    "touch",
 	})
 
 	core.RequireNoError(t, err)
@@ -409,9 +408,9 @@ func TestModulesFile_ModuleFile_Good_StateLink(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/usr/local/bin/node",
-		"state": "link",
-		"src":   "/opt/node/bin/node",
+		pathArgKey: "/usr/local/bin/node",
+		"state":    "link",
+		"src":      "/opt/node/bin/node",
 	})
 
 	core.RequireNoError(t, err)
@@ -423,9 +422,9 @@ func TestModulesFile_ModuleFile_Good_StateHard(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/usr/local/bin/node",
-		"state": "hard",
-		"src":   "/opt/node/bin/node",
+		pathArgKey: "/usr/local/bin/node",
+		"state":    "hard",
+		"src":      "/opt/node/bin/node",
 	})
 
 	core.RequireNoError(t, err)
@@ -437,8 +436,8 @@ func TestModulesFile_ModuleFile_Bad_StateHardMissingSrc(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/usr/local/bin/node",
-		"state": "hard",
+		pathArgKey: "/usr/local/bin/node",
+		"state":    "hard",
 	})
 
 	core.AssertError(t, err)
@@ -449,8 +448,8 @@ func TestModulesFile_ModuleFile_Bad_LinkMissingSrc(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	_, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/usr/local/bin/node",
-		"state": "link",
+		pathArgKey: "/usr/local/bin/node",
+		"state":    "link",
 	})
 
 	core.AssertError(t, err)
@@ -461,11 +460,11 @@ func TestModulesFile_ModuleFile_Good_OwnerGroupMode(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/var/lib/app/data",
-		"state": "directory",
-		"owner": "www-data",
-		"group": "www-data",
-		"mode":  "0775",
+		pathArgKey: "/var/lib/app/data",
+		"state":    "directory",
+		"owner":    "www-data",
+		"group":    "www-data",
+		"mode":     "0775",
 	})
 
 	core.RequireNoError(t, err)
@@ -481,10 +480,10 @@ func TestModulesFile_ModuleFile_Good_RecurseOwner(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":    "/var/www",
-		"state":   "directory",
-		"owner":   "www-data",
-		"recurse": true,
+		pathArgKey: "/var/www",
+		"state":    "directory",
+		"owner":    "www-data",
+		"recurse":  true,
 	})
 
 	core.RequireNoError(t, err)
@@ -499,11 +498,11 @@ func TestModulesFile_ModuleFile_Good_RecurseGroupAndMode(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":    "/srv/app",
-		"state":   "directory",
-		"group":   "appgroup",
-		"mode":    "0770",
-		"recurse": true,
+		pathArgKey: "/srv/app",
+		"state":    "directory",
+		"group":    "appgroup",
+		"mode":     "0770",
+		"recurse":  true,
 	})
 
 	core.RequireNoError(t, err)
@@ -542,9 +541,9 @@ func TestModulesFile_ModuleFile_Good_StateFileWithMode(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/etc/config.yml",
-		"state": "file",
-		"mode":  "0600",
+		pathArgKey: "/etc/config.yml",
+		"state":    "file",
+		"mode":     "0600",
 	})
 
 	core.RequireNoError(t, err)
@@ -557,8 +556,8 @@ func TestModulesFile_ModuleFile_Good_DirectoryCommandFailure(t *core.T) {
 	mock.expectCommand("mkdir", "", "permission denied", 1)
 
 	result, err := moduleFileWithClient(e, mock, map[string]any{
-		"path":  "/root/protected",
-		"state": "directory",
+		pathArgKey: "/root/protected",
+		"state":    "directory",
 	})
 
 	core.RequireNoError(t, err)
@@ -572,8 +571,8 @@ func TestModulesFile_ModuleLineinfile_Good_InsertLine(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path": "/etc/hosts",
-		"line": "192.168.1.100 web01",
+		pathArgKey: "/etc/hosts",
+		"line":     "192.168.1.100 web01",
 	})
 
 	core.RequireNoError(t, err)
@@ -588,9 +587,9 @@ func TestModulesFile_ModuleLineinfile_Good_ReplaceRegexp(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":   "/etc/ssh/sshd_config",
-		"regexp": "^#?PermitRootLogin",
-		"line":   "PermitRootLogin no",
+		pathArgKey: "/etc/ssh/sshd_config",
+		"regexp":   "^#?PermitRootLogin",
+		"line":     "PermitRootLogin no",
 	})
 
 	core.RequireNoError(t, err)
@@ -604,9 +603,9 @@ func TestModulesFile_ModuleLineinfile_Good_RemoveLine(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":   "/etc/hosts",
-		"regexp": "^192\\.168\\.1\\.100",
-		"state":  "absent",
+		pathArgKey: "/etc/hosts",
+		"regexp":   "^192\\.168\\.1\\.100",
+		"state":    "absent",
 	})
 
 	core.RequireNoError(t, err)
@@ -623,9 +622,9 @@ func TestModulesFile_ModuleLineinfile_Good_RegexpFallsBackToAppend(t *core.T) {
 	mock.expectCommand("sed -i", "", "", 1)
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":   "/etc/config",
-		"regexp": "^setting=",
-		"line":   "setting=value",
+		pathArgKey: "/etc/config",
+		"regexp":   "^setting=",
+		"line":     "setting=value",
 	})
 
 	core.RequireNoError(t, err)
@@ -641,10 +640,10 @@ func TestModulesFile_ModuleLineinfile_Good_CreateFile(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
-		"path":   "/etc/example.conf",
-		"regexp": "^setting=",
-		"line":   "setting=value",
-		"create": true,
+		pathArgKey: "/etc/example.conf",
+		"regexp":   "^setting=",
+		"line":     "setting=value",
+		"create":   true,
 	})
 
 	core.RequireNoError(t, err)
@@ -657,7 +656,7 @@ func TestModulesFile_ModuleLineinfile_Good_BackrefsReplaceMatchOnly(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":     "/etc/example.conf",
+		pathArgKey: "/etc/example.conf",
 		"regexp":   "^(foo=).*$",
 		"line":     "\\1bar",
 		"backrefs": true,
@@ -680,7 +679,7 @@ func TestModulesFile_ModuleLineinfile_Good_BackrefsNoMatchNoAppend(t *core.T) {
 	mock.expectCommand("grep -Eq", "", "", 1)
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":     "/etc/example.conf",
+		pathArgKey: "/etc/example.conf",
 		"regexp":   "^(foo=).*$",
 		"line":     "\\1bar",
 		"backrefs": true,
@@ -697,7 +696,7 @@ func TestModulesFile_ModuleLineinfile_Good_InsertBeforeAnchor(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
-		"path":         "/etc/example.conf",
+		pathArgKey:     "/etc/example.conf",
 		"line":         "setting=value",
 		"insertbefore": "^# managed settings",
 		"firstmatch":   true,
@@ -713,7 +712,7 @@ func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
-		"path":        "/etc/example.conf",
+		pathArgKey:    "/etc/example.conf",
 		"line":        "setting=value",
 		"insertafter": "^# managed settings",
 		"firstmatch":  true,
@@ -729,7 +728,7 @@ func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor_DefaultUsesLastMatc
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
-		"path":        "/etc/example.conf",
+		pathArgKey:    "/etc/example.conf",
 		"line":        "setting=value",
 		"insertafter": "^# managed settings",
 	})
@@ -770,8 +769,8 @@ func TestModulesFile_ModuleLineinfile_Good_AbsentWithNoRegexp(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":  "/etc/config",
-		"state": "absent",
+		pathArgKey: "/etc/config",
+		"state":    "absent",
 	})
 
 	core.RequireNoError(t, err)
@@ -783,9 +782,9 @@ func TestModulesFile_ModuleLineinfile_Good_LineWithSlashes(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":   "/etc/nginx/conf.d/default.conf",
-		"regexp": "^root /",
-		"line":   "root /var/www/html;",
+		pathArgKey: "/etc/nginx/conf.d/default.conf",
+		"regexp":   "^root /",
+		"line":     "root /var/www/html;",
 	})
 
 	core.RequireNoError(t, err)
@@ -800,8 +799,8 @@ func TestModulesFile_ModuleLineinfile_Good_ExactLineAlreadyPresentIsNoOp(t *core
 	mock.addFile("/etc/example.conf", []byte("setting=value\nother=1\n"))
 
 	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
-		"path": "/etc/example.conf",
-		"line": "setting=value",
+		pathArgKey: "/etc/example.conf",
+		"line":     "setting=value",
 	})
 
 	core.RequireNoError(t, err)
@@ -815,7 +814,7 @@ func TestModulesFile_ModuleLineinfile_Good_SearchStringReplacesMatchingLine(t *c
 	mock.addFile("/etc/ssh/sshd_config", []byte("PermitRootLogin yes\nPasswordAuthentication yes\n"))
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":          "/etc/ssh/sshd_config",
+		pathArgKey:      "/etc/ssh/sshd_config",
 		"search_string": "PermitRootLogin",
 		"line":          "PermitRootLogin no",
 	})
@@ -833,7 +832,7 @@ func TestModulesFile_ModuleLineinfile_Good_SearchStringRemovesMatchingLine(t *co
 	mock.addFile("/etc/ssh/sshd_config", []byte("PermitRootLogin yes\nPasswordAuthentication yes\n"))
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
-		"path":          "/etc/ssh/sshd_config",
+		pathArgKey:      "/etc/ssh/sshd_config",
 		"search_string": "PermitRootLogin",
 		"state":         "absent",
 	})
@@ -852,9 +851,9 @@ func TestModulesFile_ModuleLineinfile_Good_BackupExistingFile(t *core.T) {
 	mock.addFile(path, []byte("setting=old\n"))
 
 	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
-		"path":   path,
-		"line":   "setting=new",
-		"backup": true,
+		pathArgKey: path,
+		"line":     "setting=new",
+		"backup":   true,
 	})
 
 	core.RequireNoError(t, err)
@@ -879,8 +878,8 @@ func TestModulesFile_ModuleLineinfile_Good_DiffData(t *core.T) {
 	})
 
 	result, err := e.moduleLineinfile(context.Background(), client, map[string]any{
-		"path": "/etc/example.conf",
-		"line": "setting=new",
+		pathArgKey: "/etc/example.conf",
+		"line":     "setting=new",
 	})
 
 	core.RequireNoError(t, err)
@@ -889,7 +888,7 @@ func TestModulesFile_ModuleLineinfile_Good_DiffData(t *core.T) {
 
 	diff, ok := result.Data["diff"].(map[string]any)
 	core.RequireTrue(t, ok)
-	core.AssertEqual(t, "/etc/example.conf", diff["path"])
+	core.AssertEqual(t, "/etc/example.conf", diff[pathArgKey])
 	core.AssertEqual(t, "setting=old\n", diff["before"])
 	core.AssertContains(t, diff["after"], "setting=new")
 }
@@ -904,10 +903,10 @@ func TestModulesFile_ModuleReplace_Good_RegexpReplacementWithBackupAndDiff(t *co
 	})
 
 	result, err := e.moduleReplace(context.Background(), client, map[string]any{
-		"path":    "/etc/app.conf",
-		"regexp":  `port=(\d+)`,
-		"replace": "port=9090",
-		"backup":  true,
+		pathArgKey: "/etc/app.conf",
+		"regexp":   `port=(\d+)`,
+		"replace":  "port=9090",
+		"backup":   true,
 	})
 
 	core.RequireNoError(t, err)
@@ -934,9 +933,9 @@ func TestModulesFile_ModuleReplace_Good_NoOpWhenPatternMissing(t *core.T) {
 	})
 
 	result, err := e.moduleReplace(context.Background(), client, map[string]any{
-		"path":    "/etc/app.conf",
-		"regexp":  `mode=.+`,
-		"replace": "mode=prod",
+		pathArgKey: "/etc/app.conf",
+		"regexp":   `mode=.+`,
+		"replace":  "mode=prod",
 	})
 
 	core.RequireNoError(t, err)
@@ -963,8 +962,8 @@ func TestModulesFile_ModuleBlockinfile_Good_InsertBlock(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
-		"path":  "/etc/nginx/conf.d/upstream.conf",
-		"block": "server 10.0.0.1:8080;\nserver 10.0.0.2:8080;",
+		pathArgKey: "/etc/nginx/conf.d/upstream.conf",
+		"block":    "server 10.0.0.1:8080;\nserver 10.0.0.2:8080;",
 	})
 
 	core.RequireNoError(t, err)
@@ -980,9 +979,9 @@ func TestModulesFile_ModuleBlockinfile_Good_CustomMarkers(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
-		"path":   "/etc/hosts",
-		"block":  "10.0.0.5 db01",
-		"marker": "# {mark} managed by devops",
+		pathArgKey: "/etc/hosts",
+		"block":    "10.0.0.5 db01",
+		"marker":   "# {mark} managed by devops",
 	})
 
 	core.RequireNoError(t, err)
@@ -997,7 +996,7 @@ func TestModulesFile_ModuleBlockinfile_Good_CustomMarkerBeginAndEnd(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := e.moduleBlockinfile(context.Background(), mock, map[string]any{
-		"path":         "/etc/app.conf",
+		pathArgKey:     "/etc/app.conf",
 		"block":        "setting=value",
 		"marker":       "# {mark} managed by app",
 		"marker_begin": "START",
@@ -1014,7 +1013,7 @@ func TestModulesFile_ModuleBlockinfile_Good_NewlinePadding(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
-		"path":            "/etc/hosts",
+		pathArgKey:        "/etc/hosts",
 		"block":           "10.0.0.5 db01",
 		"prepend_newline": true,
 		"append_newline":  true,
@@ -1031,8 +1030,8 @@ func TestModulesFile_ModuleBlockinfile_Good_RemoveBlock(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
-		"path":  "/etc/config",
-		"state": "absent",
+		pathArgKey: "/etc/config",
+		"state":    "absent",
 	})
 
 	core.RequireNoError(t, err)
@@ -1047,9 +1046,9 @@ func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithBackup(t *core.T) {
 	mock.addFile("/etc/config", []byte("before\n# BEGIN ANSIBLE MANAGED BLOCK\nmanaged\n# END ANSIBLE MANAGED BLOCK\nafter\n"))
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
-		"path":   "/etc/config",
-		"state":  "absent",
-		"backup": true,
+		pathArgKey: "/etc/config",
+		"state":    "absent",
+		"backup":   true,
 	})
 
 	core.RequireNoError(t, err)
@@ -1069,7 +1068,7 @@ func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithCustomMarkerBeginAndE
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := e.moduleBlockinfile(context.Background(), mock, map[string]any{
-		"path":         "/etc/app.conf",
+		pathArgKey:     "/etc/app.conf",
 		"state":        "absent",
 		"marker":       "# {mark} managed by app",
 		"marker_begin": "START",
@@ -1085,9 +1084,9 @@ func TestModulesFile_ModuleBlockinfile_Good_CreateFile(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
-		"path":   "/etc/new-config",
-		"block":  "setting=value",
-		"create": true,
+		pathArgKey: "/etc/new-config",
+		"block":    "setting=value",
+		"create":   true,
 	})
 
 	core.RequireNoError(t, err)
@@ -1102,9 +1101,9 @@ func TestModulesFile_ModuleBlockinfile_Good_BackupExistingDest(t *core.T) {
 	mock.addFile("/etc/config", []byte("old block contents"))
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
-		"path":   "/etc/config",
-		"block":  "new block contents",
-		"backup": true,
+		pathArgKey: "/etc/config",
+		"block":    "new block contents",
+		"backup":   true,
 	})
 
 	core.RequireNoError(t, err)
@@ -1130,8 +1129,8 @@ func TestModulesFile_ModuleBlockinfile_Good_DiffData(t *core.T) {
 	})
 
 	result, err := e.moduleBlockinfile(context.Background(), client, map[string]any{
-		"path":  "/etc/config",
-		"block": "new block contents",
+		pathArgKey: "/etc/config",
+		"block":    "new block contents",
 	})
 
 	core.RequireNoError(t, err)
@@ -1140,7 +1139,7 @@ func TestModulesFile_ModuleBlockinfile_Good_DiffData(t *core.T) {
 
 	diff, ok := result.Data["diff"].(map[string]any)
 	core.RequireTrue(t, ok)
-	core.AssertEqual(t, "/etc/config", diff["path"])
+	core.AssertEqual(t, "/etc/config", diff[pathArgKey])
 	core.AssertEqual(t, "old block contents\n", diff["before"])
 	core.AssertContains(t, diff["after"], "new block contents")
 }
@@ -1173,8 +1172,8 @@ func TestModulesFile_ModuleBlockinfile_Good_ScriptFailure(t *core.T) {
 	mock.expectCommand("BLOCK_EOF", "", "write error", 1)
 
 	result, err := moduleBlockinfileWithClient(e, mock, map[string]any{
-		"path":  "/etc/config",
-		"block": "data",
+		pathArgKey: "/etc/config",
+		"block":    "data",
 	})
 
 	core.RequireNoError(t, err)
@@ -1196,7 +1195,7 @@ func TestModulesFile_ModuleStat_Good_ExistingFile(t *core.T) {
 	})
 
 	result, err := moduleStatWithClient(e, mock, map[string]any{
-		"path": "/etc/nginx/nginx.conf",
+		pathArgKey: "/etc/nginx/nginx.conf",
 	})
 
 	core.RequireNoError(t, err)
@@ -1215,7 +1214,7 @@ func TestModulesFile_ModuleStat_Good_MissingFile(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleStatWithClient(e, mock, map[string]any{
-		"path": "/nonexistent/file.txt",
+		pathArgKey: "/nonexistent/file.txt",
 	})
 
 	core.RequireNoError(t, err)
@@ -1236,7 +1235,7 @@ func TestModulesFile_ModuleStat_Good_Directory(t *core.T) {
 	})
 
 	result, err := moduleStatWithClient(e, mock, map[string]any{
-		"path": "/var/log",
+		pathArgKey: "/var/log",
 	})
 
 	core.RequireNoError(t, err)
@@ -1251,7 +1250,7 @@ func TestModulesFile_ModuleStat_Good_FallbackFromFileSystem(t *core.T) {
 	mock.addFile("/etc/hosts", []byte("127.0.0.1 localhost"))
 
 	result, err := moduleStatWithClient(e, mock, map[string]any{
-		"path": "/etc/hosts",
+		pathArgKey: "/etc/hosts",
 	})
 
 	core.RequireNoError(t, err)
@@ -1491,7 +1490,7 @@ func TestModulesFile_ModuleTemplate_Good_DiffData(t *core.T) {
 
 	diff, ok := result.Data["diff"].(map[string]any)
 	core.RequireTrue(t, ok)
-	core.AssertEqual(t, "/etc/nginx/conf.d/app.conf", diff["path"])
+	core.AssertEqual(t, "/etc/nginx/conf.d/app.conf", diff[pathArgKey])
 	core.AssertEqual(t, "server_name=old.example.com;", diff["before"])
 	core.AssertContains(t, diff["after"], "web01.example.com")
 }
@@ -1522,8 +1521,8 @@ func TestModulesFile_ExecuteModuleWithMock_Good_DispatchFile(t *core.T) {
 	task := &Task{
 		Module: "file",
 		Args: map[string]any{
-			"path":  "/opt/data",
-			"state": "directory",
+			pathArgKey: "/opt/data",
+			"state":    "directory",
 		},
 	}
 
@@ -1541,7 +1540,7 @@ func TestModulesFile_ExecuteModuleWithMock_Good_DispatchStat(t *core.T) {
 	task := &Task{
 		Module: "stat",
 		Args: map[string]any{
-			"path": "/etc/hosts",
+			pathArgKey: "/etc/hosts",
 		},
 	}
 
@@ -1559,8 +1558,8 @@ func TestModulesFile_ExecuteModuleWithMock_Good_DispatchLineinfile(t *core.T) {
 	task := &Task{
 		Module: "lineinfile",
 		Args: map[string]any{
-			"path": "/etc/hosts",
-			"line": "10.0.0.1 dbhost",
+			pathArgKey: "/etc/hosts",
+			"line":     "10.0.0.1 dbhost",
 		},
 	}
 
@@ -1576,8 +1575,8 @@ func TestModulesFile_ExecuteModuleWithMock_Good_DispatchBlockinfile(t *core.T) {
 	task := &Task{
 		Module: "blockinfile",
 		Args: map[string]any{
-			"path":  "/etc/config",
-			"block": "key=value",
+			pathArgKey: "/etc/config",
+			"block":    "key=value",
 		},
 	}
 
@@ -1642,9 +1641,9 @@ func TestModulesFile_ModuleFile_Good_TemplatedPath(t *core.T) {
 	task := &Task{
 		Module: "file",
 		Args: map[string]any{
-			"path":  "{{ app_dir }}/uploads",
-			"state": "directory",
-			"owner": "www-data",
+			pathArgKey: "{{ app_dir }}/uploads",
+			"state":    "directory",
+			"owner":    "www-data",
 		},
 	}
 

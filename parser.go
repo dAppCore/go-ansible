@@ -4,11 +4,9 @@ import (
 	"io/fs"
 	"iter"
 	"maps"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 
 	coreio "dappco.re/go/io"
@@ -277,7 +275,7 @@ func (p *Parser) ParseVarsFiles(pattern string) (map[string]any, error) {
 		return nil, err
 	}
 	if len(matches) == 0 {
-		if !strings.ContainsAny(pattern, "*?[") {
+		if !containsAny(pattern, "*?[") {
 			matches = []string{pattern}
 		} else {
 			return nil, coreerr.E("Parser.ParseVarsFiles", "no vars files matched pattern", nil)
@@ -420,7 +418,7 @@ func (p *Parser) listDir(path string) ([]fs.DirEntry, error) {
 
 // expandFilePattern expands wildcard paths that can be safely resolved locally.
 func (p *Parser) expandFilePattern(pattern string) ([]string, error) {
-	if !strings.ContainsAny(pattern, "*?[") {
+	if !containsAny(pattern, "*?[") {
 		return []string{pattern}, nil
 	}
 
@@ -428,10 +426,7 @@ func (p *Parser) expandFilePattern(pattern string) ([]string, error) {
 		return nil, coreerr.E("Parser.expandFilePattern", "wildcard patterns require the local filesystem medium", nil)
 	}
 
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, coreerr.E("Parser.expandFilePattern", "expand pattern", err)
-	}
+	matches := pathGlob(pattern)
 	sort.Strings(matches)
 	return matches, nil
 }
@@ -700,7 +695,9 @@ func (p *Parser) findRoleFilePath(name string, subdir string, filename string) s
 }
 
 // processPlay processes a play and extracts modules from tasks.
-func (p *Parser) processPlay(play *Play) error {
+func (p *Parser) processPlay(
+	play *Play,
+) error {
 	// Merge play vars
 	for k, v := range play.Vars {
 		p.vars[k] = v
@@ -734,7 +731,9 @@ func (p *Parser) processPlay(play *Play) error {
 }
 
 // extractModule extracts the module name and args from a task.
-func (p *Parser) extractModule(task *Task) error {
+func (p *Parser) extractModule(
+	task *Task,
+) error {
 	// First, unmarshal the raw YAML to get all keys
 	// This is a workaround since we need to find the module key dynamically
 
@@ -764,7 +763,9 @@ func (p *Parser) extractModule(task *Task) error {
 //
 //	var task Task
 //	_ = yaml.Unmarshal([]byte("shell: echo ok"), &task)
-func (t *Task) UnmarshalYAML(node *yaml.Node) error {
+func (t *Task) UnmarshalYAML(
+	node *yaml.Node,
+) error {
 	// First decode known fields
 	type rawTask Task
 	var raw rawTask
@@ -967,7 +968,9 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func decodeYAMLValue(value any, out any) error {
+func decodeYAMLValue(
+	value any, out any,
+) error {
 	data, err := yaml.Marshal(value)
 	if err != nil {
 		return err
@@ -1012,7 +1015,7 @@ func parseActionSpec(value any) (string, map[string]any) {
 }
 
 func parseActionSpecString(raw string) (string, map[string]any) {
-	raw = strings.TrimSpace(raw)
+	raw = trimSpace(raw)
 	if raw == "" {
 		return "", nil
 	}
@@ -1024,7 +1027,7 @@ func parseActionSpecString(raw string) (string, map[string]any) {
 
 	module := ""
 	start := 0
-	if kv := strings.SplitN(parts[0], "=", 2); len(kv) == 2 && kv[0] == "module" && kv[1] != "" {
+	if kv := splitN(parts[0], "=", 2); len(kv) == 2 && kv[0] == "module" && kv[1] != "" {
 		module = kv[1]
 		start = 1
 	} else {
@@ -1042,7 +1045,7 @@ func parseActionSpecString(raw string) (string, map[string]any) {
 	args := make(map[string]any)
 	freeFormStart := len(parts)
 	for i, part := range parts[start:] {
-		key, value, ok := strings.Cut(part, "=")
+		key, value, ok := cut(part, "=")
 		if !ok || key == "" {
 			freeFormStart = start + i
 			break
@@ -1058,7 +1061,7 @@ func parseActionSpecString(raw string) (string, map[string]any) {
 	}
 
 	if freeFormStart < len(parts) {
-		rawParams := strings.Join(parts[freeFormStart:], " ")
+		rawParams := join(" ", parts[freeFormStart:])
 		if rawParams != "" {
 			if len(args) == 0 {
 				return module, map[string]any{"_raw_params": rawParams}
@@ -1254,10 +1257,10 @@ func NormalizeModule(name string) string {
 	if canonical, ok := ModuleAliases[name]; ok {
 		return canonical
 	}
-	if strings.HasPrefix(name, "ansible.legacy.") {
+	if hasPrefix(name, "ansible.legacy.") {
 		// Legacy module names should resolve through the existing short-form
 		// and alias logic so we keep compatibility with older playbooks.
-		return NormalizeModule(strings.TrimPrefix(name, "ansible.legacy."))
+		return NormalizeModule(trimPrefix(name, "ansible.legacy."))
 	}
 	// Add ansible.builtin. prefix if missing
 	if !contains(name, ".") {

@@ -2,10 +2,7 @@ package ansiblecmd
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"dappco.re/go"
@@ -120,7 +117,7 @@ func joinedStringOption(opts core.Options, keys ...string) string {
 			filtered = append(filtered, trimmed)
 		}
 	}
-	return strings.Join(filtered, ",")
+	return join(",", filtered)
 }
 
 // verbosityLevel resolves the effective verbosity from parsed options and the
@@ -136,13 +133,13 @@ func verbosityLevel(opts core.Options, rawArgs []string) int {
 		switch {
 		case arg == "-v" || arg == "--verbose":
 			level++
-		case strings.HasPrefix(arg, "--verbose="):
-			if n, err := strconv.Atoi(strings.TrimPrefix(arg, "--verbose=")); err == nil && n > level {
+		case hasPrefix(arg, "--verbose="):
+			if n, err := strconv.Atoi(trimPrefix(arg, "--verbose=")); err == nil && n > level {
 				level = n
 			}
-		case strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--"):
-			short := strings.TrimPrefix(arg, "-")
-			if short != "" && strings.Trim(short, "v") == "" {
+		case hasPrefix(arg, "-") && !hasPrefix(arg, "--"):
+			short := trimPrefix(arg, "-")
+			if short != "" && trimCutset(short, "v") == "" {
 				if n := len([]rune(short)); n > level {
 					level = n
 				}
@@ -196,8 +193,8 @@ func parseExtraVarsValue(value string) (map[string]any, error) {
 		return nil, nil
 	}
 
-	if strings.HasPrefix(trimmed, "@") {
-		filePath := trimSpace(strings.TrimPrefix(trimmed, "@"))
+	if hasPrefix(trimmed, "@") {
+		filePath := trimSpace(trimPrefix(trimmed, "@"))
 		if filePath == "" {
 			return nil, coreerr.E("parseExtraVarsValue", "extra vars file path required", nil)
 		}
@@ -214,7 +211,7 @@ func parseExtraVarsValue(value string) (map[string]any, error) {
 		return structured, nil
 	}
 
-	if strings.Contains(trimmed, "=") {
+	if contains(trimmed, "=") {
 		return parseKeyValueExtraVars(trimmed), nil
 	}
 
@@ -223,11 +220,6 @@ func parseExtraVarsValue(value string) (map[string]any, error) {
 
 func parseStructuredExtraVars(value string) (map[string]any, bool) {
 	var parsed map[string]any
-	if json.Valid([]byte(value)) {
-		if err := yaml.Unmarshal([]byte(value), &parsed); err == nil && len(parsed) > 0 {
-			return parsed, true
-		}
-	}
 	if err := yaml.Unmarshal([]byte(value), &parsed); err != nil {
 		return nil, false
 	}
@@ -326,7 +318,7 @@ func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbook
 func diffOutputLines(diff map[string]any) []string {
 	lines := []string{"diff:"}
 
-	if path, ok := diff["path"].(string); ok && path != "" {
+	if path, ok := diff[pathArgKey].(string); ok && path != "" {
 		lines = append(lines, sprintf("path: %s", path))
 	}
 	if before, ok := diff["before"].(string); ok && before != "" {
@@ -340,7 +332,12 @@ func diffOutputLines(diff map[string]any) []string {
 }
 
 func runPlaybookCommand(opts core.Options) core.Result {
-	settings, err := buildPlaybookCommandSettings(opts, os.Args[1:])
+	args := core.Args()
+	rawArgs := []string(nil)
+	if len(args) > 1 {
+		rawArgs = args[1:]
+	}
+	settings, err := buildPlaybookCommandSettings(opts, rawArgs)
 	if err != nil {
 		return core.Fail(err)
 	}

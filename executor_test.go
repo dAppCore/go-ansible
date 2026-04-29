@@ -3,8 +3,7 @@ package ansible
 import (
 	"context"
 	core "dappco.re/go"
-	"os"
-	"path/filepath"
+	coreio "dappco.re/go/io"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -49,6 +48,78 @@ func TestExecutor_NewExecutor_Good(t *core.T) {
 	core.AssertNotNil(t, e.clients)
 }
 
+func TestExecutor_SSHClient_Run_Good(t *core.T) {
+	mock := NewMockSSHClient()
+	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "export APP_ENV=prod; "}
+
+	stdout, stderr, code, err := client.Run(context.Background(), "echo $APP_ENV")
+
+	core.AssertNoError(t, err)
+	core.AssertEmpty(t, stdout)
+	core.AssertEmpty(t, stderr)
+	core.AssertEqual(t, 0, code)
+	core.AssertEqual(t, "export APP_ENV=prod; echo $APP_ENV", mock.lastCommand().Cmd)
+}
+
+func TestExecutor_SSHClient_Run_Bad(t *core.T) {
+	mock := NewMockSSHClient()
+	mock.expectCommand("false", "", "failed", 2)
+	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "set -e; "}
+
+	_, stderr, code, err := client.Run(context.Background(), "false")
+
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "failed", stderr)
+	core.AssertEqual(t, 2, code)
+	core.AssertEqual(t, "set -e; false", mock.lastCommand().Cmd)
+}
+
+func TestExecutor_SSHClient_Run_Ugly(t *core.T) {
+	mock := NewMockSSHClient()
+	client := &environmentSSHClient{sshExecutorClient: mock, prefix: ""}
+
+	_, _, code, err := client.Run(context.Background(), "")
+
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, 0, code)
+	core.AssertEqual(t, "", mock.lastCommand().Cmd)
+}
+
+func TestExecutor_SSHClient_RunScript_Good(t *core.T) {
+	mock := NewMockSSHClient()
+	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "export APP_ENV=prod\n"}
+
+	_, _, code, err := client.RunScript(context.Background(), "echo $APP_ENV")
+
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, 0, code)
+	core.AssertEqual(t, "export APP_ENV=prod\necho $APP_ENV", mock.lastCommand().Cmd)
+}
+
+func TestExecutor_SSHClient_RunScript_Bad(t *core.T) {
+	mock := NewMockSSHClient()
+	mock.expectCommand("exit 3", "", "bad script", 3)
+	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "set -e\n"}
+
+	_, stderr, code, err := client.RunScript(context.Background(), "exit 3")
+
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "bad script", stderr)
+	core.AssertEqual(t, 3, code)
+	core.AssertEqual(t, "set -e\nexit 3", mock.lastCommand().Cmd)
+}
+
+func TestExecutor_SSHClient_RunScript_Ugly(t *core.T) {
+	mock := NewMockSSHClient()
+	client := &environmentSSHClient{sshExecutorClient: mock, prefix: ""}
+
+	_, _, code, err := client.RunScript(context.Background(), "")
+
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, 0, code)
+	core.AssertEqual(t, "", mock.lastCommand().Cmd)
+}
+
 // --- SetVar ---
 
 func TestExecutor_SetVar_Good(t *core.T) {
@@ -78,7 +149,7 @@ func TestExecutor_SetInventoryDirect_Good(t *core.T) {
 
 func TestExecutor_Run_Good_UsesCachedClient(t *core.T) {
 	dir := t.TempDir()
-	playbookPath := filepath.Join(dir, "site.yml")
+	playbookPath := joinPath(dir, "site.yml")
 	core.RequireNoError(t, writeTestFile(playbookPath, []byte(`---
 - hosts: localhost
   gather_facts: false
@@ -2142,18 +2213,18 @@ func TestExecutor_HandleMetaAction_Good_ClearHostErrors(t *core.T) {
 
 func TestExecutor_HandleMetaAction_Good_RefreshInventory(t *core.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "inventory.yml")
+	path := joinPath(dir, "inventory.yml")
 
 	initial := []byte("all:\n  hosts:\n    web1:\n      ansible_host: 10.0.0.1\n")
 	updated := []byte("all:\n  hosts:\n    web1:\n      ansible_host: 10.0.0.2\n")
 
-	core.RequireNoError(t, os.WriteFile(path, initial, 0644))
+	core.RequireNoError(t, writeTestFile(path, initial, 0644))
 
 	e := NewExecutor("/tmp")
 	core.RequireNoError(t, e.SetInventory(path))
 	e.clients["web1"] = &SSHClient{}
 
-	core.RequireNoError(t, os.WriteFile(path, updated, 0644))
+	core.RequireNoError(t, writeTestFile(path, updated, 0644))
 
 	result := &TaskResult{
 		Data: map[string]any{"action": "refresh_inventory"},
@@ -2741,7 +2812,7 @@ func TestExecutor_RunTaskOnHost_Good_LoopFromTemplatedListVariable(t *core.T) {
 
 // --- templateArgs ---
 
-func TestExecutor_TemplateArgs_Good(t *core.T) {
+func TestExecutor_templateArgs_Good(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.vars["myvar"] = "resolved"
 
@@ -2757,7 +2828,7 @@ func TestExecutor_TemplateArgs_Good(t *core.T) {
 	core.AssertEqual(t, 42, result["number"])
 }
 
-func TestExecutor_TemplateArgs_Good_NestedMap(t *core.T) {
+func TestExecutor_templateArgs_Good_NestedMap(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.vars["port"] = "8080"
 
@@ -2772,7 +2843,7 @@ func TestExecutor_TemplateArgs_Good_NestedMap(t *core.T) {
 	core.AssertEqual(t, "8080", nested["port"])
 }
 
-func TestExecutor_TemplateArgs_Good_ArrayValues(t *core.T) {
+func TestExecutor_templateArgs_Good_ArrayValues(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.vars["pkg"] = "nginx"
 
@@ -2788,7 +2859,7 @@ func TestExecutor_TemplateArgs_Good_ArrayValues(t *core.T) {
 
 // --- Helper functions ---
 
-func TestExecutor_GetStringArg_Good(t *core.T) {
+func TestExecutor_getStringArg_Good(t *core.T) {
 	args := map[string]any{
 		"name":   "value",
 		"number": 42,
@@ -2799,7 +2870,7 @@ func TestExecutor_GetStringArg_Good(t *core.T) {
 	core.AssertEqual(t, "default", getStringArg(args, "missing", "default"))
 }
 
-func TestExecutor_GetBoolArg_Good(t *core.T) {
+func TestExecutor_getBoolArg_Good(t *core.T) {
 	args := map[string]any{
 		"enabled":  true,
 		"disabled": false,
@@ -2826,4 +2897,185 @@ func TestExecutor_Close_Good_EmptyClients(t *core.T) {
 	// Should not panic with no clients
 	e.Close()
 	core.AssertEmpty(t, e.clients)
+}
+
+// --- File-aware public symbol triplets ---
+
+func TestExecutor_NewExecutor_Bad(t *core.T) {
+	executor := NewExecutor("")
+	core.AssertNotNil(t, executor)
+	core.AssertNotNil(t, executor.parser)
+	core.AssertEmpty(t, executor.parser.basePath)
+}
+
+func TestExecutor_NewExecutor_Ugly(t *core.T) {
+	executor := NewExecutor("relative/base")
+	core.AssertNotNil(t, executor)
+	core.AssertEqual(t, "relative/base", executor.parser.basePath)
+	core.AssertNotNil(t, executor.clients)
+}
+
+func TestExecutor_Executor_SetVar_Good(t *core.T) {
+	executor := NewExecutor("/tmp")
+	executor.SetVar("answer", 42)
+	core.AssertEqual(t, 42, executor.vars["answer"])
+	core.AssertLen(t, executor.vars, 1)
+}
+
+func TestExecutor_Executor_SetVar_Bad(t *core.T) {
+	executor := NewExecutor("/tmp")
+	executor.SetVar("", "empty")
+	core.AssertEqual(t, "empty", executor.vars[""])
+	core.AssertTrue(t, executor.vars != nil)
+}
+
+func TestExecutor_Executor_SetVar_Ugly(t *core.T) {
+	executor := NewExecutor("/tmp")
+	executor.SetVar("nil", nil)
+	core.AssertContains(t, executor.vars, "nil")
+	core.AssertNil(t, executor.vars["nil"])
+}
+
+func TestExecutor_Executor_SetInventoryDirect_Good(t *core.T) {
+	executor := NewExecutor("/tmp")
+	inv := testInventory()
+	executor.SetInventoryDirect(inv)
+	core.AssertEqual(t, inv, executor.inventory)
+	core.AssertEmpty(t, executor.inventoryPath)
+}
+
+func TestExecutor_Executor_SetInventoryDirect_Bad(t *core.T) {
+	executor := NewExecutor("/tmp")
+	executor.SetInventoryDirect(nil)
+	core.AssertNil(t, executor.inventory)
+	core.AssertEmpty(t, executor.inventoryPath)
+}
+
+func TestExecutor_Executor_SetInventoryDirect_Ugly(t *core.T) {
+	executor := NewExecutor("/tmp")
+	first := testInventory()
+	second := &Inventory{All: &InventoryGroup{}}
+	executor.SetInventoryDirect(first)
+	executor.SetInventoryDirect(second)
+	core.AssertEqual(t, second, executor.inventory)
+}
+
+func TestExecutor_Executor_SetInventory_Good(t *core.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "inventory.yml")
+	writeTextFile(t, path, "all:\n  hosts:\n    web1: {}\n")
+	executor := NewExecutor(dir)
+	err := executor.SetInventory(path)
+	core.AssertNoError(t, err)
+	core.AssertContains(t, executor.inventory.All.Hosts, "web1")
+}
+
+func TestExecutor_Executor_SetInventory_Bad(t *core.T) {
+	executor := NewExecutor(t.TempDir())
+	err := executor.SetInventory("missing.yml")
+	core.AssertError(t, err)
+	core.AssertNil(t, executor.inventory)
+}
+
+func TestExecutor_Executor_SetInventory_Ugly(t *core.T) {
+	dir := t.TempDir()
+	writeTextFile(t, joinPath(dir, "hosts.yml"), "all:\n  hosts:\n    edge1: {}\n")
+	executor := NewExecutor(dir)
+	err := executor.SetInventory(dir)
+	core.AssertNoError(t, err)
+	core.AssertContains(t, executor.inventory.All.Hosts, "edge1")
+}
+
+func TestExecutor_Executor_SetMedium_Good(t *core.T) {
+	executor := NewExecutor("/tmp")
+	executor.SetMedium(coreio.Local)
+	core.AssertNotNil(t, executor.parser.configuredMedium())
+	core.AssertEqual(t, coreio.Local, executor.parser.configuredMedium())
+}
+
+func TestExecutor_Executor_SetMedium_Bad(t *core.T) {
+	var executor *Executor
+	core.AssertNotPanics(t, func() { executor.SetMedium(coreio.Local) })
+	core.AssertNil(t, executor)
+}
+
+func TestExecutor_Executor_SetMedium_Ugly(t *core.T) {
+	executor := &Executor{}
+	core.AssertNotPanics(t, func() { executor.SetMedium(coreio.Local) })
+	core.AssertNil(t, executor.parser)
+}
+
+func TestExecutor_Executor_Run_Good(t *core.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "site.yml")
+	writeTextFile(t, path, "- hosts: localhost\n  gather_facts: false\n  tasks: []\n")
+	executor := NewExecutor(dir)
+	err := executor.Run(context.Background(), path)
+	core.AssertNoError(t, err)
+}
+
+func TestExecutor_Executor_Run_Bad(t *core.T) {
+	executor := NewExecutor(t.TempDir())
+	err := executor.Run(context.Background(), "missing.yml")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "parse playbook")
+}
+
+func TestExecutor_Executor_Run_Ugly(t *core.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "site.yml")
+	writeTextFile(t, path, "[]\n")
+	executor := NewExecutor(dir)
+	err := executor.Run(context.Background(), path)
+	core.AssertNoError(t, err)
+}
+
+func TestExecutor_Executor_Close_Good(t *core.T) {
+	executor := NewExecutor("/tmp")
+	executor.clients["local"] = newLocalClient()
+	executor.Close()
+	core.AssertNotNil(t, executor.clients)
+	core.AssertLen(t, executor.clients, 0)
+}
+
+func TestExecutor_Executor_Close_Bad(t *core.T) {
+	executor := NewExecutor("/tmp")
+	executor.Close()
+	core.AssertNotNil(t, executor.clients)
+	core.AssertLen(t, executor.clients, 0)
+}
+
+func TestExecutor_Executor_Close_Ugly(t *core.T) {
+	executor := &Executor{clients: nil}
+	core.AssertNotPanics(t, executor.Close)
+	core.AssertNotNil(t, executor.clients)
+	core.AssertLen(t, executor.clients, 0)
+}
+
+func TestExecutor_Executor_TemplateFile_Good(t *core.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "template.j2")
+	writeTextFile(t, path, "hello {{ name }}")
+	executor := NewExecutor(dir)
+	executor.SetVar("name", "world")
+	content, err := executor.TemplateFile(path, "", nil)
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "hello world", content)
+}
+
+func TestExecutor_Executor_TemplateFile_Bad(t *core.T) {
+	executor := NewExecutor(t.TempDir())
+	content, err := executor.TemplateFile("", "", nil)
+	core.AssertError(t, err)
+	core.AssertEmpty(t, content)
+}
+
+func TestExecutor_Executor_TemplateFile_Ugly(t *core.T) {
+	dir := t.TempDir()
+	path := joinPath(dir, "template.j2")
+	writeTextFile(t, path, "hello {{ missing }}")
+	executor := NewExecutor(dir)
+	content, err := executor.TemplateFile(path, "", nil)
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "hello {{ missing }}", content)
 }

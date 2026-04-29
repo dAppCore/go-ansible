@@ -699,9 +699,9 @@ func TestModulesAdv_ModuleAuthorizedKey_Good_CustomPath(t *core.T) {
 	mock.expectCommand(`chmod 600`, "", "", 0)
 
 	result, err := moduleAuthorizedKeyWithClient(e, mock, map[string]any{
-		"user": "deploy",
-		"key":  testKey,
-		"path": "/srv/keys/deploy_keys",
+		"user":     "deploy",
+		"key":      testKey,
+		pathArgKey: "/srv/keys/deploy_keys",
 	})
 
 	core.RequireNoError(t, err)
@@ -1085,7 +1085,7 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathPresent(t *core.T) {
 	mock.addFile("/tmp/ready", []byte("ok"))
 
 	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
-		"path": "/tmp/ready",
+		pathArgKey: "/tmp/ready",
 	})
 
 	core.RequireNoError(t, err)
@@ -1107,9 +1107,9 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathAbsent(t *core.T) {
 
 	start := time.Now()
 	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
-		"path":    "/tmp/vanish",
-		"state":   "absent",
-		"timeout": 2,
+		pathArgKey: "/tmp/vanish",
+		"state":    "absent",
+		"timeout":  2,
 	})
 	elapsed := time.Since(start)
 
@@ -1133,7 +1133,7 @@ func TestModulesAdv_ModuleWaitFor_Good_WaitsForPathRegexMatch(t *core.T) {
 
 	start := time.Now()
 	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
-		"path":         "/tmp/config",
+		pathArgKey:     "/tmp/config",
 		"search_regex": "ready=true",
 		"timeout":      2,
 	})
@@ -1159,9 +1159,9 @@ func TestModulesAdv_ModuleWaitFor_Good_HonoursInitialDelay(t *core.T) {
 
 	start := time.Now()
 	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
-		"path":    "/tmp/delayed",
-		"delay":   1,
-		"timeout": 2,
+		pathArgKey: "/tmp/delayed",
+		"delay":    1,
+		"timeout":  2,
 	})
 	elapsed := time.Since(start)
 
@@ -1177,7 +1177,7 @@ func TestModulesAdv_ModuleWaitFor_Bad_CustomTimeoutMessage(t *core.T) {
 	mock.addFile("/tmp/config", []byte("ready=false\n"))
 
 	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
-		"path":         "/tmp/config",
+		pathArgKey:     "/tmp/config",
 		"search_regex": "ready=true",
 		"timeout":      0,
 		"msg":          "service never became ready",
@@ -1256,7 +1256,7 @@ func TestModulesAdv_ModuleWaitFor_Good_UsesCustomSleepInterval(t *core.T) {
 
 	start := time.Now()
 	result, err := e.moduleWaitFor(context.Background(), mock, map[string]any{
-		"path":         "/tmp/slow-ready",
+		pathArgKey:     "/tmp/slow-ready",
 		"search_regex": "ready=true",
 		"sleep":        2,
 		"timeout":      3,

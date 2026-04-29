@@ -46,7 +46,9 @@ type Play struct {
 }
 
 // UnmarshalYAML handles play-level aliases such as ansible.builtin.import_playbook.
-func (p *Play) UnmarshalYAML(node *yaml.Node) error {
+func (p *Play) UnmarshalYAML(
+	node *yaml.Node,
+) error {
 	type rawPlay Play
 	var raw rawPlay
 	if err := node.Decode(&raw); err != nil {
@@ -91,7 +93,9 @@ type RoleRef struct {
 //
 //	var ref RoleRef
 //	_ = yaml.Unmarshal([]byte("common"), &ref)
-func (r *RoleRef) UnmarshalYAML(unmarshal func(any) error) error {
+func (r *RoleRef) UnmarshalYAML(unmarshal func(
+	any) error,
+) error {
 	// Try string first
 	var s string
 	if err := unmarshal(&s); err == nil {
@@ -252,7 +256,9 @@ type Inventory struct {
 
 // UnmarshalYAML supports both the explicit `all:` root and inventories that
 // declare top-level groups directly.
-func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
+func (i *Inventory) UnmarshalYAML(unmarshal func(
+	any) error,
+) error {
 	var raw map[string]any
 	if err := unmarshal(&raw); err != nil {
 		return err
