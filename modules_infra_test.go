@@ -3,14 +3,51 @@ package ansible
 import (
 	"context"
 	core "dappco.re/go"
+	"io"
+	"io/fs"
 	"time"
 )
 
 type slowFactsClient struct{}
 
-func (slowFactsClient) Run(ctx context.Context, cmd string) (string, string, int, error) {
+func (slowFactsClient) Run(ctx context.Context, cmd string) core.Result {
 	<-ctx.Done()
-	return "", "", 0, ctx.Err()
+	return commandRunFail("", "", 0, ctx.Err())
+}
+
+func (slowFactsClient) RunScript(ctx context.Context, script string) core.Result {
+	return slowFactsClient{}.Run(ctx, script)
+}
+
+func (slowFactsClient) Upload(context.Context, io.Reader, string, fs.FileMode) core.Result {
+	return core.Ok(nil)
+}
+
+func (slowFactsClient) Download(context.Context, string) core.Result {
+	return core.Fail(mockError("slowFactsClient.Download", "not implemented"))
+}
+
+func (slowFactsClient) Stat(context.Context, string) core.Result {
+	return core.Ok(map[string]any{"exists": false})
+}
+
+func (slowFactsClient) FileExists(context.Context, string) core.Result {
+	return core.Ok(false)
+}
+
+func (slowFactsClient) Close() core.Result { return core.Ok(nil) }
+
+func (slowFactsClient) SetBecome(bool, string, string) {}
+
+func (slowFactsClient) BecomeState() (bool, string, string) {
+	return false, "", ""
+}
+
+func requireSSHClient(t *core.T, result core.Result) *SSHClient {
+	core.RequireTrue(t, result.OK)
+	client, ok := result.Value.(*SSHClient)
+	core.RequireTrue(t, ok)
+	return client
 }
 
 // ===========================================================================
@@ -718,8 +755,7 @@ func TestModulesInfra_Become_Good_SetBecomeTrue(t *core.T) {
 		BecomeUser: "root",
 		BecomePass: "secret",
 	}
-	client, err := NewSSHClient(cfg)
-	core.RequireNoError(t, err)
+	client := requireSSHClient(t, NewSSHClient(cfg))
 
 	core.AssertTrue(t, client.become)
 	core.AssertEqual(t, "root", client.becomeUser)
@@ -732,8 +768,7 @@ func TestModulesInfra_Become_Good_SetBecomeFalse(t *core.T) {
 		Port: 22,
 		User: "deploy",
 	}
-	client, err := NewSSHClient(cfg)
-	core.RequireNoError(t, err)
+	client := requireSSHClient(t, NewSSHClient(cfg))
 
 	core.AssertFalse(t, client.become)
 	core.AssertEmpty(t, client.becomeUser)
@@ -742,8 +777,7 @@ func TestModulesInfra_Become_Good_SetBecomeFalse(t *core.T) {
 
 func TestModulesInfra_Become_Good_SetBecomeMethod(t *core.T) {
 	cfg := SSHConfig{Host: "test-host"}
-	client, err := NewSSHClient(cfg)
-	core.RequireNoError(t, err)
+	client := requireSSHClient(t, NewSSHClient(cfg))
 
 	core.AssertFalse(t, client.become)
 
@@ -755,8 +789,7 @@ func TestModulesInfra_Become_Good_SetBecomeMethod(t *core.T) {
 
 func TestModulesInfra_Become_Good_DisableAfterEnable(t *core.T) {
 	cfg := SSHConfig{Host: "test-host"}
-	client, err := NewSSHClient(cfg)
-	core.RequireNoError(t, err)
+	client := requireSSHClient(t, NewSSHClient(cfg))
 
 	client.SetBecome(true, "root", "secret")
 	core.AssertTrue(t, client.become)
@@ -784,8 +817,7 @@ func TestModulesInfra_Become_Good_DefaultBecomeUserRoot(t *core.T) {
 		Become: true,
 		// BecomeUser not set
 	}
-	client, err := NewSSHClient(cfg)
-	core.RequireNoError(t, err)
+	client := requireSSHClient(t, NewSSHClient(cfg))
 
 	core.AssertTrue(t, client.become)
 	core.AssertEmpty(t, client.becomeUser) // Empty in config...
@@ -799,8 +831,7 @@ func TestModulesInfra_Become_Good_PasswordlessBecome(t *core.T) {
 		BecomeUser: "root",
 		// No BecomePass and no Password — triggers sudo -n
 	}
-	client, err := NewSSHClient(cfg)
-	core.RequireNoError(t, err)
+	client := requireSSHClient(t, NewSSHClient(cfg))
 
 	core.AssertTrue(t, client.become)
 	core.AssertEmpty(t, client.becomePass)
@@ -849,14 +880,19 @@ func TestModulesInfra_Facts_Good_UbuntuParsing(t *core.T) {
 	// Simulate fact gathering by directly populating facts
 	// using the same parsing logic as gatherFacts
 	facts := &Facts{}
+	runStdout := func(cmd string) string {
+		result := mock.Run(nil, cmd)
+		core.RequireTrue(t, result.OK)
+		return commandRunValue(result).Stdout
+	}
 
-	stdout, _, _, _ := mock.Run(nil, "hostname -f 2>/dev/null || hostname")
+	stdout := runStdout("hostname -f 2>/dev/null || hostname")
 	facts.FQDN = trimFactSpace(stdout)
 
-	stdout, _, _, _ = mock.Run(nil, "hostname -s 2>/dev/null || hostname")
+	stdout = runStdout("hostname -s 2>/dev/null || hostname")
 	facts.Hostname = trimFactSpace(stdout)
 
-	stdout, _, _, _ = mock.Run(nil, "cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID)=' | head -2")
+	stdout = runStdout("cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID)=' | head -2")
 	for _, line := range splitLines(stdout) {
 		if hasFactPrefix(line, "ID=") {
 			facts.Distribution = trimQuotes(trimFactPrefix(line, "ID="))
@@ -866,10 +902,10 @@ func TestModulesInfra_Facts_Good_UbuntuParsing(t *core.T) {
 		}
 	}
 
-	stdout, _, _, _ = mock.Run(nil, "uname -m")
+	stdout = runStdout("uname -m")
 	facts.Architecture = trimFactSpace(stdout)
 
-	stdout, _, _, _ = mock.Run(nil, "uname -r")
+	stdout = runStdout("uname -r")
 	facts.Kernel = trimFactSpace(stdout)
 
 	e.facts["web1"] = facts
@@ -1165,12 +1201,11 @@ func TestModulesInfra_ModuleSetup_Good_RespectsGatherTimeout(t *core.T) {
 	e := NewExecutor("/tmp")
 
 	start := time.Now()
-	result, err := e.moduleSetup(context.Background(), "host1", slowFactsClient{}, map[string]any{
+	result := requireTaskResult(t, e.moduleSetup(context.Background(), "host1", slowFactsClient{}, map[string]any{
 		"gather_timeout": 1,
-	})
+	}))
 	elapsed := time.Since(start)
 
-	core.RequireNoError(t, err)
 	core.AssertNotNil(t, result)
 	core.AssertTrue(t, result.Failed)
 	core.AssertContains(t, result.Msg, "context deadline exceeded")

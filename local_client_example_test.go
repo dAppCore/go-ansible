@@ -26,22 +26,24 @@ func ExampleClient_SetBecome() {
 
 func ExampleClient_Close() {
 	client := newLocalClient()
-	err := client.Close()
-	core.Println(err == nil)
+	result := client.Close()
+	core.Println(result.OK)
 	// Output: true
 }
 
 func ExampleClient_Run() {
 	client := newLocalClient()
-	stdout, _, code, err := client.Run(context.Background(), "printf local")
-	core.Println(err == nil, code, stdout)
+	result := client.Run(context.Background(), "printf local")
+	out := commandRunValue(result)
+	core.Println(result.OK, out.ExitCode, out.Stdout)
 	// Output: true 0 local
 }
 
 func ExampleClient_RunScript() {
 	client := newLocalClient()
-	stdout, _, code, err := client.RunScript(context.Background(), "printf script")
-	core.Println(err == nil, code, stdout)
+	result := client.RunScript(context.Background(), "printf script")
+	out := commandRunValue(result)
+	core.Println(result.OK, out.ExitCode, out.Stdout)
 	// Output: true 0 script
 }
 
@@ -50,8 +52,8 @@ func ExampleClient_Upload() {
 	defer core.RemoveAll(dir)
 	file := joinPath(dir, "remote.txt")
 	client := newLocalClient()
-	err := client.Upload(context.Background(), newReader("payload"), file, 0o644)
-	core.Println(err == nil)
+	result := client.Upload(context.Background(), newReader("payload"), file, 0o644)
+	core.Println(result.OK)
 	// Output: true
 }
 
@@ -61,8 +63,8 @@ func ExampleClient_Download() {
 	file := joinPath(dir, "remote.txt")
 	exampleWrite(file, "payload")
 	client := newLocalClient()
-	data, err := client.Download(context.Background(), file)
-	core.Println(err == nil, string(data))
+	result := client.Download(context.Background(), file)
+	core.Println(result.OK, string(result.Value.([]byte)))
 	// Output: true payload
 }
 
@@ -72,8 +74,8 @@ func ExampleClient_FileExists() {
 	file := joinPath(dir, "remote.txt")
 	exampleWrite(file, "payload")
 	client := newLocalClient()
-	exists, err := client.FileExists(context.Background(), file)
-	core.Println(err == nil, exists)
+	result := client.FileExists(context.Background(), file)
+	core.Println(result.OK, result.Value)
 	// Output: true true
 }
 
@@ -83,7 +85,8 @@ func ExampleClient_Stat() {
 	file := joinPath(dir, "remote.txt")
 	exampleWrite(file, "payload")
 	client := newLocalClient()
-	info, err := client.Stat(context.Background(), file)
-	core.Println(err == nil, info["exists"], info["isdir"])
+	result := client.Stat(context.Background(), file)
+	info := result.Value.(map[string]any)
+	core.Println(result.OK, info["exists"], info["isdir"])
 	// Output: true true false
 }

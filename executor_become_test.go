@@ -17,32 +17,32 @@ type becomeRecordingClient struct {
 	runBecomePass []string
 }
 
-func (c *becomeRecordingClient) Run(_ context.Context, _ string) (string, string, int, error) {
+func (c *becomeRecordingClient) Run(_ context.Context, _ string) core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.runBecomeSeen = append(c.runBecomeSeen, c.become)
 	c.runBecomePass = append(c.runBecomePass, c.becomePass)
-	return "", "", 0, nil
+	return commandRunOK("", "", 0)
 }
 
-func (c *becomeRecordingClient) RunScript(_ context.Context, _ string) (string, string, int, error) {
+func (c *becomeRecordingClient) RunScript(_ context.Context, _ string) core.Result {
 	return c.Run(context.Background(), "")
 }
 
-func (c *becomeRecordingClient) Upload(_ context.Context, _ io.Reader, _ string, _ fs.FileMode) error {
-	return nil
+func (c *becomeRecordingClient) Upload(_ context.Context, _ io.Reader, _ string, _ fs.FileMode) core.Result {
+	return core.Ok(nil)
 }
 
-func (c *becomeRecordingClient) Download(_ context.Context, _ string) ([]byte, error) {
-	return nil, nil
+func (c *becomeRecordingClient) Download(_ context.Context, _ string) core.Result {
+	return core.Ok([]byte(nil))
 }
 
-func (c *becomeRecordingClient) FileExists(_ context.Context, _ string) (bool, error) {
-	return false, nil
+func (c *becomeRecordingClient) FileExists(_ context.Context, _ string) core.Result {
+	return core.Ok(false)
 }
 
-func (c *becomeRecordingClient) Stat(_ context.Context, _ string) (map[string]any, error) {
-	return map[string]any{}, nil
+func (c *becomeRecordingClient) Stat(_ context.Context, _ string) core.Result {
+	return core.Ok(map[string]any{})
 }
 
 func (c *becomeRecordingClient) BecomeState() (bool, string, string) {
@@ -68,8 +68,8 @@ func (c *becomeRecordingClient) SetBecome(become bool, user, password string) {
 	}
 }
 
-func (c *becomeRecordingClient) Close() error {
-	return nil
+func (c *becomeRecordingClient) Close() core.Result {
+	return core.Ok(nil)
 }
 
 func TestExecutor_RunTaskOnHost_Good_TaskBecomeFalseOverridesPlayBecome(t *core.T) {

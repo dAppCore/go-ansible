@@ -1,11 +1,25 @@
 package ansible
 
 import (
+	"iter"
+
 	core "dappco.re/go"
 
 	coreio "dappco.re/go/io"
 	"gopkg.in/yaml.v3"
 )
+
+func requireParserValue[T any](t *core.T, result core.Result) T {
+	core.RequireTrue(t, result.OK)
+	value, ok := result.Value.(T)
+	core.RequireTrue(t, ok)
+	return value
+}
+
+func assertParserFailure(t *core.T, result core.Result, text string) {
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, resultErrorMessage(result), text)
+}
 
 // --- ParsePlaybook ---
 
@@ -26,9 +40,7 @@ func TestParser_ParsePlaybook_Good_SimplePlay(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertLen(t, plays, 1)
 	core.AssertEqual(t, "Configure webserver", plays[0].Name)
 	core.AssertEqual(t, "webservers", plays[0].Hosts)
@@ -63,9 +75,7 @@ func TestParser_ParsePlaybook_Good_MultiplePlays(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertLen(t, plays, 2)
 	core.AssertEqual(t, "Play one", plays[0].Name)
 	core.AssertEqual(t, "all", plays[0].Hosts)
@@ -110,9 +120,7 @@ func TestParser_ParsePlaybook_Good_ImportPlaybook(t *core.T) {
 	core.RequireNoError(t, writeTestFile(importPath, []byte(yamlImported), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook("site.yml")
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook("site.yml"))
 	core.AssertLen(t, plays, 3)
 	core.AssertEqual(t, "Before import", plays[0].Name)
 	core.AssertEqual(t, "Imported play", plays[1].Name)
@@ -144,9 +152,7 @@ func TestParser_ParsePlaybook_Good_TemplatedImportPlaybook(t *core.T) {
 	core.RequireNoError(t, writeTestFile(importPath, []byte(yamlImported), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook("site.yml")
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook("site.yml"))
 	core.AssertLen(t, plays, 1)
 	core.AssertEqual(t, "Imported play", plays[0].Name)
 	core.AssertEqual(t, "all", plays[0].Hosts)
@@ -176,9 +182,7 @@ func TestParser_ParsePlaybook_Good_FQCNImportPlaybook(t *core.T) {
 	core.RequireNoError(t, writeTestFile(importPath, []byte(yamlImported), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(mainPath)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(mainPath))
 	core.AssertLen(t, plays, 1)
 	core.AssertEqual(t, "Imported play", plays[0].Name)
 	core.AssertEqual(t, "all", plays[0].Hosts)
@@ -212,9 +216,7 @@ func TestParser_ParsePlaybook_Good_NestedImportPlaybookDirScope(t *core.T) {
 	core.RequireNoError(t, writeTestFile(innerPath, []byte(yamlInner), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook("site.yml")
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook("site.yml"))
 	core.AssertLen(t, plays, 1)
 	core.AssertEqual(t, "Inner play", plays[0].Name)
 	core.AssertNotNil(t, plays[0].Vars)
@@ -239,9 +241,7 @@ func TestParser_ParsePlaybook_Good_WithVars(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertLen(t, plays, 1)
 	core.AssertEqual(t, 8080, plays[0].Vars["http_port"])
 	core.AssertEqual(t, "myapp", plays[0].Vars["app_name"])
@@ -270,9 +270,7 @@ func TestParser_ParsePlaybook_Good_PrePostTasks(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertLen(t, plays, 1)
 	core.AssertLen(t, plays[0].PreTasks, 1)
 	core.AssertLen(t, plays[0].Tasks, 1)
@@ -303,9 +301,7 @@ func TestParser_ParsePlaybook_Good_Handlers(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertLen(t, plays, 1)
 	core.AssertLen(t, plays[0].Handlers, 1)
 	core.AssertEqual(t, "restart nginx", plays[0].Handlers[0].Name)
@@ -328,9 +324,7 @@ func TestParser_ParsePlaybook_Good_ShellFreeForm(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertLen(t, plays[0].Tasks, 2)
 	core.AssertEqual(t, "shell", plays[0].Tasks[0].Module)
 	core.AssertEqual(t, "echo hello world", plays[0].Tasks[0].Args["_raw_params"])
@@ -358,9 +352,7 @@ func TestParser_ParsePlaybook_Good_WithTags(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertEqual(t, []string{"setup"}, plays[0].Tags)
 	core.AssertEqual(t, []string{"debug", "always"}, plays[0].Tasks[0].Tags)
 }
@@ -389,9 +381,7 @@ func TestParser_ParsePlaybook_Good_BlockRescueAlways(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	task := plays[0].Tasks[0]
 	core.AssertLen(t, task.Block, 1)
 	core.AssertLen(t, task.Rescue, 1)
@@ -421,9 +411,7 @@ func TestParser_ParsePlaybook_Good_WithLoop(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	task := plays[0].Tasks[0]
 	core.AssertEqual(t, "apt", task.Module)
 	items, ok := task.Loop.([]any)
@@ -449,9 +437,7 @@ func TestParser_ParsePlaybook_Good_RoleRefs(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertLen(t, plays[0].Roles, 2)
 	core.AssertEqual(t, "common", plays[0].Roles[0].Role)
 	core.AssertEqual(t, "webserver", plays[0].Roles[1].Role)
@@ -477,9 +463,7 @@ func TestParser_ParsePlaybook_Good_FullyQualifiedModules(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertEqual(t, "ansible.builtin.copy", plays[0].Tasks[0].Module)
 	core.AssertEqual(t, "/tmp/foo", plays[0].Tasks[0].Args["src"])
 	core.AssertEqual(t, "ansible.builtin.shell", plays[0].Tasks[1].Module)
@@ -506,9 +490,7 @@ func TestParser_ParsePlaybook_Good_RegisterAndWhen(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertEqual(t, "nginx_conf", plays[0].Tasks[0].Register)
 	core.AssertNotNil(t, plays[0].Tasks[1].When)
 }
@@ -520,9 +502,7 @@ func TestParser_ParsePlaybook_Good_EmptyPlaybook(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte("---\n[]"), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertEmpty(t, plays)
 }
 
@@ -533,18 +513,16 @@ func TestParser_ParsePlaybook_Bad_InvalidYAML(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte("{{invalid yaml}}"), 0644))
 
 	p := NewParser(dir)
-	_, err := p.ParsePlaybook(path)
+	result := p.ParsePlaybook(path)
 
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "parse playbook")
+	assertParserFailure(t, result, "parse playbook")
 }
 
 func TestParser_ParsePlaybook_Bad_FileNotFound(t *core.T) {
 	p := NewParser(t.TempDir())
-	_, err := p.ParsePlaybook("/nonexistent/playbook.yml")
+	result := p.ParsePlaybook("/nonexistent/playbook.yml")
 
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "read playbook")
+	assertParserFailure(t, result, "read playbook")
 }
 
 func TestParser_ParsePlaybook_Good_GatherFactsDisabled(t *core.T) {
@@ -560,9 +538,7 @@ func TestParser_ParsePlaybook_Good_GatherFactsDisabled(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertNotNil(t, plays[0].GatherFacts)
 	core.AssertFalse(t, *plays[0].GatherFacts)
 }
@@ -581,9 +557,7 @@ func TestParser_ParsePlaybook_Good_ForceHandlers(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	plays, err := p.ParsePlaybook(path)
-
-	core.RequireNoError(t, err)
+	plays := requireParserValue[[]Play](t, p.ParsePlaybook(path))
 	core.AssertLen(t, plays, 1)
 	core.AssertTrue(t, plays[0].ForceHandlers)
 	core.AssertTrue(t, plays[0].AnyErrorsFatal)
@@ -606,9 +580,7 @@ all:
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	inv, err := p.ParseInventory(path)
-
-	core.RequireNoError(t, err)
+	inv := requireParserValue[*Inventory](t, p.ParseInventory(path))
 	core.AssertNotNil(t, inv.All)
 	core.AssertLen(t, inv.All.Hosts, 2)
 	core.AssertEqual(t, "192.168.1.10", inv.All.Hosts["web1"].AnsibleHost)
@@ -630,9 +602,7 @@ all:
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	inv, err := p.ParseInventory(inventoryDir)
-
-	core.RequireNoError(t, err)
+	inv := requireParserValue[*Inventory](t, p.ParseInventory(inventoryDir))
 	core.AssertNotNil(t, inv.All)
 	core.AssertContains(t, inv.All.Hosts, "web1")
 	core.AssertEqual(t, "192.168.1.10", inv.All.Hosts["web1"].AnsibleHost)
@@ -659,9 +629,7 @@ all:
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	inv, err := p.ParseInventory(path)
-
-	core.RequireNoError(t, err)
+	inv := requireParserValue[*Inventory](t, p.ParseInventory(path))
 	core.AssertNotNil(t, inv.All.Children["webservers"])
 	core.AssertLen(t, inv.All.Children["webservers"].Hosts, 2)
 	core.AssertNotNil(t, inv.All.Children["databases"])
@@ -689,9 +657,7 @@ databases:
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	inv, err := p.ParseInventory(path)
-
-	core.RequireNoError(t, err)
+	inv := requireParserValue[*Inventory](t, p.ParseInventory(path))
 	core.AssertNotNil(t, inv.All)
 	core.AssertNotNil(t, inv.All.Children["webservers"])
 	core.AssertNotNil(t, inv.All.Children["databases"])
@@ -723,9 +689,7 @@ all:
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	inv, err := p.ParseInventory(path)
-
-	core.RequireNoError(t, err)
+	inv := requireParserValue[*Inventory](t, p.ParseInventory(path))
 	core.AssertEqual(t, "admin", inv.All.Vars["ansible_user"])
 	core.AssertEqual(t, "prod", inv.All.Children["production"].Vars["env"])
 	core.AssertEqual(t, 2222, inv.All.Children["production"].Hosts["prod1"].AnsiblePort)
@@ -750,9 +714,7 @@ host_vars:
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	inv, err := p.ParseInventory(path)
-
-	core.RequireNoError(t, err)
+	inv := requireParserValue[*Inventory](t, p.ParseInventory(path))
 	core.AssertNotNil(t, inv.HostVars)
 	core.AssertEqual(t, "staging", inv.HostVars["web1"]["env"])
 
@@ -769,18 +731,16 @@ func TestParser_ParseInventory_Bad_InvalidYAML(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte("{{{bad"), 0644))
 
 	p := NewParser(dir)
-	_, err := p.ParseInventory(path)
+	result := p.ParseInventory(path)
 
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "parse inventory")
+	assertParserFailure(t, result, "parse inventory")
 }
 
 func TestParser_ParseInventory_Bad_FileNotFound(t *core.T) {
 	p := NewParser(t.TempDir())
-	_, err := p.ParseInventory("/nonexistent/inventory.yml")
+	result := p.ParseInventory("/nonexistent/inventory.yml")
 
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "read inventory")
+	assertParserFailure(t, result, "read inventory")
 }
 
 // --- ParseTasks ---
@@ -804,9 +764,7 @@ func TestParser_ParseTasks_Good_TaskFile(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	tasks, err := p.ParseTasks(path)
-
-	core.RequireNoError(t, err)
+	tasks := requireParserValue[[]Task](t, p.ParseTasks(path))
 	core.AssertLen(t, tasks, 3)
 	core.AssertEqual(t, "shell", tasks[0].Module)
 	core.AssertEqual(t, "echo first", tasks[0].Args["_raw_params"])
@@ -824,9 +782,9 @@ func TestParser_ParseTasks_Bad_InvalidYAML(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte("not: [valid: tasks"), 0644))
 
 	p := NewParser(dir)
-	_, err := p.ParseTasks(path)
+	result := p.ParseTasks(path)
 
-	core.AssertError(t, err)
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_ParseTasksFromDir_Good_MainFallback(t *core.T) {
@@ -842,9 +800,7 @@ func TestParser_ParseTasksFromDir_Good_MainFallback(t *core.T) {
 `), 0o644))
 
 	p := NewParser(dir)
-	tasks, err := p.ParseTasksFromDir(taskDir)
-
-	core.RequireNoError(t, err)
+	tasks := requireParserValue[[]Task](t, p.ParseTasksFromDir(taskDir))
 	core.AssertLen(t, tasks, 1)
 	core.AssertEqual(t, "From dir", tasks[0].Name)
 	core.AssertEqual(t, "debug", tasks[0].Module)
@@ -858,9 +814,7 @@ func TestParser_ParseVarsFiles_Good_GlobMerge(t *core.T) {
 	core.RequireNoError(t, writeTestFile(joinPath(varsDir, "02.yml"), []byte("b: two\nc: 3\n"), 0o644))
 
 	p := NewParser(dir)
-	vars, err := p.ParseVarsFiles(joinPath(varsDir, "*.yml"))
-
-	core.RequireNoError(t, err)
+	vars := requireParserValue[map[string]any](t, p.ParseVarsFiles(joinPath(varsDir, "*.yml")))
 	core.AssertEqual(t, 1, vars["a"])
 	core.AssertEqual(t, "two", vars["b"])
 	core.AssertEqual(t, 3, vars["c"])
@@ -873,10 +827,9 @@ func TestParser_ParseVarsFiles_Bad_WildcardWithNonLocalMedium(t *core.T) {
 
 	p := NewParser("")
 	p.SetMedium(medium)
-	_, err := p.ParseVarsFiles("vars/*.yml")
+	result := p.ParseVarsFiles("vars/*.yml")
 
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "wildcard patterns require")
+	assertParserFailure(t, result, "wildcard patterns require")
 }
 
 func TestParser_ParseRoles_Good_RoleDirectory(t *core.T) {
@@ -900,9 +853,7 @@ func TestParser_ParseRoles_Good_RoleDirectory(t *core.T) {
 `), 0o644))
 
 	p := NewParser(dir)
-	roles, err := p.ParseRoles("roles")
-
-	core.RequireNoError(t, err)
+	roles := requireParserValue[map[string]*Role](t, p.ParseRoles("roles"))
 	role, ok := roles["web"]
 	core.RequireTrue(t, ok)
 	core.AssertNotNil(t, role)
@@ -935,9 +886,7 @@ shared_value: role-shared
 	p := NewParser(dir)
 	p.vars["existing_value"] = "keep-me"
 
-	tasks, err := p.ParseRole("web", "main.yml")
-
-	core.RequireNoError(t, err)
+	tasks := requireParserValue[[]Task](t, p.ParseRole("web", "main.yml"))
 	core.AssertLen(t, tasks, 1)
 	core.AssertEqual(t, "debug", tasks[0].Module)
 	core.AssertEqual(t, "keep-me", p.vars["existing_value"])
@@ -1262,8 +1211,7 @@ func TestParser_Parser_ParsePlaybook_Good(t *core.T) {
 	path := joinPath(dir, "site.yml")
 	writeTextFile(t, path, "- hosts: all\n  tasks: []\n")
 	parser := NewParser(dir)
-	plays, err := parser.ParsePlaybook(path)
-	core.AssertNoError(t, err)
+	plays := requireParserValue[[]Play](t, parser.ParsePlaybook(path))
 	core.AssertLen(t, plays, 1)
 }
 
@@ -1272,9 +1220,8 @@ func TestParser_Parser_ParsePlaybook_Bad(t *core.T) {
 	path := joinPath(dir, "bad.yml")
 	writeTextFile(t, path, "not: [valid")
 	parser := NewParser(dir)
-	plays, err := parser.ParsePlaybook(path)
-	core.AssertError(t, err)
-	core.AssertNil(t, plays)
+	result := parser.ParsePlaybook(path)
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParsePlaybook_Ugly(t *core.T) {
@@ -1282,8 +1229,7 @@ func TestParser_Parser_ParsePlaybook_Ugly(t *core.T) {
 	path := joinPath(dir, "empty.yml")
 	writeTextFile(t, path, "[]\n")
 	parser := NewParser(dir)
-	plays, err := parser.ParsePlaybook(path)
-	core.AssertNoError(t, err)
+	plays := requireParserValue[[]Play](t, parser.ParsePlaybook(path))
 	core.AssertLen(t, plays, 0)
 }
 
@@ -1292,8 +1238,7 @@ func TestParser_Parser_ParsePlaybookIter_Good(t *core.T) {
 	path := joinPath(dir, "site.yml")
 	writeTextFile(t, path, "- hosts: all\n  tasks: []\n")
 	parser := NewParser(dir)
-	seq, err := parser.ParsePlaybookIter(path)
-	core.AssertNoError(t, err)
+	seq := requireParserValue[iter.Seq[Play]](t, parser.ParsePlaybookIter(path))
 	var names []string
 	for play := range seq {
 		names = append(names, play.Hosts)
@@ -1303,9 +1248,8 @@ func TestParser_Parser_ParsePlaybookIter_Good(t *core.T) {
 
 func TestParser_Parser_ParsePlaybookIter_Bad(t *core.T) {
 	parser := NewParser(t.TempDir())
-	seq, err := parser.ParsePlaybookIter("missing.yml")
-	core.AssertError(t, err)
-	core.AssertNil(t, seq)
+	result := parser.ParsePlaybookIter("missing.yml")
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParsePlaybookIter_Ugly(t *core.T) {
@@ -1313,8 +1257,7 @@ func TestParser_Parser_ParsePlaybookIter_Ugly(t *core.T) {
 	path := joinPath(dir, "site.yml")
 	writeTextFile(t, path, "- hosts: one\n  tasks: []\n- hosts: two\n  tasks: []\n")
 	parser := NewParser(dir)
-	seq, err := parser.ParsePlaybookIter(path)
-	core.AssertNoError(t, err)
+	seq := requireParserValue[iter.Seq[Play]](t, parser.ParsePlaybookIter(path))
 	count := 0
 	seq(func(Play) bool {
 		count++
@@ -1328,8 +1271,7 @@ func TestParser_Parser_ParseInventory_Good(t *core.T) {
 	path := joinPath(dir, "inventory.yml")
 	writeTextFile(t, path, "all:\n  hosts:\n    web1: {}\n")
 	parser := NewParser(dir)
-	inv, err := parser.ParseInventory(path)
-	core.AssertNoError(t, err)
+	inv := requireParserValue[*Inventory](t, parser.ParseInventory(path))
 	core.AssertContains(t, inv.All.Hosts, "web1")
 }
 
@@ -1338,17 +1280,15 @@ func TestParser_Parser_ParseInventory_Bad(t *core.T) {
 	path := joinPath(dir, "inventory.yml")
 	writeTextFile(t, path, "all: [")
 	parser := NewParser(dir)
-	inv, err := parser.ParseInventory(path)
-	core.AssertError(t, err)
-	core.AssertNil(t, inv)
+	result := parser.ParseInventory(path)
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParseInventory_Ugly(t *core.T) {
 	dir := t.TempDir()
 	writeTextFile(t, joinPath(dir, "hosts.yml"), "all:\n  hosts:\n    db1: {}\n")
 	parser := NewParser(dir)
-	inv, err := parser.ParseInventory(dir)
-	core.AssertNoError(t, err)
+	inv := requireParserValue[*Inventory](t, parser.ParseInventory(dir))
 	core.AssertContains(t, inv.All.Hosts, "db1")
 }
 
@@ -1357,8 +1297,7 @@ func TestParser_Parser_ParseTasks_Good(t *core.T) {
 	path := joinPath(dir, "tasks.yml")
 	writeTextFile(t, path, "- name: hello\n  shell: echo hello\n")
 	parser := NewParser(dir)
-	tasks, err := parser.ParseTasks(path)
-	core.AssertNoError(t, err)
+	tasks := requireParserValue[[]Task](t, parser.ParseTasks(path))
 	core.AssertLen(t, tasks, 1)
 	core.AssertEqual(t, "shell", tasks[0].Module)
 }
@@ -1368,9 +1307,8 @@ func TestParser_Parser_ParseTasks_Bad(t *core.T) {
 	path := joinPath(dir, "tasks.yml")
 	writeTextFile(t, path, "not: [valid")
 	parser := NewParser(dir)
-	tasks, err := parser.ParseTasks(path)
-	core.AssertError(t, err)
-	core.AssertNil(t, tasks)
+	result := parser.ParseTasks(path)
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParseTasks_Ugly(t *core.T) {
@@ -1378,8 +1316,7 @@ func TestParser_Parser_ParseTasks_Ugly(t *core.T) {
 	path := joinPath(dir, "tasks.yml")
 	writeTextFile(t, path, "[]\n")
 	parser := NewParser(dir)
-	tasks, err := parser.ParseTasks(path)
-	core.AssertNoError(t, err)
+	tasks := requireParserValue[[]Task](t, parser.ParseTasks(path))
 	core.AssertLen(t, tasks, 0)
 }
 
@@ -1388,16 +1325,14 @@ func TestParser_Parser_ParseTasksFromDir_Good(t *core.T) {
 	tasksDir := joinPath(dir, "tasks")
 	writeTextFile(t, joinPath(tasksDir, "main.yml"), "- debug:\n    msg: ok\n")
 	parser := NewParser(dir)
-	tasks, err := parser.ParseTasksFromDir(tasksDir)
-	core.AssertNoError(t, err)
+	tasks := requireParserValue[[]Task](t, parser.ParseTasksFromDir(tasksDir))
 	core.AssertLen(t, tasks, 1)
 }
 
 func TestParser_Parser_ParseTasksFromDir_Bad(t *core.T) {
 	parser := NewParser(t.TempDir())
-	tasks, err := parser.ParseTasksFromDir("missing")
-	core.AssertError(t, err)
-	core.AssertNil(t, tasks)
+	result := parser.ParseTasksFromDir("missing")
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParseTasksFromDir_Ugly(t *core.T) {
@@ -1405,8 +1340,7 @@ func TestParser_Parser_ParseTasksFromDir_Ugly(t *core.T) {
 	path := joinPath(dir, "tasks.yml")
 	writeTextFile(t, path, "- debug:\n    msg: ok\n")
 	parser := NewParser(dir)
-	tasks, err := parser.ParseTasksFromDir(path)
-	core.AssertNoError(t, err)
+	tasks := requireParserValue[[]Task](t, parser.ParseTasksFromDir(path))
 	core.AssertLen(t, tasks, 1)
 }
 
@@ -1415,8 +1349,7 @@ func TestParser_Parser_ParseTasksIter_Good(t *core.T) {
 	path := joinPath(dir, "tasks.yml")
 	writeTextFile(t, path, "- shell: echo one\n- shell: echo two\n")
 	parser := NewParser(dir)
-	seq, err := parser.ParseTasksIter(path)
-	core.AssertNoError(t, err)
+	seq := requireParserValue[iter.Seq[Task]](t, parser.ParseTasksIter(path))
 	count := 0
 	for range seq {
 		count++
@@ -1426,9 +1359,8 @@ func TestParser_Parser_ParseTasksIter_Good(t *core.T) {
 
 func TestParser_Parser_ParseTasksIter_Bad(t *core.T) {
 	parser := NewParser(t.TempDir())
-	seq, err := parser.ParseTasksIter("missing.yml")
-	core.AssertError(t, err)
-	core.AssertNil(t, seq)
+	result := parser.ParseTasksIter("missing.yml")
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParseTasksIter_Ugly(t *core.T) {
@@ -1436,8 +1368,7 @@ func TestParser_Parser_ParseTasksIter_Ugly(t *core.T) {
 	path := joinPath(dir, "tasks.yml")
 	writeTextFile(t, path, "- shell: echo one\n- shell: echo two\n")
 	parser := NewParser(dir)
-	seq, err := parser.ParseTasksIter(path)
-	core.AssertNoError(t, err)
+	seq := requireParserValue[iter.Seq[Task]](t, parser.ParseTasksIter(path))
 	count := 0
 	seq(func(Task) bool {
 		count++
@@ -1451,22 +1382,19 @@ func TestParser_Parser_ParseVarsFiles_Good(t *core.T) {
 	path := joinPath(dir, "vars.yml")
 	writeTextFile(t, path, "answer: 42\n")
 	parser := NewParser(dir)
-	vars, err := parser.ParseVarsFiles(path)
-	core.AssertNoError(t, err)
+	vars := requireParserValue[map[string]any](t, parser.ParseVarsFiles(path))
 	core.AssertEqual(t, 42, vars["answer"])
 }
 
 func TestParser_Parser_ParseVarsFiles_Bad(t *core.T) {
 	parser := NewParser(t.TempDir())
-	vars, err := parser.ParseVarsFiles("*.missing")
-	core.AssertError(t, err)
-	core.AssertNil(t, vars)
+	result := parser.ParseVarsFiles("*.missing")
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParseVarsFiles_Ugly(t *core.T) {
 	parser := NewParser(t.TempDir())
-	vars, err := parser.ParseVarsFiles("")
-	core.AssertNoError(t, err)
+	vars := requireParserValue[map[string]any](t, parser.ParseVarsFiles(""))
 	core.AssertNil(t, vars)
 }
 
@@ -1474,24 +1402,21 @@ func TestParser_Parser_ParseRoles_Good(t *core.T) {
 	dir := t.TempDir()
 	writeTextFile(t, joinPath(dir, "roles", "web", "tasks", "main.yml"), "- debug:\n    msg: ok\n")
 	parser := NewParser(dir)
-	roles, err := parser.ParseRoles(joinPath(dir, "roles"))
-	core.AssertNoError(t, err)
+	roles := requireParserValue[map[string]*Role](t, parser.ParseRoles(joinPath(dir, "roles")))
 	core.AssertContains(t, roles, "web")
 }
 
 func TestParser_Parser_ParseRoles_Bad(t *core.T) {
 	parser := NewParser(t.TempDir())
-	roles, err := parser.ParseRoles("missing")
-	core.AssertError(t, err)
-	core.AssertNil(t, roles)
+	result := parser.ParseRoles("missing")
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParseRoles_Ugly(t *core.T) {
 	dir := t.TempDir()
 	core.RequireNoError(t, mkdirAllTest(joinPath(dir, "roles"), 0o755))
 	parser := NewParser(dir)
-	roles, err := parser.ParseRoles(joinPath(dir, "roles"))
-	core.AssertNoError(t, err)
+	roles := requireParserValue[map[string]*Role](t, parser.ParseRoles(joinPath(dir, "roles")))
 	core.AssertLen(t, roles, 0)
 }
 
@@ -1499,24 +1424,21 @@ func TestParser_Parser_ParseRole_Good(t *core.T) {
 	dir := t.TempDir()
 	writeTextFile(t, joinPath(dir, "roles", "web", "tasks", "main.yml"), "- debug:\n    msg: ok\n")
 	parser := NewParser(dir)
-	tasks, err := parser.ParseRole("web", "main.yml")
-	core.AssertNoError(t, err)
+	tasks := requireParserValue[[]Task](t, parser.ParseRole("web", "main.yml"))
 	core.AssertLen(t, tasks, 1)
 }
 
 func TestParser_Parser_ParseRole_Bad(t *core.T) {
 	parser := NewParser(t.TempDir())
-	tasks, err := parser.ParseRole("missing", "main.yml")
-	core.AssertError(t, err)
-	core.AssertNil(t, tasks)
+	result := parser.ParseRole("missing", "main.yml")
+	core.AssertFalse(t, result.OK)
 }
 
 func TestParser_Parser_ParseRole_Ugly(t *core.T) {
 	dir := t.TempDir()
 	writeTextFile(t, joinPath(dir, "roles", "web", "tasks", "alt.yml"), "- debug:\n    msg: alt\n")
 	parser := NewParser(dir)
-	tasks, err := parser.ParseRole("web", "alt.yml")
-	core.AssertNoError(t, err)
+	tasks := requireParserValue[[]Task](t, parser.ParseRole("web", "alt.yml"))
 	core.AssertLen(t, tasks, 1)
 }
 

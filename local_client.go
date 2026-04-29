@@ -69,16 +69,16 @@ func (c *localClient) SetBecome(become bool, user, password string) {
 // Close is a no-op for the local client — there is no remote connection
 // to tear down. Kept on the interface to match SSH variants.
 //
-//	_ = c.Close()
-func (c *localClient) Close() (err error) {
-	return nil
+//	result := c.Close()
+func (c *localClient) Close() core.Result {
+	return core.Ok(nil)
 }
 
 // Run executes cmd via local shell, optionally wrapped in sudo when
-// become is enabled. Returns stdout/stderr/exit-code/error.
+// become is enabled.
 //
-//	out, _, code, err := c.Run(ctx, "uname -a")
-func (c *localClient) Run(ctx context.Context, cmd string) (stdout, stderr string, exitCode int, err error) {
+//	result := c.Run(ctx, "uname -a")
+func (c *localClient) Run(ctx context.Context, cmd string) core.Result {
 	c.mu.Lock()
 	become, becomeUser, becomePass := c.becomeStateLocked()
 	c.mu.Unlock()
@@ -96,108 +96,107 @@ func (c *localClient) Run(ctx context.Context, cmd string) (stdout, stderr strin
 
 // RunScript executes a multi-line shell script as a local heredoc.
 //
-//	out, _, code, err := c.RunScript(ctx, "#!/bin/bash\necho hi")
-func (c *localClient) RunScript(ctx context.Context, script string) (stdout, stderr string, exitCode int, err error) {
+//	result := c.RunScript(ctx, "#!/bin/bash\necho hi")
+func (c *localClient) RunScript(ctx context.Context, script string) core.Result {
 	return c.Run(ctx, "bash <<'ANSIBLE_SCRIPT_EOF'\n"+script+"\nANSIBLE_SCRIPT_EOF")
 }
 
 // Upload writes the contents of localReader into a file at remote with the
 // given permission mode. Creates parent directories as needed.
 //
-//	_ = c.Upload(ctx, bytes.NewReader(data), "/etc/foo.conf", 0o644)
+//	result := c.Upload(ctx, bytes.NewReader(data), "/etc/foo.conf", 0o644)
 func (c *localClient) Upload(
 	_ context.Context, localReader io.Reader, remote string, mode core.FileMode,
-) error {
+) core.Result {
 	read := core.ReadAll(localReader)
 	if !read.OK {
-		err, _ := read.Value.(error)
-		return coreerr.E("localClient.Upload", "read upload content", err)
+		return wrapFailure(read, "localClient.Upload", "read upload content")
 	}
 	content := []byte(read.Value.(string))
 
 	if r := core.MkdirAll(pathDir(remote), 0o755); !r.OK {
-		err, _ := r.Value.(error)
-		return coreerr.E("localClient.Upload", "create remote directory", err)
+		return wrapFailure(r, "localClient.Upload", "create remote directory")
 	}
 	if r := core.WriteFile(remote, content, mode); !r.OK {
-		err, _ := r.Value.(error)
-		return coreerr.E("localClient.Upload", "write remote file", err)
+		return wrapFailure(r, "localClient.Upload", "write remote file")
 	}
-	return nil
+	return core.Ok(nil)
 }
 
 // Download reads the bytes of a local file path. Despite the name, the
 // "remote" is local — the localClient implements the SSHClient interface
 // transparently so playbooks targeting `connection: local` work unchanged.
 //
-//	data, err := c.Download(ctx, "/etc/foo.conf")
-func (c *localClient) Download(_ context.Context, remote string) ([]byte, error) {
+//	result := c.Download(ctx, "/etc/foo.conf")
+func (c *localClient) Download(_ context.Context, remote string) core.Result {
 	read := core.ReadFile(remote)
 	if !read.OK {
-		err, _ := read.Value.(error)
-		return nil, coreerr.E("localClient.Download", "read remote file", err)
+		return wrapFailure(read, "localClient.Download", "read remote file")
 	}
-	return read.Value.([]byte), nil
+	return core.Ok(read.Value.([]byte))
 }
 
 // FileExists reports whether the given local path exists. Returns
-// (false, nil) for non-existent paths and (false, err) for stat failures
+// false for non-existent paths and a failed Result for stat failures
 // other than not-exist.
 //
-//	exists, err := c.FileExists(ctx, "/etc/foo.conf")
-func (c *localClient) FileExists(_ context.Context, path string) (bool, error) {
+//	result := c.FileExists(ctx, "/etc/foo.conf")
+func (c *localClient) FileExists(_ context.Context, path string) core.Result {
 	stat := core.Stat(path)
 	if stat.OK {
-		return true, nil
+		return core.Ok(true)
 	}
 	err, _ := stat.Value.(error)
 	if core.IsNotExist(err) {
-		return false, nil
+		return core.Ok(false)
 	}
-	return false, coreerr.E("localClient.FileExists", "stat path", err)
+	return core.Fail(coreerr.E("localClient.FileExists", "stat path", err))
 }
 
 // Stat returns a map describing the path: at minimum {"exists": bool}, plus
 // "isdir" / "size" / "mode" / "mtime" when the file exists. Used by the
 // `stat` Ansible module.
 //
-//	info, err := c.Stat(ctx, "/etc/foo.conf")
-func (c *localClient) Stat(_ context.Context, path string) (map[string]any, error) {
+//	result := c.Stat(ctx, "/etc/foo.conf")
+func (c *localClient) Stat(_ context.Context, path string) core.Result {
 	stat := core.Stat(path)
 	if !stat.OK {
 		err, _ := stat.Value.(error)
 		if core.IsNotExist(err) {
-			return map[string]any{"exists": false}, nil
+			return core.Ok(map[string]any{"exists": false})
 		}
-		return nil, coreerr.E("localClient.Stat", "stat path", err)
+		return core.Fail(coreerr.E("localClient.Stat", "stat path", err))
 	}
 	info := stat.Value.(core.FsFileInfo)
-	return map[string]any{
+	return core.Ok(map[string]any{
 		"exists": true,
 		"isdir":  info.IsDir(),
-	}, nil
+	})
 }
 
 func (c *localClient) becomeStateLocked() (bool, string, string) {
 	return c.become, c.becomeUser, c.becomePass
 }
 
-func runLocalShell(ctx context.Context, command, password string) (stdout, stderr string, exitCode int, err error) {
-	stdinPipe, err := makePipe()
-	if err != nil {
-		return "", "", -1, coreerr.E("localClient.runLocalShell", "open stdin", err)
+func runLocalShell(ctx context.Context, command, password string) core.Result {
+	stdinResult := makePipe()
+	if !stdinResult.OK {
+		return wrapFailure(stdinResult, "localClient.runLocalShell", "open stdin")
 	}
-	stdoutPipe, err := makePipe()
-	if err != nil {
+	stdinPipe := stdinResult.Value.([2]int)
+	stdoutResult := makePipe()
+	if !stdoutResult.OK {
 		closePipe(stdinPipe)
-		return "", "", -1, coreerr.E("localClient.runLocalShell", "open stdout", err)
+		return wrapFailure(stdoutResult, "localClient.runLocalShell", "open stdout")
 	}
-	stderrPipe, err := makePipe()
-	if err != nil {
+	stdoutPipe := stdoutResult.Value.([2]int)
+	stderrResult := makePipe()
+	if !stderrResult.OK {
 		closePipe(stdinPipe)
 		closePipe(stdoutPipe)
-		return "", "", -1, coreerr.E("localClient.runLocalShell", "open stderr", err)
+		return wrapFailure(stderrResult, "localClient.runLocalShell", "open stderr")
 	}
+	stderrPipe := stderrResult.Value.([2]int)
 
 	argv := []string{"bash", "--noprofile", "--norc", "-lc", command}
 	pid, err := syscall.ForkExec("/bin/bash", argv, &syscall.ProcAttr{
@@ -211,13 +210,15 @@ func runLocalShell(ctx context.Context, command, password string) (stdout, stder
 		closeFD(stdinPipe[1])
 		closeFD(stdoutPipe[0])
 		closeFD(stderrPipe[0])
-		return "", "", -1, coreerr.E("localClient.runLocalShell", "execute command", err)
+		return core.Fail(coreerr.E("localClient.runLocalShell", "execute command", err))
 	}
 
 	if password != "" {
 		go func() {
 			defer closeFD(stdinPipe[1])
-			_, _ = syscall.Write(stdinPipe[1], []byte(password+"\n"))
+			if _, writeErr := syscall.Write(stdinPipe[1], []byte(password+"\n")); writeErr != nil {
+				return
+			}
 		}()
 	} else {
 		closeFD(stdinPipe[1])
@@ -225,8 +226,8 @@ func runLocalShell(ctx context.Context, command, password string) (stdout, stder
 
 	stdoutBuf := core.NewBuffer()
 	stderrBuf := core.NewBuffer()
-	doneOut := make(chan error, 1)
-	doneErr := make(chan error, 1)
+	doneOut := make(chan core.Result, 1)
+	doneErr := make(chan core.Result, 1)
 	go func() { doneOut <- readPipe(stdoutPipe[0], stdoutBuf) }()
 	go func() { doneErr <- readPipe(stderrPipe[0], stderrBuf) }()
 
@@ -241,27 +242,27 @@ func runLocalShell(ctx context.Context, command, password string) (stdout, stder
 	select {
 	case <-ctx.Done():
 		if killErr := syscall.Kill(pid, syscall.SIGKILL); killErr != nil {
-			return stdoutBuf.String(), stderrBuf.String(), -1, killErr
+			return commandRunFail(stdoutBuf.String(), stderrBuf.String(), -1, killErr)
 		}
 		wait = <-waitCh
 		<-doneOut
 		<-doneErr
-		return stdoutBuf.String(), stderrBuf.String(), -1, ctx.Err()
+		return commandRunFail(stdoutBuf.String(), stderrBuf.String(), -1, ctx.Err())
 	case wait = <-waitCh:
 	}
 
 	<-doneOut
 	<-doneErr
 	if wait.err != nil {
-		return stdoutBuf.String(), stderrBuf.String(), -1, coreerr.E("localClient.runLocalShell", "wait command", wait.err)
+		return commandRunFail(stdoutBuf.String(), stderrBuf.String(), -1, coreerr.E("localClient.runLocalShell", "wait command", wait.err))
 	}
 	if wait.status.Exited() {
-		return stdoutBuf.String(), stderrBuf.String(), wait.status.ExitStatus(), nil
+		return commandRunOK(stdoutBuf.String(), stderrBuf.String(), wait.status.ExitStatus())
 	}
 	if wait.status.Signaled() {
-		return stdoutBuf.String(), stderrBuf.String(), 128 + int(wait.status.Signal()), nil
+		return commandRunOK(stdoutBuf.String(), stderrBuf.String(), 128+int(wait.status.Signal()))
 	}
-	return stdoutBuf.String(), stderrBuf.String(), -1, nil
+	return commandRunOK(stdoutBuf.String(), stderrBuf.String(), -1)
 }
 
 func wrapLocalBecomeCommand(command, user, password string) string {
@@ -281,10 +282,13 @@ type waitResult struct {
 	err    error
 }
 
-func makePipe() ([2]int, error) {
+func makePipe() core.Result {
 	var pipe [2]int
 	err := syscall.Pipe(pipe[:])
-	return pipe, err
+	if err != nil {
+		return core.Fail(err)
+	}
+	return core.Ok(pipe)
 }
 
 func closePipe(pipe [2]int) {
@@ -300,18 +304,18 @@ func closeFD(fd int) {
 
 func readPipe(
 	fd int, buf core.Writer,
-) error {
+) core.Result {
 	defer closeFD(fd)
 	tmp := make([]byte, 32*1024)
 	for {
 		n, err := syscall.Read(fd, tmp)
 		if n > 0 {
 			if _, writeErr := buf.Write(tmp[:n]); writeErr != nil {
-				return writeErr
+				return core.Fail(writeErr)
 			}
 		}
 		if n == 0 && err == nil {
-			return nil
+			return core.Ok(nil)
 		}
 		if err == nil {
 			continue
@@ -322,6 +326,6 @@ func readPipe(
 		if err == syscall.EAGAIN {
 			continue
 		}
-		return nil
+		return core.Ok(nil)
 	}
 }

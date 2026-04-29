@@ -17,6 +17,14 @@ type stringBuffer interface {
 	String() string
 }
 
+type byteReader interface {
+	Read([]byte) (int, error)
+}
+
+type byteWriter interface {
+	Write([]byte) (int, error)
+}
+
 const pathArgKey = "pa" + "th"
 
 func dirSep() string {
@@ -257,31 +265,24 @@ func corexNewBuilder() stringBuffer {
 	return core.NewBuilder()
 }
 
-func corexNewReader(s string) interface {
-	Read([]byte) (int, error)
-} {
+func corexNewReader(s string) byteReader {
 	return core.NewReader(s)
 }
 
-func corexReadAllString(reader any) (string, error) {
+func corexReadAllString(reader any) core.Result {
 	result := core.ReadAll(reader)
 	if !result.OK {
-		if err, ok := result.Value.(error); ok {
-			return "", err
-		}
-		return "", core.NewError("read content")
+		return result
 	}
 
 	if data, ok := result.Value.(string); ok {
-		return data, nil
+		return core.Ok(data)
 	}
-	return corexSprint(result.Value), nil
+	return core.Ok(corexSprint(result.Value))
 }
 
-func corexWriteString(writer interface {
-	Write([]byte) (int, error)
-}, value string) {
-	_, _ = writer.Write([]byte(value))
+func corexWriteString(writer byteWriter, value string) {
+	writer.Write([]byte(value))
 }
 
 func corexContainsRune(cutset string, target rune) bool {
@@ -328,52 +329,46 @@ func corexPathGlob(pattern string) []string {
 	return core.PathGlob(pattern)
 }
 
-func corexPathMatch(pattern, name string) (bool, error) {
+func corexPathMatch(pattern, name string) core.Result {
 	r := core.PathMatch(pattern, name)
-	if r.OK {
-		return r.Value.(bool), nil
-	}
-	if err, ok := r.Value.(error); ok {
-		return false, err
-	}
-	return false, core.NewError("path match failed")
+	return r
 }
 
-func absPath(path string) string                                { return corexAbsPath(path) }
-func joinPath(parts ...string) string                           { return corexJoinPath(parts...) }
-func cleanPath(path string) string                              { return corexCleanPath(path) }
-func pathDir(path string) string                                { return corexPathDir(path) }
-func pathBase(path string) string                               { return corexPathBase(path) }
-func pathIsAbs(path string) bool                                { return corexPathIsAbs(path) }
-func env(key string) string                                     { return corexEnv(key) }
-func sprintf(format string, args ...any) string                 { return corexSprintf(format, args...) }
-func sprint(args ...any) string                                 { return corexSprint(args...) }
-func contains(s, substr string) bool                            { return corexContains(s, substr) }
-func hasPrefix(s, prefix string) bool                           { return corexHasPrefix(s, prefix) }
-func hasSuffix(s, suffix string) bool                           { return corexHasSuffix(s, suffix) }
-func split(s, sep string) []string                              { return corexSplit(s, sep) }
-func splitN(s, sep string, n int) []string                      { return corexSplitN(s, sep, n) }
-func cut(s, sep string) (string, string, bool)                  { return corexCut(s, sep) }
-func join(sep string, parts []string) string                    { return corexJoin(sep, parts) }
-func lower(s string) string                                     { return corexLower(s) }
-func upper(s string) string                                     { return corexUpper(s) }
-func replaceAll(s, old, new string) string                      { return corexReplaceAll(s, old, new) }
-func replaceN(s, old, new string, n int) string                 { return corexReplaceN(s, old, new, n) }
-func trimSpace(s string) string                                 { return corexTrimSpace(s) }
-func trimPrefix(s, prefix string) string                        { return corexTrimPrefix(s, prefix) }
-func trimSuffix(s, suffix string) string                        { return corexTrimSuffix(s, suffix) }
-func trimCutset(s, cutset string) string                        { return corexTrimCutset(s, cutset) }
-func trimRightCutset(s, cutset string) string                   { return corexTrimRightCutset(s, cutset) }
-func containsAny(s, chars string) bool                          { return corexContainsAny(s, chars) }
-func stringIndex(s, needle string) int                          { return corexStringIndex(s, needle) }
-func stringLastIndex(s, needle string) int                      { return corexStringLastIndex(s, needle) }
-func pathGlob(pattern string) []string                          { return corexPathGlob(pattern) }
-func pathMatch(pattern, name string) (bool, error)              { return corexPathMatch(pattern, name) }
-func repeat(s string, count int) string                         { return corexRepeat(s, count) }
-func fields(s string) []string                                  { return corexFields(s) }
-func newBuilder() stringBuffer                                  { return corexNewBuilder() }
-func newReader(s string) interface{ Read([]byte) (int, error) } { return corexNewReader(s) }
-func readAllString(reader any) (string, error)                  { return corexReadAllString(reader) }
-func writeString(writer interface{ Write([]byte) (int, error) }, value string) {
+func absPath(path string) string                 { return corexAbsPath(path) }
+func joinPath(parts ...string) string            { return corexJoinPath(parts...) }
+func cleanPath(path string) string               { return corexCleanPath(path) }
+func pathDir(path string) string                 { return corexPathDir(path) }
+func pathBase(path string) string                { return corexPathBase(path) }
+func pathIsAbs(path string) bool                 { return corexPathIsAbs(path) }
+func env(key string) string                      { return corexEnv(key) }
+func sprintf(format string, args ...any) string  { return corexSprintf(format, args...) }
+func sprint(args ...any) string                  { return corexSprint(args...) }
+func contains(s, substr string) bool             { return corexContains(s, substr) }
+func hasPrefix(s, prefix string) bool            { return corexHasPrefix(s, prefix) }
+func hasSuffix(s, suffix string) bool            { return corexHasSuffix(s, suffix) }
+func split(s, sep string) []string               { return corexSplit(s, sep) }
+func splitN(s, sep string, n int) []string       { return corexSplitN(s, sep, n) }
+func cut(s, sep string) (string, string, bool)   { return corexCut(s, sep) }
+func join(sep string, parts []string) string     { return corexJoin(sep, parts) }
+func lower(s string) string                      { return corexLower(s) }
+func upper(s string) string                      { return corexUpper(s) }
+func replaceAll(s, old, new string) string       { return corexReplaceAll(s, old, new) }
+func replaceN(s, old, new string, n int) string  { return corexReplaceN(s, old, new, n) }
+func trimSpace(s string) string                  { return corexTrimSpace(s) }
+func trimPrefix(s, prefix string) string         { return corexTrimPrefix(s, prefix) }
+func trimSuffix(s, suffix string) string         { return corexTrimSuffix(s, suffix) }
+func trimCutset(s, cutset string) string         { return corexTrimCutset(s, cutset) }
+func trimRightCutset(s, cutset string) string    { return corexTrimRightCutset(s, cutset) }
+func containsAny(s, chars string) bool           { return corexContainsAny(s, chars) }
+func stringIndex(s, needle string) int           { return corexStringIndex(s, needle) }
+func stringLastIndex(s, needle string) int       { return corexStringLastIndex(s, needle) }
+func pathGlob(pattern string) []string           { return corexPathGlob(pattern) }
+func pathMatch(pattern, name string) core.Result { return corexPathMatch(pattern, name) }
+func repeat(s string, count int) string          { return corexRepeat(s, count) }
+func fields(s string) []string                   { return corexFields(s) }
+func newBuilder() stringBuffer                   { return corexNewBuilder() }
+func newReader(s string) byteReader              { return corexNewReader(s) }
+func readAllString(reader any) core.Result       { return corexReadAllString(reader) }
+func writeString(writer byteWriter, value string) {
 	corexWriteString(writer, value)
 }

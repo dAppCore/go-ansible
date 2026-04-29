@@ -23,15 +23,15 @@ import (
 )
 
 type sshFactsRunner interface {
-	Run(ctx context.Context, cmd string) (string, string, int, error)
+	Run(ctx context.Context, cmd string) core.Result
 }
 
 type commandRunner interface {
-	Run(ctx context.Context, cmd string) (string, string, int, error)
+	Run(ctx context.Context, cmd string) core.Result
 }
 
 // executeModule dispatches to the appropriate module handler.
-func (e *Executor) executeModule(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play) (*TaskResult, error) {
+func (e *Executor) executeModule(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play) core.Result {
 	originalModule := task.Module
 	module := NormalizeModule(originalModule)
 	executionHost := e.resolveDelegateHost(host, task)
@@ -197,9 +197,9 @@ func (e *Executor) executeModule(ctx context.Context, host string, client sshExe
 			return e.moduleShell(ctx, client, args)
 		}
 		if originalModule != "" && originalModule != module {
-			return nil, coreerr.E("Executor.executeModule", "unsupported module: "+originalModule+" (resolved to "+module+")", nil)
+			return core.Fail(coreerr.E("Executor.executeModule", "unsupported module: "+originalModule+" (resolved to "+module+")", nil))
 		}
-		return nil, coreerr.E("Executor.executeModule", "unsupported module: "+module, nil)
+		return core.Fail(coreerr.E("Executor.executeModule", "unsupported module: "+module, nil))
 	}
 }
 
@@ -274,11 +274,18 @@ func (e *Executor) resolveBecomePassword(host string) string {
 }
 
 func remoteFileText(ctx context.Context, client sshExecutorClient, path string) (string, bool) {
-	data, err := client.Download(ctx, path)
-	if err != nil {
+	dataResult := client.Download(ctx, path)
+	if !dataResult.OK {
 		return "", false
 	}
+	data := dataResult.Value.([]byte)
 	return string(data), true
+}
+
+func runBestEffort(ctx context.Context, client sshExecutorClient, cmd string) {
+	if result := client.Run(ctx, cmd); !result.OK {
+		return
+	}
 }
 
 func fileDiffData(path, before, after string) map[string]any {
@@ -289,27 +296,28 @@ func fileDiffData(path, before, after string) map[string]any {
 	}
 }
 
-func backupRemoteFile(ctx context.Context, client sshExecutorClient, path string) (string, bool, error) {
+func backupRemoteFile(ctx context.Context, client sshExecutorClient, path string) core.Result {
 	before, ok := remoteFileText(ctx, client, path)
 	if !ok {
-		return "", false, nil
+		return core.Ok(backupRemoteFileResult{})
 	}
 
 	backupPath := sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
-	if err := client.Upload(ctx, newReader(before), backupPath, 0600); err != nil {
-		return "", true, err
+	if r := client.Upload(ctx, newReader(before), backupPath, 0600); !r.OK {
+		return r
 	}
 
-	return backupPath, true, nil
+	return core.Ok(backupRemoteFileResult{Path: backupPath, HadBefore: true})
 }
 
-func backupCronTab(ctx context.Context, client sshExecutorClient, user, name string) (string, error) {
-	stdout, _, rc, err := client.Run(ctx, sprintf("crontab -u %s -l 2>/dev/null", user))
-	if err != nil {
-		return "", coreerr.E("Executor.moduleCron", "backup crontab", err)
+func backupCronTab(ctx context.Context, client sshExecutorClient, user, name string) core.Result {
+	run := client.Run(ctx, sprintf("crontab -u %s -l 2>/dev/null", user))
+	out := commandRunValue(run)
+	if !run.OK {
+		return wrapFailure(run, "Executor.moduleCron", "backup crontab")
 	}
-	if rc != 0 || trimSpace(stdout) == "" {
-		return "", nil
+	if out.ExitCode != 0 || trimSpace(out.Stdout) == "" {
+		return core.Ok("")
 	}
 
 	backupName := user
@@ -322,11 +330,11 @@ func backupCronTab(ctx context.Context, client sshExecutorClient, user, name str
 	backupName = sanitizeBackupToken(backupName)
 
 	backupPath := joinPath("/tmp", sprintf("ansible-cron-%s.%s.bak", backupName, time.Now().UTC().Format("20060102T150405Z")))
-	if err := client.Upload(ctx, newReader(stdout), backupPath, 0600); err != nil {
-		return "", coreerr.E("Executor.moduleCron", "backup crontab", err)
+	if r := client.Upload(ctx, newReader(out.Stdout), backupPath, 0600); !r.OK {
+		return wrapFailure(r, "Executor.moduleCron", "backup crontab")
 	}
 
-	return backupPath, nil
+	return core.Ok(backupPath)
 }
 
 func sanitizeBackupToken(value string) string {
@@ -401,23 +409,24 @@ func (e *Executor) templateArgs(args map[string]any, host string, task *Task) ma
 
 // --- Command Modules ---
 
-func (e *Executor) moduleShell(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleShell(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	cmd := getStringArg(args, "_raw_params", "")
 	if cmd == "" {
 		cmd = getStringArg(args, "cmd", "")
 	}
 	if cmd == "" {
-		return nil, coreerr.E("Executor.moduleShell", "no command specified", nil)
+		return core.Fail(coreerr.E("Executor.moduleShell", "no command specified", nil))
 	}
 
 	chdir := getStringArg(args, "chdir", "")
 
-	skip, err := shouldSkipCommandModule(ctx, client, args, chdir)
-	if err != nil {
-		return nil, err
+	skipResult := shouldSkipCommandModule(ctx, client, args, chdir)
+	if !skipResult.OK {
+		return skipResult
 	}
+	skip := skipResult.Value.(bool)
 	if skip {
-		return &TaskResult{Changed: false}, nil
+		return core.Ok(&TaskResult{Changed: false})
 	}
 
 	// Handle chdir
@@ -429,34 +438,36 @@ func (e *Executor) moduleShell(ctx context.Context, client sshExecutorClient, ar
 		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
 	}
 
-	stdout, stderr, rc, err := runShellScriptCommand(ctx, client, cmd, getStringArg(args, "executable", ""))
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
+	run := runShellScriptCommand(ctx, client, cmd, getStringArg(args, "executable", ""))
+	out := commandRunValue(run)
+	if !run.OK {
+		return core.Ok(&TaskResult{Failed: true, Msg: resultErrorMessage(run), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 	}
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: true,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      rc,
-		Failed:  rc != 0,
-	}, nil
+		Stdout:  out.Stdout,
+		Stderr:  out.Stderr,
+		RC:      out.ExitCode,
+		Failed:  out.ExitCode != 0,
+	})
 }
 
-func (e *Executor) moduleCommand(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleCommand(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	cmd := buildCommandModuleCommand(args)
 	if cmd == "" {
-		return nil, coreerr.E("Executor.moduleCommand", "no command specified", nil)
+		return core.Fail(coreerr.E("Executor.moduleCommand", "no command specified", nil))
 	}
 
 	chdir := getStringArg(args, "chdir", "")
 
-	skip, err := shouldSkipCommandModule(ctx, client, args, chdir)
-	if err != nil {
-		return nil, err
+	skipResult := shouldSkipCommandModule(ctx, client, args, chdir)
+	if !skipResult.OK {
+		return skipResult
 	}
+	skip := skipResult.Value.(bool)
 	if skip {
-		return &TaskResult{Changed: false}, nil
+		return core.Ok(&TaskResult{Changed: false})
 	}
 
 	// Handle chdir
@@ -468,18 +479,19 @@ func (e *Executor) moduleCommand(ctx context.Context, client sshExecutorClient, 
 		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK {
+		return core.Ok(&TaskResult{Failed: true, Msg: resultErrorMessage(run), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 	}
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: true,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      rc,
-		Failed:  rc != 0,
-	}, nil
+		Stdout:  out.Stdout,
+		Stderr:  out.Stderr,
+		RC:      out.ExitCode,
+		Failed:  out.ExitCode != 0,
+	})
 }
 
 func buildCommandModuleCommand(args map[string]any) string {
@@ -538,30 +550,32 @@ func commandArgv(args map[string]any) []string {
 	}
 }
 
-func shouldSkipCommandModule(ctx context.Context, client sshExecutorClient, args map[string]any, chdir string) (bool, error) {
+func shouldSkipCommandModule(ctx context.Context, client sshExecutorClient, args map[string]any, chdir string) core.Result {
 	if path := getStringArg(args, "creates", ""); path != "" {
 		path = resolveCommandModulePath(path, chdir)
-		exists, err := client.FileExists(ctx, path)
-		if err != nil {
-			return false, coreerr.E("Executor.shouldSkipCommandModule", "creates check", err)
+		existsResult := client.FileExists(ctx, path)
+		if !existsResult.OK {
+			return wrapFailure(existsResult, "Executor.shouldSkipCommandModule", "creates check")
 		}
+		exists := existsResult.Value.(bool)
 		if exists {
-			return true, nil
+			return core.Ok(true)
 		}
 	}
 
 	if path := getStringArg(args, "removes", ""); path != "" {
 		path = resolveCommandModulePath(path, chdir)
-		exists, err := client.FileExists(ctx, path)
-		if err != nil {
-			return false, coreerr.E("Executor.shouldSkipCommandModule", "removes check", err)
+		existsResult := client.FileExists(ctx, path)
+		if !existsResult.OK {
+			return wrapFailure(existsResult, "Executor.shouldSkipCommandModule", "removes check")
 		}
+		exists := existsResult.Value.(bool)
 		if !exists {
-			return true, nil
+			return core.Ok(true)
 		}
 	}
 
-	return false, nil
+	return core.Ok(false)
 }
 
 func resolveCommandModulePath(filePath, chdir string) string {
@@ -573,64 +587,67 @@ func resolveCommandModulePath(filePath, chdir string) string {
 	return joinPath(chdir, filePath)
 }
 
-func (e *Executor) moduleRaw(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleRaw(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	cmd := getStringArg(args, "_raw_params", "")
 	if cmd == "" {
-		return nil, coreerr.E("Executor.moduleRaw", "no command specified", nil)
+		return core.Fail(coreerr.E("Executor.moduleRaw", "no command specified", nil))
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK {
+		return core.Ok(&TaskResult{Failed: true, Msg: resultErrorMessage(run), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 	}
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: true,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      rc,
-	}, nil
+		Stdout:  out.Stdout,
+		Stderr:  out.Stderr,
+		RC:      out.ExitCode,
+	})
 }
 
-func (e *Executor) moduleScript(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleScript(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	script := getStringArg(args, "_raw_params", "")
 	if script == "" {
-		return nil, coreerr.E("Executor.moduleScript", "no script specified", nil)
+		return core.Fail(coreerr.E("Executor.moduleScript", "no script specified", nil))
 	}
 
 	chdir := getStringArg(args, "chdir", "")
 
-	skip, err := shouldSkipCommandModule(ctx, client, args, chdir)
-	if err != nil {
-		return nil, err
+	skipResult := shouldSkipCommandModule(ctx, client, args, chdir)
+	if !skipResult.OK {
+		return skipResult
 	}
+	skip := skipResult.Value.(bool)
 	if skip {
-		return &TaskResult{Changed: false}, nil
+		return core.Ok(&TaskResult{Changed: false})
 	}
 
 	// Read local script
 	script = e.resolveLocalPath(script)
 	data, err := coreio.Local.Read(script)
 	if err != nil {
-		return nil, coreerr.E("Executor.moduleScript", "read script", err)
+		return core.Fail(coreerr.E("Executor.moduleScript", "read script", err))
 	}
 
 	if chdir != "" {
 		data = sprintf("cd %q && %s", chdir, data)
 	}
 
-	stdout, stderr, rc, err := runShellScriptCommand(ctx, client, data, getStringArg(args, "executable", ""))
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
+	run := runShellScriptCommand(ctx, client, data, getStringArg(args, "executable", ""))
+	out := commandRunValue(run)
+	if !run.OK {
+		return core.Ok(&TaskResult{Failed: true, Msg: resultErrorMessage(run), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 	}
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: true,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      rc,
-		Failed:  rc != 0,
-	}, nil
+		Stdout:  out.Stdout,
+		Stderr:  out.Stderr,
+		RC:      out.ExitCode,
+		Failed:  out.ExitCode != 0,
+	})
 }
 
 // runShellScriptCommand executes a shell script using either the default
@@ -639,7 +656,7 @@ func (e *Executor) moduleScript(ctx context.Context, client sshExecutorClient, a
 // Example:
 //
 //	stdout, stderr, rc, err := runShellScriptCommand(ctx, client, "echo hi", "/bin/dash")
-func runShellScriptCommand(ctx context.Context, client sshExecutorClient, script, executable string) (stdout, stderr string, exitCode int, err error) {
+func runShellScriptCommand(ctx context.Context, client sshExecutorClient, script, executable string) core.Result {
 	if executable == "" {
 		return client.RunScript(ctx, script)
 	}
@@ -650,37 +667,36 @@ func runShellScriptCommand(ctx context.Context, client sshExecutorClient, script
 
 // --- File Modules ---
 
-func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, args map[string]any, host string, task *Task) (*TaskResult, error) {
+func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, args map[string]any, host string, task *Task) core.Result {
 	dest := getStringArg(args, "dest", "")
 	if dest == "" {
-		return nil, coreerr.E("Executor.moduleCopy", "dest required", nil)
+		return core.Fail(coreerr.E("Executor.moduleCopy", "dest required", nil))
 	}
 	force := getBoolArg(args, "force", true)
 	backup := getBoolArg(args, "backup", false)
 	remoteSrc := getBoolArg(args, "remote_src", false)
 
 	var content string
-	var err error
-
 	if src := getStringArg(args, "src", ""); src != "" {
 		if remoteSrc {
-			var data []byte
-			data, err = client.Download(ctx, src)
-			if err != nil {
-				return nil, coreerr.E("Executor.moduleCopy", "download src", err)
+			dataResult := client.Download(ctx, src)
+			if !dataResult.OK {
+				return wrapFailure(dataResult, "Executor.moduleCopy", "download src")
 			}
+			data := dataResult.Value.([]byte)
 			content = string(data)
 		} else {
 			src = e.resolveLocalPath(src)
+			var err error
 			content, err = coreio.Local.Read(src)
 			if err != nil {
-				return nil, coreerr.E("Executor.moduleCopy", "read src", err)
+				return core.Fail(coreerr.E("Executor.moduleCopy", "read src", err))
 			}
 		}
 	} else if c := getStringArg(args, "content", ""); c != "" {
 		content = c
 	} else {
-		return nil, coreerr.E("Executor.moduleCopy", "src or content required", nil)
+		return core.Fail(coreerr.E("Executor.moduleCopy", "src or content required", nil))
 	}
 
 	mode := fs.FileMode(0644)
@@ -692,33 +708,33 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 
 	before, hasBefore := remoteFileText(ctx, client, dest)
 	if hasBefore && !force {
-		return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
+		return core.Ok(&TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)})
 	}
 	if hasBefore && before == content {
 		if getStringArg(args, "owner", "") == "" && getStringArg(args, "group", "") == "" {
-			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
+			return core.Ok(&TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)})
 		}
 	}
 
 	var backupPath string
 	if backup && hasBefore {
-		backupPath, _, err = backupRemoteFile(ctx, client, dest)
-		if err != nil {
-			return nil, coreerr.E("Executor.moduleCopy", "backup destination", err)
+		backupResult := backupRemoteFile(ctx, client, dest)
+		if !backupResult.OK {
+			return wrapFailure(backupResult, "Executor.moduleCopy", "backup destination")
 		}
+		backupPath = backupResult.Value.(backupRemoteFileResult).Path
 	}
 
-	err = client.Upload(ctx, newReader(content), dest, mode)
-	if err != nil {
-		return nil, err
+	if r := client.Upload(ctx, newReader(content), dest, mode); !r.OK {
+		return r
 	}
 
 	// Handle owner/group (best-effort, errors ignored)
 	if owner := getStringArg(args, "owner", ""); owner != "" {
-		_, _, _, _ = client.Run(ctx, sprintf("chown %s %q", owner, dest))
+		runBestEffort(ctx, client, sprintf("chown %s %q", owner, dest))
 	}
 	if group := getStringArg(args, "group", ""); group != "" {
-		_, _, _, _ = client.Run(ctx, sprintf("chgrp %s %q", group, dest))
+		runBestEffort(ctx, client, sprintf("chgrp %s %q", group, dest))
 	}
 
 	result := &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}
@@ -733,24 +749,25 @@ func (e *Executor) moduleCopy(ctx context.Context, client sshExecutorClient, arg
 			result.Data["diff"] = fileDiffData(dest, before, content)
 		}
 	}
-	return result, nil
+	return core.Ok(result)
 }
 
-func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient, args map[string]any, host string, task *Task) (*TaskResult, error) {
+func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient, args map[string]any, host string, task *Task) core.Result {
 	src := getStringArg(args, "src", "")
 	dest := getStringArg(args, "dest", "")
 	if src == "" || dest == "" {
-		return nil, coreerr.E("Executor.moduleTemplate", "src and dest required", nil)
+		return core.Fail(coreerr.E("Executor.moduleTemplate", "src and dest required", nil))
 	}
 	force := getBoolArg(args, "force", true)
 	backup := getBoolArg(args, "backup", false)
 
 	// Process template
 	src = e.resolveLocalPath(src)
-	content, err := e.TemplateFile(src, host, task)
-	if err != nil {
-		return nil, coreerr.E("Executor.moduleTemplate", "template", err)
+	templateResult := e.TemplateFile(src, host, task)
+	if !templateResult.OK {
+		return wrapFailure(templateResult, "Executor.moduleTemplate", "template")
 	}
+	content := templateResult.Value.(string)
 
 	mode := fs.FileMode(0644)
 	if m := getStringArg(args, "mode", ""); m != "" {
@@ -761,23 +778,23 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 
 	before, hasBefore := remoteFileText(ctx, client, dest)
 	if hasBefore && !force {
-		return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
+		return core.Ok(&TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)})
 	}
 	if hasBefore && before == content {
-		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
+		return core.Ok(&TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)})
 	}
 
 	var backupPath string
 	if backup && hasBefore {
-		backupPath, _, err = backupRemoteFile(ctx, client, dest)
-		if err != nil {
-			return nil, coreerr.E("Executor.moduleTemplate", "backup destination", err)
+		backupResult := backupRemoteFile(ctx, client, dest)
+		if !backupResult.OK {
+			return wrapFailure(backupResult, "Executor.moduleTemplate", "backup destination")
 		}
+		backupPath = backupResult.Value.(backupRemoteFileResult).Path
 	}
 
-	err = client.Upload(ctx, newReader(content), dest, mode)
-	if err != nil {
-		return nil, err
+	if r := client.Upload(ctx, newReader(content), dest, mode); !r.OK {
+		return r
 	}
 
 	result := &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}
@@ -792,16 +809,16 @@ func (e *Executor) moduleTemplate(ctx context.Context, client sshExecutorClient,
 			result.Data["diff"] = fileDiffData(dest, before, content)
 		}
 	}
-	return result, nil
+	return core.Ok(result)
 }
 
-func (e *Executor) moduleFile(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleFile(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
 	if path == "" {
-		return nil, coreerr.E("Executor.moduleFile", "path required", nil)
+		return core.Fail(coreerr.E("Executor.moduleFile", "path required", nil))
 	}
 
 	state := getStringArg(args, "state", "file")
@@ -810,83 +827,88 @@ func (e *Executor) moduleFile(ctx context.Context, client sshExecutorClient, arg
 	case "directory":
 		mode := getStringArg(args, "mode", "0755")
 		cmd := sprintf("mkdir -p %q && chmod %s %q", path, mode, path)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 		}
 
 	case "absent":
 		cmd := sprintf("rm -rf %q", path)
-		_, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, RC: out.ExitCode})
 		}
 
 	case "touch":
 		cmd := sprintf("touch %q", path)
-		_, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, RC: out.ExitCode})
 		}
 
 	case "link":
 		src := getStringArg(args, "src", "")
 		if src == "" {
-			return nil, coreerr.E("Executor.moduleFile", "src required for link state", nil)
+			return core.Fail(coreerr.E("Executor.moduleFile", "src required for link state", nil))
 		}
 		cmd := sprintf("ln -sf %q %q", src, path)
-		_, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, RC: out.ExitCode})
 		}
 
 	case "hard":
 		src := getStringArg(args, "src", "")
 		if src == "" {
-			return nil, coreerr.E("Executor.moduleFile", "src required for hard state", nil)
+			return core.Fail(coreerr.E("Executor.moduleFile", "src required for hard state", nil))
 		}
 		cmd := sprintf("ln -f %q %q", src, path)
-		_, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, RC: out.ExitCode})
 		}
 
 	case "file":
 		// Ensure file exists and set permissions
 		if mode := getStringArg(args, "mode", ""); mode != "" {
-			_, _, _, _ = client.Run(ctx, sprintf("chmod %s %q", mode, path))
+			runBestEffort(ctx, client, sprintf("chmod %s %q", mode, path))
 		}
 	}
 
 	// Handle owner/group (best-effort, errors ignored)
 	if owner := getStringArg(args, "owner", ""); owner != "" {
-		_, _, _, _ = client.Run(ctx, sprintf("chown %s %q", owner, path))
+		runBestEffort(ctx, client, sprintf("chown %s %q", owner, path))
 	}
 	if group := getStringArg(args, "group", ""); group != "" {
-		_, _, _, _ = client.Run(ctx, sprintf("chgrp %s %q", group, path))
+		runBestEffort(ctx, client, sprintf("chgrp %s %q", group, path))
 	}
 	if recurse := getBoolArg(args, "recurse", false); recurse {
 		if owner := getStringArg(args, "owner", ""); owner != "" {
-			_, _, _, _ = client.Run(ctx, sprintf("chown -R %s %q", owner, path))
+			runBestEffort(ctx, client, sprintf("chown -R %s %q", owner, path))
 		}
 		if group := getStringArg(args, "group", ""); group != "" {
-			_, _, _, _ = client.Run(ctx, sprintf("chgrp -R %s %q", group, path))
+			runBestEffort(ctx, client, sprintf("chgrp -R %s %q", group, path))
 		}
 		if mode := getStringArg(args, "mode", ""); mode != "" {
-			_, _, _, _ = client.Run(ctx, sprintf("chmod -R %s %q", mode, path))
+			runBestEffort(ctx, client, sprintf("chmod -R %s %q", mode, path))
 		}
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
 	if path == "" {
-		return nil, coreerr.E("Executor.moduleLineinfile", "path required", nil)
+		return core.Fail(coreerr.E("Executor.moduleLineinfile", "path required", nil))
 	}
 
 	before, hasBefore := remoteFileText(ctx, client, path)
@@ -903,44 +925,45 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 	firstMatch := getBoolArg(args, "firstmatch", false)
 
 	var backupPath string
-	ensureBackup := func() error {
+	ensureBackup := func() core.Result {
 		if !backup || backupPath != "" {
-			return nil
+			return core.Ok(nil)
 		}
 
-		var hasCopy bool
-		var err error
-		backupPath, hasCopy, err = backupRemoteFile(ctx, client, path)
-		if err != nil {
-			return coreerr.E("Executor.moduleLineinfile", "backup remote file", err)
+		backupResult := backupRemoteFile(ctx, client, path)
+		if !backupResult.OK {
+			return wrapFailure(backupResult, "Executor.moduleLineinfile", "backup remote file")
 		}
+		backupData := backupResult.Value.(backupRemoteFileResult)
+		backupPath = backupData.Path
+		hasCopy := backupData.HadBefore
 		if !hasCopy {
 			backupPath = ""
 		}
-		return nil
+		return core.Ok(nil)
 	}
 
 	if state != "absent" && line != "" && regexp == "" && insertBefore == "" && insertAfter == "" {
 		if hasBefore && fileContainsExactLine(before, line) {
-			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
+			return core.Ok(&TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)})
 		}
 	}
 
 	if state == "absent" {
 		if searchString != "" {
 			if !hasBefore || !contains(before, searchString) {
-				return &TaskResult{Changed: false}, nil
+				return core.Ok(&TaskResult{Changed: false})
 			}
-			if err := ensureBackup(); err != nil {
-				return nil, err
+			if r := ensureBackup(); !r.OK {
+				return r
 			}
 
 			updated, changed := removeLinesContaining(before, searchString)
 			if !changed {
-				return &TaskResult{Changed: false}, nil
+				return core.Ok(&TaskResult{Changed: false})
 			}
-			if err := client.Upload(ctx, newReader(updated), path, 0644); err != nil {
-				return nil, coreerr.E("Executor.moduleLineinfile", "upload lineinfile search_string removal", err)
+			if r := client.Upload(ctx, newReader(updated), path, 0644); !r.OK {
+				return wrapFailure(r, "Executor.moduleLineinfile", "upload lineinfile search_string removal")
 			}
 			result := &TaskResult{Changed: true}
 			if backupPath != "" {
@@ -952,43 +975,44 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 					result.Data["diff"] = fileDiffData(path, before, after)
 				}
 			}
-			return result, nil
+			return core.Ok(result)
 		}
 
 		if regexp != "" {
 			if content, ok := remoteFileText(ctx, client, path); !ok || !regexpMatchString(regexp, content) {
-				return &TaskResult{Changed: false}, nil
+				return core.Ok(&TaskResult{Changed: false})
 			}
-			if err := ensureBackup(); err != nil {
-				return nil, err
+			if r := ensureBackup(); !r.OK {
+				return r
 			}
 			cmd := sprintf("sed -i '/%s/d' %q", regexp, path)
-			_, stderr, rc, _ := client.Run(ctx, cmd)
-			if rc != 0 {
-				return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
+			run := client.Run(ctx, cmd)
+			out := commandRunValue(run)
+			if out.ExitCode != 0 {
+				return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, RC: out.ExitCode})
 			}
 		}
 	} else {
 		// Create the file first when requested so regexp-based updates have a
 		// target to operate on.
 		if create {
-			_, _, _, _ = client.Run(ctx, sprintf("touch %q", path))
+			runBestEffort(ctx, client, sprintf("touch %q", path))
 		}
 
 		// state == present
 		if searchString != "" {
 			if hasBefore && fileContainsExactLine(before, line) {
-				return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
+				return core.Ok(&TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)})
 			}
 
 			if hasBefore {
 				updated, changed := replaceFirstLineContaining(before, searchString, line)
 				if changed {
-					if err := ensureBackup(); err != nil {
-						return nil, err
+					if r := ensureBackup(); !r.OK {
+						return r
 					}
-					if err := client.Upload(ctx, newReader(updated), path, 0644); err != nil {
-						return nil, coreerr.E("Executor.moduleLineinfile", "upload lineinfile search_string replacement", err)
+					if r := client.Upload(ctx, newReader(updated), path, 0644); !r.OK {
+						return wrapFailure(r, "Executor.moduleLineinfile", "upload lineinfile search_string replacement")
 					}
 					result := &TaskResult{Changed: true}
 					if backupPath != "" {
@@ -1000,17 +1024,18 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 							result.Data["diff"] = fileDiffData(path, before, after)
 						}
 					}
-					return result, nil
+					return core.Ok(result)
 				}
 			}
 
-			if err := ensureBackup(); err != nil {
-				return nil, err
+			if r := ensureBackup(); !r.OK {
+				return r
 			}
-			if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
-				return nil, err
-			} else if inserted {
-				return &TaskResult{Changed: true}, nil
+			insertedResult := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch)
+			if !insertedResult.OK {
+				return insertedResult
+			} else if insertedResult.Value.(bool) {
+				return core.Ok(&TaskResult{Changed: true})
 			}
 
 			updated := line
@@ -1025,8 +1050,8 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 				updated = line + "\n"
 			}
 
-			if err := client.Upload(ctx, newReader(updated), path, 0644); err != nil {
-				return nil, coreerr.E("Executor.moduleLineinfile", "upload lineinfile search_string append", err)
+			if r := client.Upload(ctx, newReader(updated), path, 0644); !r.OK {
+				return wrapFailure(r, "Executor.moduleLineinfile", "upload lineinfile search_string append")
 			}
 			result := &TaskResult{Changed: true}
 			if backupPath != "" {
@@ -1038,7 +1063,7 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 					result.Data["diff"] = fileDiffData(path, before, after)
 				}
 			}
-			return result, nil
+			return core.Ok(result)
 		}
 
 		if regexp != "" {
@@ -1048,53 +1073,55 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 				// When backrefs is enabled, Ansible only replaces matching lines
 				// and does not append a new line when the pattern is absent.
 				matchCmd := sprintf("grep -Eq %q %q", regexp, path)
-				_, _, matchRC, _ := client.Run(ctx, matchCmd)
-				if matchRC != 0 {
-					return &TaskResult{Changed: false}, nil
+				matchRun := client.Run(ctx, matchCmd)
+				if commandRunValue(matchRun).ExitCode != 0 {
+					return core.Ok(&TaskResult{Changed: false})
 				}
 				sedFlags = "-E -i"
 			}
 
-			if err := ensureBackup(); err != nil {
-				return nil, err
+			if r := ensureBackup(); !r.OK {
+				return r
 			}
 
 			cmd := sprintf("sed %s 's/%s/%s/' %q", sedFlags, regexp, escapedLine, path)
-			_, _, rc, _ := client.Run(ctx, cmd)
-			if rc != 0 {
+			run := client.Run(ctx, cmd)
+			if commandRunValue(run).ExitCode != 0 {
 				if backrefs {
-					return &TaskResult{Changed: false}, nil
+					return core.Ok(&TaskResult{Changed: false})
 				}
 
-				if err := ensureBackup(); err != nil {
-					return nil, err
+				if r := ensureBackup(); !r.OK {
+					return r
 				}
-				if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
-					return nil, err
-				} else if inserted {
-					return &TaskResult{Changed: true}, nil
+				insertedResult := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch)
+				if !insertedResult.OK {
+					return insertedResult
+				} else if insertedResult.Value.(bool) {
+					return core.Ok(&TaskResult{Changed: true})
 				}
 
 				// Line not found, append.
-				if err := ensureBackup(); err != nil {
-					return nil, err
+				if r := ensureBackup(); !r.OK {
+					return r
 				}
 				cmd = sprintf("echo %q >> %q", line, path)
-				_, _, _, _ = client.Run(ctx, cmd)
+				runBestEffort(ctx, client, cmd)
 			}
 		} else if line != "" {
-			if err := ensureBackup(); err != nil {
-				return nil, err
+			if r := ensureBackup(); !r.OK {
+				return r
 			}
-			if inserted, err := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
-				return nil, err
-			} else if inserted {
-				return &TaskResult{Changed: true}, nil
+			insertedResult := insertLineRelativeToMatch(ctx, client, path, line, insertBefore, insertAfter, firstMatch)
+			if !insertedResult.OK {
+				return insertedResult
+			} else if insertedResult.Value.(bool) {
+				return core.Ok(&TaskResult{Changed: true})
 			}
 
 			// Ensure line is present
 			cmd := sprintf("grep -qxF %q %q || echo %q >> %q", line, path, line, path)
-			_, _, _, _ = client.Run(ctx, cmd)
+			runBestEffort(ctx, client, cmd)
 		}
 	}
 
@@ -1111,21 +1138,21 @@ func (e *Executor) moduleLineinfile(ctx context.Context, client sshExecutorClien
 		}
 	}
 
-	return result, nil
+	return core.Ok(result)
 }
 
-func (e *Executor) moduleReplace(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleReplace(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
 	if path == "" {
-		return nil, coreerr.E("Executor.moduleReplace", "path required", nil)
+		return core.Fail(coreerr.E("Executor.moduleReplace", "path required", nil))
 	}
 
 	pattern := getStringArg(args, "regexp", "")
 	if pattern == "" {
-		return nil, coreerr.E("Executor.moduleReplace", "regexp required", nil)
+		return core.Fail(coreerr.E("Executor.moduleReplace", "regexp required", nil))
 	}
 
 	replacement := getStringArg(args, "replace", "")
@@ -1133,32 +1160,33 @@ func (e *Executor) moduleReplace(ctx context.Context, client sshExecutorClient, 
 
 	before, ok := remoteFileText(ctx, client, path)
 	if !ok {
-		return &TaskResult{Failed: true, Msg: sprintf("file not found: %s", path)}, nil
+		return core.Ok(&TaskResult{Failed: true, Msg: sprintf("file not found: %s", path)})
 	}
 
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, coreerr.E("Executor.moduleReplace", "compile regexp", err)
+		return core.Fail(coreerr.E("Executor.moduleReplace", "compile regexp", err))
 	}
 
 	after := re.ReplaceAllString(before, replacement)
 	if after == before {
-		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
+		return core.Ok(&TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)})
 	}
 
 	result := &TaskResult{Changed: true}
 	if backup {
-		backupPath, hasBefore, err := backupRemoteFile(ctx, client, path)
-		if err != nil {
-			return nil, coreerr.E("Executor.moduleReplace", "backup remote file", err)
+		backupResult := backupRemoteFile(ctx, client, path)
+		if !backupResult.OK {
+			return wrapFailure(backupResult, "Executor.moduleReplace", "backup remote file")
 		}
-		if hasBefore {
-			result.Data = map[string]any{"backup_file": backupPath}
+		backupData := backupResult.Value.(backupRemoteFileResult)
+		if backupData.HadBefore {
+			result.Data = map[string]any{"backup_file": backupData.Path}
 		}
 	}
 
-	if err := client.Upload(ctx, newReader(after), path, 0644); err != nil {
-		return nil, coreerr.E("Executor.moduleReplace", "upload replacement", err)
+	if r := client.Upload(ctx, newReader(after), path, 0644); !r.OK {
+		return wrapFailure(r, "Executor.moduleReplace", "upload replacement")
 	}
 
 	if e.Diff {
@@ -1166,7 +1194,7 @@ func (e *Executor) moduleReplace(ctx context.Context, client sshExecutorClient, 
 		result.Data["diff"] = fileDiffData(path, before, after)
 	}
 
-	return result, nil
+	return core.Ok(result)
 }
 
 func ensureTaskResultData(data map[string]any) map[string]any {
@@ -1198,64 +1226,72 @@ func regexpMatchString(pattern, value string) bool {
 	return re.MatchString(value)
 }
 
-func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, line, insertBefore, insertAfter string, firstMatch bool) (bool, error) {
+func insertLineRelativeToMatch(ctx context.Context, client commandRunner, path, line, insertBefore, insertAfter string, firstMatch bool) core.Result {
 	if line == "" {
-		return false, nil
+		return core.Ok(false)
 	}
 
 	if insertBefore == "BOF" {
 		cmd := sprintf("tmp=$(mktemp) && { printf %%s %s; cat %q; } > \"$tmp\" && mv \"$tmp\" %q", shellSingleQuote(line+"\n"), path, path)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return false, coreerr.E("Executor.moduleLineinfile", "insertbefore line", err)
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK {
+			return wrapFailure(run, "Executor.moduleLineinfile", "insertbefore line")
 		}
-		_ = stdout
-		_ = stderr
-		return true, nil
+		if out.ExitCode != 0 {
+			return core.Fail(coreerr.E("Executor.moduleLineinfile", "insertbefore line: "+out.Stderr, nil))
+		}
+		return core.Ok(true)
 	}
 
 	if insertAfter == "EOF" {
 		cmd := sprintf("echo %q >> %q", line, path)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return false, coreerr.E("Executor.moduleLineinfile", "insertafter line", err)
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK {
+			return wrapFailure(run, "Executor.moduleLineinfile", "insertafter line")
 		}
-		_ = stdout
-		_ = stderr
-		return true, nil
+		if out.ExitCode != 0 {
+			return core.Fail(coreerr.E("Executor.moduleLineinfile", "insertafter line: "+out.Stderr, nil))
+		}
+		return core.Ok(true)
 	}
 
 	if insertBefore != "" {
 		matchCmd := sprintf("grep -Eq %q %q", insertBefore, path)
-		_, _, matchRC, _ := client.Run(ctx, matchCmd)
-		if matchRC == 0 {
+		matchRun := client.Run(ctx, matchCmd)
+		if commandRunValue(matchRun).ExitCode == 0 {
 			cmd := buildLineinfileInsertCommand(path, line, insertBefore, false, firstMatch)
-			stdout, stderr, rc, err := client.Run(ctx, cmd)
-			if err != nil || rc != 0 {
-				return false, coreerr.E("Executor.moduleLineinfile", "insertbefore line", err)
+			run := client.Run(ctx, cmd)
+			out := commandRunValue(run)
+			if !run.OK {
+				return wrapFailure(run, "Executor.moduleLineinfile", "insertbefore line")
 			}
-			_ = stdout
-			_ = stderr
-			return true, nil
+			if out.ExitCode != 0 {
+				return core.Fail(coreerr.E("Executor.moduleLineinfile", "insertbefore line: "+out.Stderr, nil))
+			}
+			return core.Ok(true)
 		}
 	}
 
 	if insertAfter != "" {
 		matchCmd := sprintf("grep -Eq %q %q", insertAfter, path)
-		_, _, matchRC, _ := client.Run(ctx, matchCmd)
-		if matchRC == 0 {
+		matchRun := client.Run(ctx, matchCmd)
+		if commandRunValue(matchRun).ExitCode == 0 {
 			cmd := buildLineinfileInsertCommand(path, line, insertAfter, true, firstMatch)
-			stdout, stderr, rc, err := client.Run(ctx, cmd)
-			if err != nil || rc != 0 {
-				return false, coreerr.E("Executor.moduleLineinfile", "insertafter line", err)
+			run := client.Run(ctx, cmd)
+			out := commandRunValue(run)
+			if !run.OK {
+				return wrapFailure(run, "Executor.moduleLineinfile", "insertafter line")
 			}
-			_ = stdout
-			_ = stderr
-			return true, nil
+			if out.ExitCode != 0 {
+				return core.Fail(coreerr.E("Executor.moduleLineinfile", "insertafter line: "+out.Stderr, nil))
+			}
+			return core.Ok(true)
 		}
 	}
 
-	return false, nil
+	return core.Ok(false)
 }
 
 func replaceFirstLineContaining(content, needle, line string) (string, bool) {
@@ -1325,74 +1361,77 @@ func buildLineinfileInsertCommand(path, line, anchor string, after, firstMatch b
 		quotedLine, quotedAnchor, path, path)
 }
 
-func (e *Executor) moduleStat(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleStat(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
-		return nil, coreerr.E("Executor.moduleStat", "path required", nil)
+		return core.Fail(coreerr.E("Executor.moduleStat", "path required", nil))
 	}
 
-	stat, err := client.Stat(ctx, path)
-	if err != nil {
-		return nil, err
+	statResult := client.Stat(ctx, path)
+	if !statResult.OK {
+		return statResult
 	}
+	stat := statResult.Value.(map[string]any)
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: false,
 		Data:    map[string]any{"stat": stat},
-	}, nil
+	})
 }
 
-func (e *Executor) moduleSlurp(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleSlurp(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "src", "")
 	}
 	if path == "" {
-		return nil, coreerr.E("Executor.moduleSlurp", "path required", nil)
+		return core.Fail(coreerr.E("Executor.moduleSlurp", "path required", nil))
 	}
 
-	content, err := client.Download(ctx, path)
-	if err != nil {
-		return nil, err
+	contentResult := client.Download(ctx, path)
+	if !contentResult.OK {
+		return contentResult
 	}
+	content := contentResult.Value.([]byte)
 
 	encoded := base64.StdEncoding.EncodeToString(content)
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: false,
 		Data:    map[string]any{"content": encoded, "encoding": "base64"},
-	}, nil
+	})
 }
 
-func (e *Executor) moduleFetch(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleFetch(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	src := getStringArg(args, "src", "")
 	dest := getStringArg(args, "dest", "")
 	if src == "" || dest == "" {
-		return nil, coreerr.E("Executor.moduleFetch", "src and dest required", nil)
+		return core.Fail(coreerr.E("Executor.moduleFetch", "src and dest required", nil))
 	}
 
-	content, err := client.Download(ctx, src)
-	if err != nil {
-		return nil, err
+	contentResult := client.Download(ctx, src)
+	if !contentResult.OK {
+		return contentResult
 	}
+	content := contentResult.Value.([]byte)
 
 	// Create dest directory
 	if err := coreio.Local.EnsureDir(pathDir(dest)); err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
 	if err := coreio.Local.Write(dest, string(content)); err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
-	return &TaskResult{Changed: true, Msg: sprintf("fetched %s to %s", src, dest)}, nil
+	return core.Ok(&TaskResult{Changed: true, Msg: sprintf("fetched %s to %s", src, dest)})
 }
 
-func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	url := getStringArg(args, "url", "")
 	dest := getStringArg(args, "dest", "")
 	if url == "" || dest == "" {
-		return nil, coreerr.E("Executor.moduleGetURL", "url and dest required", nil)
+		return core.Fail(coreerr.E("Executor.moduleGetURL", "url and dest required", nil))
 	}
 
 	force := getBoolArg(args, "force", true)
@@ -1400,12 +1439,13 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 	checksumSpec := corexTrimSpace(getStringArg(args, "checksum", ""))
 
 	if !force {
-		exists, err := client.FileExists(ctx, dest)
-		if err != nil {
-			return nil, err
+		existsResult := client.FileExists(ctx, dest)
+		if !existsResult.OK {
+			return existsResult
 		}
+		exists := existsResult.Value.(bool)
 		if exists {
-			return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
+			return core.Ok(&TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)})
 		}
 	}
 
@@ -1414,19 +1454,21 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 	if !useProxy {
 		cmd = sprintf("curl --noproxy %s -fsSL %q || wget --no-proxy -q -O - %q", shellQuote("*"), url, url)
 	}
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	content := []byte(stdout)
+	content := []byte(out.Stdout)
 	if checksumSpec != "" {
-		checksumValue, err := resolveGetURLChecksumValue(ctx, client, checksumSpec, dest)
-		if err != nil {
-			return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
+		checksumResult := resolveGetURLChecksumValue(ctx, client, checksumSpec, dest)
+		if !checksumResult.OK {
+			return core.Ok(&TaskResult{Failed: true, Msg: checksumResult.Error(), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 		}
-		if err := verifyGetURLChecksum(content, checksumValue); err != nil {
-			return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
+		checksumValue := checksumResult.Value.(string)
+		if checksumCheck := verifyGetURLChecksum(content, checksumValue); !checksumCheck.OK {
+			return core.Ok(&TaskResult{Failed: true, Msg: checksumCheck.Error(), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 		}
 	}
 
@@ -1438,14 +1480,14 @@ func (e *Executor) moduleGetURL(ctx context.Context, client sshExecutorClient, a
 		}
 	}
 
-	if err := client.Upload(ctx, core.NewBuffer(content), dest, mode); err != nil {
-		return nil, err
+	if r := client.Upload(ctx, core.NewBuffer(content), dest, mode); !r.OK {
+		return r
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func resolveGetURLChecksumValue(ctx context.Context, client sshExecutorClient, checksumSpec, dest string) (string, error) {
+func resolveGetURLChecksumValue(ctx context.Context, client sshExecutorClient, checksumSpec, dest string) core.Result {
 	algorithm := "sha256"
 	expected := checksumSpec
 	if idx := stringIndex(checksumSpec, ":"); idx > 0 {
@@ -1458,26 +1500,28 @@ func resolveGetURLChecksumValue(ctx context.Context, client sshExecutorClient, c
 
 	expected = corexTrimSpace(expected)
 	if expected == "" {
-		return "", coreerr.E("Executor.moduleGetURL", "checksum required", nil)
+		return core.Fail(coreerr.E("Executor.moduleGetURL", "checksum required", nil))
 	}
 
 	if contains(expected, "://") {
 		cmd := sprintf("curl -fsSL %q || wget -q -O - %q", expected, expected)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			msg := stderr
-			if msg == "" && err != nil {
-				msg = err.Error()
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			msg := out.Stderr
+			if msg == "" {
+				msg = run.Error()
 			}
-			return "", coreerr.E("Executor.moduleGetURL", "download checksum file: "+msg, err)
+			return core.Fail(coreerr.E("Executor.moduleGetURL", "download checksum file: "+msg, nil))
 		}
-		expected, err = parseGetURLChecksumFile(stdout, dest, algorithm)
-		if err != nil {
-			return "", err
+		parseResult := parseGetURLChecksumFile(out.Stdout, dest, algorithm)
+		if !parseResult.OK {
+			return parseResult
 		}
+		expected = parseResult.Value.(string)
 	}
 
-	return sprintf("%s:%s", algorithm, lower(expected)), nil
+	return core.Ok(sprintf("%s:%s", algorithm, lower(expected)))
 }
 
 func isChecksumAlgorithm(value string) bool {
@@ -1489,7 +1533,7 @@ func isChecksumAlgorithm(value string) bool {
 	}
 }
 
-func parseGetURLChecksumFile(content, dest, algorithm string) (string, error) {
+func parseGetURLChecksumFile(content, dest, algorithm string) core.Result {
 	lines := split(content, "\n")
 	base := pathBase(dest)
 
@@ -1505,14 +1549,14 @@ func parseGetURLChecksumFile(content, dest, algorithm string) (string, error) {
 		}
 
 		if len(fields) == 1 {
-			return candidate, nil
+			return core.Ok(candidate)
 		}
 
 		for _, field := range fields[1:] {
 			cleaned := trimPrefix(field, "*")
 			cleaned = pathBase(trimSpace(cleaned))
 			if cleaned == base || cleaned == pathBase(dest) {
-				return candidate, nil
+				return core.Ok(candidate)
 			}
 		}
 	}
@@ -1524,11 +1568,11 @@ func parseGetURLChecksumFile(content, dest, algorithm string) (string, error) {
 		}
 		candidate := lower(fields[0])
 		if isHexDigest(candidate) {
-			return candidate, nil
+			return core.Ok(candidate)
 		}
 	}
 
-	return "", coreerr.E("Executor.moduleGetURL", sprintf("could not parse checksum file for %s", algorithm), nil)
+	return core.Fail(coreerr.E("Executor.moduleGetURL", sprintf("could not parse checksum file for %s", algorithm), nil))
 }
 
 func isHexDigest(value string) bool {
@@ -1548,10 +1592,10 @@ func isHexDigest(value string) bool {
 
 func verifyGetURLChecksum(
 	content []byte, checksumValue string,
-) error {
+) core.Result {
 	checksumValue = lower(corexTrimSpace(checksumValue))
 	if checksumValue == "" {
-		return coreerr.E("Executor.moduleGetURL", "checksum required", nil)
+		return core.Fail(coreerr.E("Executor.moduleGetURL", "checksum required", nil))
 	}
 
 	parts := splitN(checksumValue, ":", 2)
@@ -1564,7 +1608,7 @@ func verifyGetURLChecksum(
 
 	expected = lower(corexTrimSpace(expected))
 	if expected == "" {
-		return coreerr.E("Executor.moduleGetURL", "checksum required", nil)
+		return core.Fail(coreerr.E("Executor.moduleGetURL", "checksum required", nil))
 	}
 
 	var actual string
@@ -1585,19 +1629,19 @@ func verifyGetURLChecksum(
 		sum := sha512.Sum512(content)
 		actual = hex.EncodeToString(sum[:])
 	default:
-		return coreerr.E("Executor.moduleGetURL", "unsupported checksum algorithm: "+algorithm, nil)
+		return core.Fail(coreerr.E("Executor.moduleGetURL", "unsupported checksum algorithm: "+algorithm, nil))
 	}
 
 	if actual != expected {
-		return coreerr.E("Executor.moduleGetURL", sprintf("checksum mismatch: expected %s but got %s", expected, actual), nil)
+		return core.Fail(coreerr.E("Executor.moduleGetURL", sprintf("checksum mismatch: expected %s but got %s", expected, actual), nil))
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // --- Package Modules ---
 
-func (e *Executor) moduleApt(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleApt(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
@@ -1605,7 +1649,7 @@ func (e *Executor) moduleApt(ctx context.Context, client sshExecutorClient, args
 	var cmd string
 
 	if updateCache {
-		_, _, _, _ = client.Run(ctx, "apt-get update -qq")
+		runBestEffort(ctx, client, "apt-get update -qq")
 	}
 
 	switch state {
@@ -1624,31 +1668,32 @@ func (e *Executor) moduleApt(ctx context.Context, client sshExecutorClient, args
 	}
 
 	if cmd == "" {
-		return &TaskResult{Changed: false}, nil
+		return core.Ok(&TaskResult{Changed: false})
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleAptKey(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleAptKey(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	url := getStringArg(args, "url", "")
 	keyring := getStringArg(args, "keyring", "")
 	state := getStringArg(args, "state", "present")
 
 	if state == "absent" {
 		if keyring != "" {
-			_, _, _, _ = client.Run(ctx, sprintf("rm -f %q", keyring))
+			runBestEffort(ctx, client, sprintf("rm -f %q", keyring))
 		}
-		return &TaskResult{Changed: true}, nil
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	if url == "" {
-		return nil, coreerr.E("Executor.moduleAptKey", "url required", nil)
+		return core.Fail(coreerr.E("Executor.moduleAptKey", "url required", nil))
 	}
 
 	var cmd string
@@ -1658,21 +1703,22 @@ func (e *Executor) moduleAptKey(ctx context.Context, client sshExecutorClient, a
 		cmd = sprintf("curl -fsSL %q | apt-key add -", url)
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleAptRepository(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleAptRepository(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	repo := getStringArg(args, "repo", "")
 	filename := getStringArg(args, "filename", "")
 	state := getStringArg(args, "state", "present")
 
 	if repo == "" {
-		return nil, coreerr.E("Executor.moduleAptRepository", "repo required", nil)
+		return core.Fail(coreerr.E("Executor.moduleAptRepository", "repo required", nil))
 	}
 
 	if filename == "" {
@@ -1685,28 +1731,29 @@ func (e *Executor) moduleAptRepository(ctx context.Context, client sshExecutorCl
 	path := sprintf("/etc/apt/sources.list.d/%s.list", filename)
 
 	if state == "absent" {
-		_, _, _, _ = client.Run(ctx, sprintf("rm -f %q", path))
-		return &TaskResult{Changed: true}, nil
+		runBestEffort(ctx, client, sprintf("rm -f %q", path))
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	cmd := sprintf("echo %q > %q", repo, path)
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
 	// Update apt cache (best-effort)
 	if getBoolArg(args, "update_cache", true) {
-		_, _, _, _ = client.Run(ctx, "apt-get update -qq")
+		runBestEffort(ctx, client, "apt-get update -qq")
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) modulePackage(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) modulePackage(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	// Detect package manager and delegate
-	stdout, _, _, _ := client.Run(ctx, "which apt-get yum dnf 2>/dev/null | head -1")
-	stdout = corexTrimSpace(stdout)
+	run := client.Run(ctx, "which apt-get yum dnf 2>/dev/null | head -1")
+	stdout := corexTrimSpace(commandRunValue(run).Stdout)
 
 	switch {
 	case contains(stdout, "dnf"):
@@ -1718,21 +1765,21 @@ func (e *Executor) modulePackage(ctx context.Context, client sshExecutorClient, 
 	}
 }
 
-func (e *Executor) moduleYum(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleYum(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	return e.moduleRPM(ctx, client, args, "yum")
 }
 
-func (e *Executor) moduleDnf(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleDnf(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	return e.moduleRPM(ctx, client, args, "dnf")
 }
 
-func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args map[string]any, packageManager string) (*TaskResult, error) {
+func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args map[string]any, packageManager string) core.Result {
 	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	updateCache := getBoolArg(args, "update_cache", false)
 
 	if updateCache && packageManager != "rpm" {
-		_, _, _, _ = client.Run(ctx, sprintf("%s makecache -y", packageManager))
+		runBestEffort(ctx, client, sprintf("%s makecache -y", packageManager))
 	}
 
 	var cmd string
@@ -1766,18 +1813,19 @@ func (e *Executor) moduleRPM(ctx context.Context, client sshExecutorClient, args
 	}
 
 	if cmd == "" {
-		return &TaskResult{Changed: false}, nil
+		return core.Ok(&TaskResult{Changed: false})
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) modulePip(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) modulePip(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	names := normalizeStringArgs(args["name"])
 	state := getStringArg(args, "state", "present")
 	executable := getStringArg(args, "executable", "pip3")
@@ -1824,26 +1872,27 @@ func (e *Executor) modulePip(ctx context.Context, client sshExecutorClient, args
 	}
 
 	if cmd == "" {
-		return &TaskResult{Changed: false}, nil
+		return core.Ok(&TaskResult{Changed: false})
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
 // --- Service Modules ---
 
-func (e *Executor) moduleService(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleService(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	name := getStringArg(args, "name", "")
 	state := getStringArg(args, "state", "")
 	enabled := args["enabled"]
 
 	if name == "" {
-		return nil, coreerr.E("Executor.moduleService", "name required", nil)
+		return core.Fail(coreerr.E("Executor.moduleService", "name required", nil))
 	}
 
 	var cmds []string
@@ -1870,19 +1919,20 @@ func (e *Executor) moduleService(ctx context.Context, client sshExecutorClient, 
 	}
 
 	for _, cmd := range cmds {
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 		}
 	}
 
-	return &TaskResult{Changed: len(cmds) > 0}, nil
+	return core.Ok(&TaskResult{Changed: len(cmds) > 0})
 }
 
-func (e *Executor) moduleSystemd(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleSystemd(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	// systemd is similar to service
 	if getBoolArg(args, "daemon_reload", false) {
-		_, _, _, _ = client.Run(ctx, "systemctl daemon-reload")
+		runBestEffort(ctx, client, "systemctl daemon-reload")
 	}
 
 	return e.moduleService(ctx, client, args)
@@ -1890,14 +1940,14 @@ func (e *Executor) moduleSystemd(ctx context.Context, client sshExecutorClient, 
 
 // --- User/Group Modules ---
 
-func (e *Executor) moduleUser(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleUser(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	name := getStringArg(args, "name", "")
 	state := getStringArg(args, "state", "present")
 	appendGroups := getBoolArg(args, "append", false)
 	local := getBoolArg(args, "local", false)
 
 	if name == "" {
-		return nil, coreerr.E("Executor.moduleUser", "name required", nil)
+		return core.Fail(coreerr.E("Executor.moduleUser", "name required", nil))
 	}
 
 	if state == "absent" {
@@ -1906,8 +1956,8 @@ func (e *Executor) moduleUser(ctx context.Context, client sshExecutorClient, arg
 			delCmd = "luserdel"
 		}
 		cmd := sprintf("%s -r %s 2>/dev/null || true", delCmd, name)
-		_, _, _, _ = client.Run(ctx, cmd)
-		return &TaskResult{Changed: true}, nil
+		runBestEffort(ctx, client, cmd)
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	// Build useradd/usermod command
@@ -1963,22 +2013,23 @@ func (e *Executor) moduleUser(ctx context.Context, client sshExecutorClient, arg
 			name, modCmd, modOptsStr, name, addCmd, addOptsStr, name)
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleGroup(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleGroup(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	name := getStringArg(args, "name", "")
 	state := getStringArg(args, "state", "present")
 	local := getBoolArg(args, "local", false)
 	nonUnique := getBoolArg(args, "non_unique", false)
 
 	if name == "" {
-		return nil, coreerr.E("Executor.moduleGroup", "name required", nil)
+		return core.Fail(coreerr.E("Executor.moduleGroup", "name required", nil))
 	}
 
 	if state == "absent" {
@@ -1987,8 +2038,8 @@ func (e *Executor) moduleGroup(ctx context.Context, client sshExecutorClient, ar
 			delCmd = "lgroupdel"
 		}
 		cmd := sprintf("%s %s 2>/dev/null || true", delCmd, name)
-		_, _, _, _ = client.Run(ctx, cmd)
-		return &TaskResult{Changed: true}, nil
+		runBestEffort(ctx, client, cmd)
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	var opts []string
@@ -2010,17 +2061,18 @@ func (e *Executor) moduleGroup(ctx context.Context, client sshExecutorClient, ar
 	cmd := sprintf("getent group %s >/dev/null 2>&1 || %s %s %s",
 		name, addCmd, join(" ", opts), name)
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
 // --- HTTP Module ---
 
-func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	url := getStringArg(args, "url", "")
 	method := getStringArg(args, "method", "GET")
 	bodyFormat := lower(getStringArg(args, "body_format", ""))
@@ -2037,7 +2089,7 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	src := getStringArg(args, "src", "")
 
 	if url == "" {
-		return nil, coreerr.E("Executor.moduleURI", "url required", nil)
+		return core.Fail(coreerr.E("Executor.moduleURI", "url required", nil))
 	}
 
 	var curlOpts []string
@@ -2077,23 +2129,26 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 
 	// Body
 	if src != "" {
-		bodyBytes, err := client.Download(ctx, src)
-		if err != nil {
-			return nil, coreerr.E("Executor.moduleURI", "download src", err)
+		bodyResult := client.Download(ctx, src)
+		if !bodyResult.OK {
+			return wrapFailure(bodyResult, "Executor.moduleURI", "download src")
 		}
+		bodyBytes := bodyResult.Value.([]byte)
 		curlOpts = append(curlOpts, "-d", sprintf("%q", string(bodyBytes)))
 	} else if body := args["body"]; body != nil {
-		bodyText, err := renderURIBody(body, bodyFormat)
-		if err != nil {
-			return nil, coreerr.E("Executor.moduleURI", "render body", err)
+		bodyResult := renderURIBody(body, bodyFormat)
+		if !bodyResult.OK {
+			return wrapFailure(bodyResult, "Executor.moduleURI", "render body")
 		}
+		bodyText := bodyResult.Value.(string)
 		if bodyText != "" {
 			switch bodyFormat {
 			case "form-multipart", "multipart", "multipart-form":
-				multipartFields, err := renderURIBodyMultipart(body)
-				if err != nil {
-					return nil, coreerr.E("Executor.moduleURI", "render multipart body", err)
+				multipartResult := renderURIBodyMultipart(body)
+				if !multipartResult.OK {
+					return wrapFailure(multipartResult, "Executor.moduleURI", "render multipart body")
 				}
+				multipartFields := multipartResult.Value.([]string)
 				curlOpts = append(curlOpts, multipartFields...)
 			default:
 				curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
@@ -2117,18 +2172,22 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	curlOpts = append(curlOpts, "-w", "\\n%{http_code}")
 
 	cmd := sprintf("curl %s %q", join(" ", curlOpts), url)
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK {
+		return core.Ok(&TaskResult{Failed: true, Msg: resultErrorMessage(run), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 	}
 
 	// Parse status code from last line
-	lines := split(stdout, "\n")
+	lines := split(out.Stdout, "\n")
 	statusCode := 0
 	content := ""
 	if len(lines) > 0 {
 		statusText := corexTrimSpace(lines[len(lines)-1])
-		statusCode, _ = strconv.Atoi(statusText)
+		parsedStatusCode, parseErr := strconv.Atoi(statusText)
+		if parseErr == nil {
+			statusCode = parsedStatusCode
+		}
 		if len(lines) > 1 {
 			content = join("\n", lines[:len(lines)-1])
 		}
@@ -2136,7 +2195,7 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 
 	// Check expected status codes.
 	expectedStatuses := normalizeStatusCodes(args["status_code"], 200)
-	failed := rc != 0 || !containsInt(expectedStatuses, statusCode)
+	failed := out.ExitCode != 0 || !containsInt(expectedStatuses, statusCode)
 
 	data := map[string]any{"status": statusCode}
 	if returnContent {
@@ -2144,42 +2203,42 @@ func (e *Executor) moduleURI(ctx context.Context, client sshExecutorClient, args
 	}
 
 	if failed {
-		return &TaskResult{
+		return core.Ok(&TaskResult{
 			Changed: false,
 			Failed:  true,
-			Stdout:  stdout,
-			Stderr:  stderr,
+			Stdout:  out.Stdout,
+			Stderr:  out.Stderr,
 			RC:      statusCode,
 			Data:    data,
-		}, nil
+		})
 	}
 
 	if dest != "" {
 		before, hasBefore := remoteFileText(ctx, client, dest)
 		if !hasBefore || before != content {
-			if err := client.Upload(ctx, newReader(content), dest, 0644); err != nil {
-				return nil, coreerr.E("Executor.moduleURI", "upload dest", err)
+			if r := client.Upload(ctx, newReader(content), dest, 0644); !r.OK {
+				return wrapFailure(r, "Executor.moduleURI", "upload dest")
 			}
 			data["dest"] = dest
-			return &TaskResult{
+			return core.Ok(&TaskResult{
 				Changed: true,
-				Stdout:  stdout,
-				Stderr:  stderr,
+				Stdout:  out.Stdout,
+				Stderr:  out.Stderr,
 				RC:      statusCode,
 				Data:    data,
-			}, nil
+			})
 		}
 
 		data["dest"] = dest
 	}
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: false,
-		Stdout:  stdout,
-		Stderr:  stderr,
+		Stdout:  out.Stdout,
+		Stderr:  out.Stderr,
 		RC:      statusCode,
 		Data:    data,
-	}, nil
+	})
 }
 
 func appendURIFollowRedirects(opts []string, method, followRedirects string) []string {
@@ -2205,37 +2264,34 @@ func appendURIFollowRedirects(opts []string, method, followRedirects string) []s
 	return opts
 }
 
-func renderURIBody(body any, bodyFormat string) (string, error) {
+func renderURIBody(body any, bodyFormat string) core.Result {
 	switch bodyFormat {
 	case "", "raw":
-		return sprintf("%v", body), nil
+		return core.Ok(sprintf("%v", body))
 	case "json":
 		switch v := body.(type) {
 		case string:
-			return v, nil
+			return core.Ok(v)
 		case []byte:
-			return string(v), nil
+			return core.Ok(string(v))
 		default:
 			result := core.JSONMarshal(v)
 			if !result.OK {
-				if err, ok := result.Value.(error); ok {
-					return "", err
-				}
-				return "", core.NewError("marshal uri body")
+				return wrapFailure(result, "Executor.moduleURI", "marshal uri body")
 			}
-			return string(result.Value.([]byte)), nil
+			return core.Ok(string(result.Value.([]byte)))
 		}
 	case "form-urlencoded", "form_urlencoded", "form":
-		return renderURIBodyFormEncoded(body), nil
+		return core.Ok(renderURIBodyFormEncoded(body))
 	default:
-		return sprintf("%v", body), nil
+		return core.Ok(sprintf("%v", body))
 	}
 }
 
-func renderURIBodyMultipart(body any) ([]string, error) {
+func renderURIBodyMultipart(body any) core.Result {
 	fields := multipartBodyFields(body)
 	if len(fields) == 0 {
-		return nil, coreerr.E("Executor.moduleURI", "multipart body requires structured data", nil)
+		return core.Fail(coreerr.E("Executor.moduleURI", "multipart body requires structured data", nil))
 	}
 
 	opts := make([]string, 0, len(fields))
@@ -2243,7 +2299,7 @@ func renderURIBodyMultipart(body any) ([]string, error) {
 		opts = append(opts, "-F", sprintf("%q", field))
 	}
 
-	return opts, nil
+	return core.Ok(opts)
 }
 
 func multipartBodyFields(body any) []string {
@@ -2429,7 +2485,7 @@ func hasHeaderIgnoreCase(headers map[string]any, name string) bool {
 
 // --- Misc Modules ---
 
-func (e *Executor) moduleDebug(host string, task *Task, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleDebug(host string, task *Task, args map[string]any) core.Result {
 	msg := getStringArg(args, "msg", "")
 	if v, ok := args["var"]; ok {
 		name := sprintf("%v", v)
@@ -2440,54 +2496,55 @@ func (e *Executor) moduleDebug(host string, task *Task, args map[string]any) (*T
 		}
 	}
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: false,
 		Msg:     msg,
-	}, nil
+	})
 }
 
-func (e *Executor) moduleFail(args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleFail(args map[string]any) core.Result {
 	msg := getStringArg(args, "msg", "Failed as requested")
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Failed: true,
 		Msg:    msg,
-	}, nil
+	})
 }
 
-func (e *Executor) modulePing(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) modulePing(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	data := getStringArg(args, "data", "pong")
-	stdout, stderr, rc, err := client.Run(ctx, "true")
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
+	run := client.Run(ctx, "true")
+	out := commandRunValue(run)
+	if !run.OK {
+		return core.Ok(&TaskResult{Failed: true, Msg: resultErrorMessage(run), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 	}
-	if rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, Stderr: stderr, RC: rc}, nil
+	if out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode})
 	}
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Msg:  data,
 		Data: map[string]any{"ping": data},
-	}, nil
+	})
 }
 
-func (e *Executor) moduleAssert(args map[string]any, host string) (*TaskResult, error) {
+func (e *Executor) moduleAssert(args map[string]any, host string) core.Result {
 	that, ok := args["that"]
 	if !ok {
-		return nil, coreerr.E("Executor.moduleAssert", "'that' required", nil)
+		return core.Fail(coreerr.E("Executor.moduleAssert", "'that' required", nil))
 	}
 
 	conditions := normalizeConditions(that)
 	for _, cond := range conditions {
 		if !e.evalCondition(cond, host) {
 			msg := getStringArg(args, "fail_msg", sprintf("Assertion failed: %s", cond))
-			return &TaskResult{Failed: true, Msg: msg}, nil
+			return core.Ok(&TaskResult{Failed: true, Msg: msg})
 		}
 	}
 
-	return &TaskResult{Changed: false, Msg: "All assertions passed"}, nil
+	return core.Ok(&TaskResult{Changed: false, Msg: "All assertions passed"})
 }
 
-func (e *Executor) moduleSetFact(host string, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleSetFact(host string, args map[string]any) core.Result {
 	values := make(map[string]any, len(args))
 	for k, v := range args {
 		if k == "cacheable" {
@@ -2497,19 +2554,19 @@ func (e *Executor) moduleSetFact(host string, args map[string]any) (*TaskResult,
 	}
 	e.setHostVars(host, values)
 	e.setHostFacts(host, values)
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: true,
 		Data:    map[string]any{"ansible_facts": values},
-	}, nil
+	})
 }
 
-func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleAddHost(args map[string]any) core.Result {
 	name := getStringArg(args, "name", "")
 	if name == "" {
 		name = getStringArg(args, "hostname", "")
 	}
 	if name == "" {
-		return nil, coreerr.E("Executor.moduleAddHost", "name required", nil)
+		return core.Fail(coreerr.E("Executor.moduleAddHost", "name required", nil))
 	}
 
 	groups := normalizeStringList(args["groups"])
@@ -2652,16 +2709,16 @@ func (e *Executor) moduleAddHost(args map[string]any) (*TaskResult, error) {
 		data["groups"] = groups
 	}
 
-	return &TaskResult{Changed: changed, Msg: msg, Data: data}, nil
+	return core.Ok(&TaskResult{Changed: changed, Msg: msg, Data: data})
 }
 
-func (e *Executor) moduleGroupBy(host string, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleGroupBy(host string, args map[string]any) core.Result {
 	key := getStringArg(args, "key", "")
 	if key == "" {
 		key = getStringArg(args, "_raw_params", "")
 	}
 	if key == "" {
-		return nil, coreerr.E("Executor.moduleGroupBy", "key required", nil)
+		return core.Fail(coreerr.E("Executor.moduleGroupBy", "key required", nil))
 	}
 
 	e.mu.Lock()
@@ -2692,14 +2749,14 @@ func (e *Executor) moduleGroupBy(host string, args map[string]any) (*TaskResult,
 	group.Hosts[host] = hostEntry
 
 	msg := sprintf("host %s grouped by %s", host, key)
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: !alreadyMember,
 		Msg:     msg,
 		Data:    map[string]any{"host": host, "group": key},
-	}, nil
+	})
 }
 
-func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskResult, error) {
+func (e *Executor) modulePause(ctx context.Context, args map[string]any) core.Result {
 	prompt := getStringArg(args, "prompt", "")
 	echo := getBoolArg(args, "echo", true)
 
@@ -2730,22 +2787,22 @@ func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskR
 			if stat, err := statter.Stat(); err == nil && (stat.Mode()&core.ModeCharDevice) != 0 {
 				if echo {
 					if r := core.WriteString(core.Stdout(), prompt+"\n"); !r.OK {
-						err, _ := r.Value.(error)
-						return nil, err
+						return r
 					}
 				} else {
 					if r := core.WriteString(core.Stdout(), prompt); !r.OK {
-						err, _ := r.Value.(error)
-						return nil, err
+						return r
 					}
 				}
 
 				reader := bufio.NewReader(stdin)
 				select {
 				case <-ctx.Done():
-					return nil, ctx.Err()
+					return core.Fail(ctx.Err())
 				default:
-					_, _ = reader.ReadString('\n')
+					if _, readErr := reader.ReadString('\n'); readErr != nil {
+						break
+					}
 				}
 			}
 		}
@@ -2757,7 +2814,7 @@ func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskR
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return core.Fail(ctx.Err())
 		case <-timer.C:
 		}
 	}
@@ -2766,7 +2823,7 @@ func (e *Executor) modulePause(ctx context.Context, args map[string]any) (*TaskR
 	if prompt != "" {
 		result.Msg = prompt
 	}
-	return result, nil
+	return core.Ok(result)
 }
 
 func normalizeStringList(value any) []string {
@@ -2891,7 +2948,7 @@ func findInventoryHost(group *InventoryGroup, name string) *Host {
 	return nil
 }
 
-func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	port := getIntArg(args, "port", 0)
 	path := getStringArg(args, pathArgKey, "")
 	host := getStringArg(args, "host", "127.0.0.1")
@@ -2910,7 +2967,7 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 		var err error
 		compiledRegex, err = regexp.Compile(searchRegex)
 		if err != nil {
-			return nil, coreerr.E("Executor.moduleWaitFor", "compile search_regex", err)
+			return core.Fail(coreerr.E("Executor.moduleWaitFor", "compile search_regex", err))
 		}
 	}
 
@@ -2919,7 +2976,7 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, ctx.Err()
+			return core.Fail(ctx.Err())
 		case <-timer.C:
 		}
 	}
@@ -2931,41 +2988,44 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 		defer ticker.Stop()
 
 		for {
-			exists, err := client.FileExists(ctx, path)
-			if err != nil {
-				return &TaskResult{Failed: true, Msg: err.Error()}, nil
+			existsResult := client.FileExists(ctx, path)
+			if !existsResult.OK {
+				return core.Ok(&TaskResult{Failed: true, Msg: existsResult.Error()})
 			}
+			exists := existsResult.Value.(bool)
 
 			satisfied := false
 			switch state {
 			case "absent":
 				satisfied = !exists
 				if exists && compiledRegex != nil {
-					data, err := client.Download(ctx, path)
-					if err == nil {
+					dataResult := client.Download(ctx, path)
+					if dataResult.OK {
+						data := dataResult.Value.([]byte)
 						satisfied = !compiledRegex.Match(data)
 					}
 				}
 			default:
 				satisfied = exists
 				if satisfied && compiledRegex != nil {
-					data, err := client.Download(ctx, path)
-					if err != nil {
+					dataResult := client.Download(ctx, path)
+					if !dataResult.OK {
 						satisfied = false
 					} else {
+						data := dataResult.Value.([]byte)
 						satisfied = compiledRegex.Match(data)
 					}
 				}
 			}
 			if satisfied {
-				return &TaskResult{Changed: false}, nil
+				return core.Ok(&TaskResult{Changed: false})
 			}
 
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return core.Fail(ctx.Err())
 			case <-deadline.C:
-				return &TaskResult{Failed: true, Msg: timeoutMsg, RC: 1}, nil
+				return core.Ok(&TaskResult{Failed: true, Msg: timeoutMsg, RC: 1})
 			case <-ticker.C:
 			}
 		}
@@ -2976,34 +3036,37 @@ func (e *Executor) moduleWaitFor(ctx context.Context, client sshExecutorClient, 
 		case "started", "present":
 			cmd := sprintf("timeout %d bash -c 'until nc -z %s %d; do sleep %d; done'",
 				timeout, host, port, sleep)
-			stdout, stderr, rc, err := client.Run(ctx, cmd)
-			if err != nil || rc != 0 {
-				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+			run := client.Run(ctx, cmd)
+			out := commandRunValue(run)
+			if !run.OK || out.ExitCode != 0 {
+				return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 			}
-			return &TaskResult{Changed: false}, nil
+			return core.Ok(&TaskResult{Changed: false})
 		case "stopped", "absent":
 			cmd := sprintf("timeout %d bash -c 'until ! nc -z %s %d; do sleep %d; done'",
 				timeout, host, port, sleep)
-			stdout, stderr, rc, err := client.Run(ctx, cmd)
-			if err != nil || rc != 0 {
-				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+			run := client.Run(ctx, cmd)
+			out := commandRunValue(run)
+			if !run.OK || out.ExitCode != 0 {
+				return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 			}
-			return &TaskResult{Changed: false}, nil
+			return core.Ok(&TaskResult{Changed: false})
 		case "drained":
 			cmd := sprintf("timeout %d bash -c 'until ! ss -Htan state established \"( sport = :%d or dport = :%d )\" | grep -q .; do sleep %d; done'",
 				timeout, port, port, sleep)
-			stdout, stderr, rc, err := client.Run(ctx, cmd)
-			if err != nil || rc != 0 {
-				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+			run := client.Run(ctx, cmd)
+			out := commandRunValue(run)
+			if !run.OK || out.ExitCode != 0 {
+				return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 			}
-			return &TaskResult{Changed: false}, nil
+			return core.Ok(&TaskResult{Changed: false})
 		}
 	}
 
-	return &TaskResult{Changed: false}, nil
+	return core.Ok(&TaskResult{Changed: false})
 }
 
-func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	timeout := getIntArg(args, "timeout", 300)
 	delay := getIntArg(args, "delay", 0)
 	sleep := getIntArg(args, "sleep", 1)
@@ -3015,7 +3078,7 @@ func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecut
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, ctx.Err()
+			return core.Fail(ctx.Err())
 		case <-timer.C:
 		}
 	}
@@ -3028,25 +3091,26 @@ func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecut
 			defer cancel()
 		}
 
-		stdout, stderr, rc, err := client.Run(runCtx, "true")
-		if err == nil && rc == 0 {
+		run := client.Run(runCtx, "true")
+		out := commandRunValue(run)
+		if run.OK && out.ExitCode == 0 {
 			return &TaskResult{Changed: false}, true
 		}
 		if timeout <= 0 {
-			if err != nil {
-				return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, true
+			if !run.OK {
+				return &TaskResult{Failed: true, Msg: resultErrorMessage(run), Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode}, true
 			}
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, Stderr: stderr, RC: rc}, true
+			return &TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode}, true
 		}
-		return &TaskResult{Stdout: stdout, Stderr: stderr, RC: rc}, false
+		return &TaskResult{Stdout: out.Stdout, Stderr: out.Stderr, RC: out.ExitCode}, false
 	}
 
 	if timeout <= 0 {
 		result, done := runCheck()
 		if done {
-			return result, nil
+			return core.Ok(result)
 		}
-		return &TaskResult{Failed: true, Msg: timeoutMsg}, nil
+		return core.Ok(&TaskResult{Failed: true, Msg: timeoutMsg})
 	}
 
 	deadline := time.NewTimer(time.Duration(timeout) * time.Second)
@@ -3060,14 +3124,14 @@ func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecut
 	for {
 		result, done := runCheck()
 		if done {
-			return result, nil
+			return core.Ok(result)
 		}
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return core.Fail(ctx.Err())
 		case <-deadline.C:
-			return &TaskResult{Failed: true, Msg: timeoutMsg, Stdout: result.Stdout, Stderr: result.Stderr, RC: result.RC}, nil
+			return core.Ok(&TaskResult{Failed: true, Msg: timeoutMsg, Stdout: result.Stdout, Stderr: result.Stderr, RC: result.RC})
 		default:
 		}
 
@@ -3076,27 +3140,28 @@ func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecut
 			select {
 			case <-ctx.Done():
 				timer.Stop()
-				return nil, ctx.Err()
+				return core.Fail(ctx.Err())
 			case <-deadline.C:
 				timer.Stop()
-				return &TaskResult{Failed: true, Msg: timeoutMsg, Stdout: result.Stdout, Stderr: result.Stderr, RC: result.RC}, nil
+				return core.Ok(&TaskResult{Failed: true, Msg: timeoutMsg, Stdout: result.Stdout, Stderr: result.Stderr, RC: result.RC})
 			case <-timer.C:
 			}
 		}
 	}
 }
 
-func (e *Executor) moduleGit(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleGit(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	repo := getStringArg(args, "repo", "")
 	dest := getStringArg(args, "dest", "")
 	version := getStringArg(args, "version", "HEAD")
 
 	if repo == "" || dest == "" {
-		return nil, coreerr.E("Executor.moduleGit", "repo and dest required", nil)
+		return core.Fail(coreerr.E("Executor.moduleGit", "repo and dest required", nil))
 	}
 
 	// Check if dest exists
-	exists, _ := client.FileExists(ctx, dest+"/.git")
+	existsResult := client.FileExists(ctx, dest+"/.git")
+	exists, _ := existsResult.Value.(bool)
 
 	var cmd string
 	if exists {
@@ -3107,25 +3172,26 @@ func (e *Executor) moduleGit(ctx context.Context, client sshExecutorClient, args
 			repo, dest, dest, version)
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleUnarchive(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleUnarchive(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	src := getStringArg(args, "src", "")
 	dest := getStringArg(args, "dest", "")
 	remote := getBoolArg(args, "remote_src", false)
 
 	if src == "" || dest == "" {
-		return nil, coreerr.E("Executor.moduleUnarchive", "src and dest required", nil)
+		return core.Fail(coreerr.E("Executor.moduleUnarchive", "src and dest required", nil))
 	}
 
 	// Create dest directory (best-effort)
-	_, _, _, _ = client.Run(ctx, sprintf("mkdir -p %q", dest))
+	runBestEffort(ctx, client, sprintf("mkdir -p %q", dest))
 
 	var cmd string
 	if !remote {
@@ -3133,15 +3199,14 @@ func (e *Executor) moduleUnarchive(ctx context.Context, client sshExecutorClient
 		src = e.resolveLocalPath(src)
 		data, err := coreio.Local.Read(src)
 		if err != nil {
-			return nil, coreerr.E("Executor.moduleUnarchive", "read src", err)
+			return core.Fail(coreerr.E("Executor.moduleUnarchive", "read src", err))
 		}
 		tmpPath := "/tmp/ansible_unarchive_" + pathBase(src)
-		err = client.Upload(ctx, newReader(data), tmpPath, 0644)
-		if err != nil {
-			return nil, err
+		if r := client.Upload(ctx, newReader(data), tmpPath, 0644); !r.OK {
+			return r
 		}
 		src = tmpPath
-		defer func() { _, _, _, _ = client.Run(ctx, sprintf("rm -f %q", tmpPath)) }()
+		defer runBestEffort(ctx, client, sprintf("rm -f %q", tmpPath))
 	}
 
 	// Detect archive type and extract
@@ -3159,25 +3224,26 @@ func (e *Executor) moduleUnarchive(ctx context.Context, client sshExecutorClient
 		cmd = sprintf("tar -xf %q -C %q", src, dest) // Guess tar
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleArchive(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleArchive(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	dest := getStringArg(args, "dest", "")
 	format := lower(getStringArg(args, "format", ""))
 	paths := archivePaths(args)
 
 	if dest == "" || len(paths) == 0 {
-		return nil, coreerr.E("Executor.moduleArchive", "path and dest required", nil)
+		return core.Fail(coreerr.E("Executor.moduleArchive", "path and dest required", nil))
 	}
 
 	// Create the parent directory first so archive creation does not fail.
-	_, _, _, _ = client.Run(ctx, sprintf("mkdir -p %q", pathDir(dest)))
+	runBestEffort(ctx, client, sprintf("mkdir -p %q", pathDir(dest)))
 
 	var cmd string
 	var deleteOnSuccess bool
@@ -3195,17 +3261,18 @@ func (e *Executor) moduleArchive(ctx context.Context, client sshExecutorClient, 
 		cmd = sprintf("tar -cf %q %s", dest, join(" ", quoteArgs(paths)))
 	}
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
 	deleteOnSuccess = getBoolArg(args, "remove", false)
 	if deleteOnSuccess {
-		_, _, _, _ = client.Run(ctx, sprintf("rm -rf %s", join(" ", quoteArgs(paths))))
+		runBestEffort(ctx, client, sprintf("rm -rf %s", join(" ", quoteArgs(paths))))
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
 func archivePaths(args map[string]any) []string {
@@ -3391,34 +3458,36 @@ func containsInt(values []int, target int) bool {
 
 // --- Additional Modules ---
 
-func (e *Executor) moduleHostname(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleHostname(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	name := getStringArg(args, "name", "")
 	if name == "" {
 		name = getStringArg(args, "hostname", "")
 	}
 	if name == "" {
-		return nil, coreerr.E("Executor.moduleHostname", "name required", nil)
+		return core.Fail(coreerr.E("Executor.moduleHostname", "name required", nil))
 	}
 
-	currentStdout, _, currentRC, currentErr := client.Run(ctx, "hostname")
-	if currentErr == nil && currentRC == 0 && corexTrimSpace(currentStdout) == name {
-		return &TaskResult{Changed: false, Msg: "hostname already set"}, nil
+	currentRun := client.Run(ctx, "hostname")
+	currentOut := commandRunValue(currentRun)
+	if currentRun.OK && currentOut.ExitCode == 0 && corexTrimSpace(currentOut.Stdout) == name {
+		return core.Ok(&TaskResult{Changed: false, Msg: "hostname already set"})
 	}
 
 	// Set hostname
 	cmd := sprintf("hostnamectl set-hostname %q || hostname %q", name, name)
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
 	// Update /etc/hosts if needed (best-effort)
-	_, _, _, _ = client.Run(ctx, sprintf("sed -i 's/127.0.1.1.*/127.0.1.1\t%s/' /etc/hosts", name))
+	runBestEffort(ctx, client, sprintf("sed -i 's/127.0.1.1.*/127.0.1.1\t%s/' /etc/hosts", name))
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	name := getStringArg(args, "name", "")
 	value := getStringArg(args, "value", "")
 	state := getStringArg(args, "state", "present")
@@ -3432,54 +3501,59 @@ func (e *Executor) moduleSysctl(ctx context.Context, client sshExecutorClient, a
 	}
 
 	if name == "" {
-		return nil, coreerr.E("Executor.moduleSysctl", "name required", nil)
+		return core.Fail(coreerr.E("Executor.moduleSysctl", "name required", nil))
 	}
 
 	if state == "absent" {
 		// Remove from the configured sysctl file.
 		cmd := sprintf("sed -i '/%s/d' %q", escapedName, sysctlFile)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 		}
 
 		if reload {
-			stdout, stderr, rc, err = client.Run(ctx, "sysctl"+sysctlFlags+" -p")
-			if err != nil || rc != 0 {
-				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+			run = client.Run(ctx, "sysctl"+sysctlFlags+" -p")
+			out = commandRunValue(run)
+			if !run.OK || out.ExitCode != 0 {
+				return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 			}
 		}
-		return &TaskResult{Changed: true}, nil
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	// Set value
 	cmd := sprintf("sysctl%s -w %s=%s", sysctlFlags, name, value)
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
 	// Persist if requested (best-effort)
 	if getBoolArg(args, "sysctl_set", true) {
 		cmd = sprintf("grep -q '^%s' %q && sed -i 's/^%s.*/%s=%s/' %q || echo '%s=%s' >> %q",
 			escapedName, sysctlFile, escapedName, name, value, sysctlFile, name, value, sysctlFile)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 		}
 	}
 
 	if reload {
-		stdout, stderr, rc, err := client.Run(ctx, "sysctl"+sysctlFlags+" -p")
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		run := client.Run(ctx, "sysctl"+sysctlFlags+" -p")
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 		}
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	name := getStringArg(args, "name", "")
 	job := getStringArg(args, "job", "")
 	state := getStringArg(args, "state", "present")
@@ -3496,11 +3570,11 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 
 	var backupPath string
 	if backup {
-		var err error
-		backupPath, err = backupCronTab(ctx, client, user, name)
-		if err != nil {
-			return nil, err
+		backupResult := backupCronTab(ctx, client, user, name)
+		if !backupResult.OK {
+			return backupResult
 		}
+		backupPath = backupResult.Value.(string)
 	}
 
 	if state == "absent" {
@@ -3508,13 +3582,13 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 			// Remove by name (comment marker)
 			cmd := sprintf("crontab -u %s -l 2>/dev/null | grep -v '# %s' | grep -v '%s' | crontab -u %s -",
 				user, name, job, user)
-			_, _, _, _ = client.Run(ctx, cmd)
+			runBestEffort(ctx, client, cmd)
 		}
 		result := &TaskResult{Changed: true}
 		if backupPath != "" {
 			result.Data = map[string]any{"backup_file": backupPath}
 		}
-		return result, nil
+		return core.Ok(result)
 	}
 
 	// Build cron entry
@@ -3530,25 +3604,26 @@ func (e *Executor) moduleCron(ctx context.Context, client sshExecutorClient, arg
 	// Add to crontab
 	cmd := sprintf("(crontab -u %s -l 2>/dev/null | grep -v '# %s' ; echo %q) | crontab -u %s -",
 		user, name, entry, user)
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
 	result := &TaskResult{Changed: true}
 	if backupPath != "" {
 		result.Data = map[string]any{"backup_file": backupPath}
 	}
-	return result, nil
+	return core.Ok(result)
 }
 
-func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	path := getStringArg(args, pathArgKey, "")
 	if path == "" {
 		path = getStringArg(args, "dest", "")
 	}
 	if path == "" {
-		return nil, coreerr.E("Executor.moduleBlockinfile", "path required", nil)
+		return core.Fail(coreerr.E("Executor.moduleBlockinfile", "path required", nil))
 	}
 
 	before, _ := remoteFileText(ctx, client, path)
@@ -3568,9 +3643,10 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClie
 
 	var backupPath string
 	if backup {
-		var hasBefore bool
-		backupPath, hasBefore, _ = backupRemoteFile(ctx, client, path)
-		if !hasBefore {
+		backupResult := backupRemoteFile(ctx, client, path)
+		backupData, _ := backupResult.Value.(backupRemoteFileResult)
+		backupPath = backupData.Path
+		if !backupData.HadBefore {
 			backupPath = ""
 		}
 	}
@@ -3581,9 +3657,10 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClie
 			replaceAll(beginMarker, "/", "\\/"),
 			replaceAll(endMarker, "/", "\\/"),
 			path)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		run := client.Run(ctx, cmd)
+		out := commandRunValue(run)
+		if !run.OK || out.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 		}
 
 		result := &TaskResult{Changed: true}
@@ -3596,12 +3673,12 @@ func (e *Executor) moduleBlockinfile(ctx context.Context, client sshExecutorClie
 				result.Data["diff"] = fileDiffData(path, before, after)
 			}
 		}
-		return result, nil
+		return core.Ok(result)
 	}
 
 	// Create file if needed (best-effort)
 	if create {
-		_, _, _, _ = client.Run(ctx, sprintf("touch %q", path))
+		runBestEffort(ctx, client, sprintf("touch %q", path))
 	}
 
 	// Remove existing block and add new one
@@ -3622,9 +3699,10 @@ BLOCK_EOF
 		replaceAll(endMarker, "/", "\\/"),
 		path, path, blockContent)
 
-	stdout, stderr, rc, err := client.RunScript(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	run := client.RunScript(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK || out.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: out.Stderr, Stdout: out.Stdout, RC: out.ExitCode})
 	}
 
 	result := &TaskResult{Changed: true}
@@ -3640,7 +3718,7 @@ BLOCK_EOF
 		}
 	}
 
-	return result, nil
+	return core.Ok(result)
 }
 
 func renderBlockinfileMarker(marker, mark string) string {
@@ -3653,7 +3731,7 @@ func renderBlockinfileMarker(marker, mark string) string {
 	return replaceN(marker, "{mark}", mark, 1)
 }
 
-func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleIncludeVars(args map[string]any) core.Result {
 	file := getStringArg(args, "file", "")
 	if file == "" {
 		file = getStringArg(args, "_raw_params", "")
@@ -3667,45 +3745,46 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 	depth := getIntArg(args, "depth", 0)
 
 	if file == "" && dir == "" {
-		return &TaskResult{Changed: false}, nil
+		return core.Ok(&TaskResult{Changed: false})
 	}
 
 	loaded := make(map[string]any)
 	var sources []string
-	loadFile := func(path string) error {
+	loadFile := func(path string) core.Result {
 		data, err := coreio.Local.Read(path)
 		if err != nil {
-			return coreerr.E("Executor.moduleIncludeVars", "read vars file", err)
+			return core.Fail(coreerr.E("Executor.moduleIncludeVars", "read vars file", err))
 		}
 
 		var vars map[string]any
 		if err := yaml.Unmarshal([]byte(data), &vars); err != nil {
-			return coreerr.E("Executor.moduleIncludeVars", "parse vars file", err)
+			return core.Fail(coreerr.E("Executor.moduleIncludeVars", "parse vars file", err))
 		}
 
 		mergeVars(loaded, vars, hashBehaviour == "merge")
-		return nil
+		return core.Ok(nil)
 	}
 
 	if file != "" {
 		file = e.resolveLocalPath(file)
 		sources = append(sources, file)
-		if err := loadFile(file); err != nil {
-			return nil, err
+		if r := loadFile(file); !r.OK {
+			return r
 		}
 	}
 
 	if dir != "" {
 		dir = e.resolveLocalPath(dir)
-		files, err := collectIncludeVarsFiles(dir, depth, filesMatching, extensions, ignoreFiles)
-		if err != nil {
-			return nil, err
+		filesResult := collectIncludeVarsFiles(dir, depth, filesMatching, extensions, ignoreFiles)
+		if !filesResult.OK {
+			return filesResult
 		}
+		files := filesResult.Value.([]string)
 
 		for _, path := range files {
 			sources = append(sources, path)
-			if err := loadFile(path); err != nil {
-				return nil, err
+			if r := loadFile(path); !r.OK {
+				return r
 			}
 		}
 	}
@@ -3728,7 +3807,7 @@ func (e *Executor) moduleIncludeVars(args map[string]any) (*TaskResult, error) {
 		}
 	}
 
-	return result, nil
+	return core.Ok(result)
 }
 
 func normalizeIncludeVarsExtensions(value any) []string {
@@ -3779,15 +3858,14 @@ func normalizeIncludeVarsExtensionList(values []string) []string {
 	return extensions
 }
 
-func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extensions []string, ignoreFiles []string) ([]string, error) {
+func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extensions []string, ignoreFiles []string) core.Result {
 	stat := core.Stat(dir)
 	if !stat.OK {
-		err, _ := stat.Value.(error)
-		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
+		return wrapFailure(stat, "Executor.moduleIncludeVars", "read vars dir")
 	}
 	info := stat.Value.(core.FsFileInfo)
 	if !info.IsDir() {
-		return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir: not a directory", nil)
+		return core.Fail(coreerr.E("Executor.moduleIncludeVars", "read vars dir: not a directory", nil))
 	}
 
 	type dirEntry struct {
@@ -3799,7 +3877,7 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extens
 	if filesMatching != "" {
 		compiled, compileErr := regexp.Compile(filesMatching)
 		if compileErr != nil {
-			return nil, coreerr.E("Executor.moduleIncludeVars", "compile files_matching", compileErr)
+			return core.Fail(coreerr.E("Executor.moduleIncludeVars", "compile files_matching", compileErr))
 		}
 		matcher = compiled
 	}
@@ -3822,8 +3900,7 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extens
 
 		entriesResult := core.ReadDir(core.DirFS(current.path), ".")
 		if !entriesResult.OK {
-			err, _ := entriesResult.Value.(error)
-			return nil, coreerr.E("Executor.moduleIncludeVars", "read vars dir", err)
+			return wrapFailure(entriesResult, "Executor.moduleIncludeVars", "read vars dir")
 		}
 		entries := entriesResult.Value.([]core.FsDirEntry)
 
@@ -3853,7 +3930,7 @@ func collectIncludeVarsFiles(dir string, depth int, filesMatching string, extens
 	}
 
 	sort.Strings(files)
-	return files, nil
+	return core.Ok(files)
 }
 
 func mergeVars(dst, src map[string]any, mergeMaps bool) {
@@ -3878,7 +3955,7 @@ func mergeVars(dst, src map[string]any, mergeMaps bool) {
 	}
 }
 
-func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleMeta(args map[string]any) core.Result {
 	// meta module controls play execution
 	// Most actions are no-ops for us, but we preserve the requested action so
 	// the executor can apply side effects such as handler flushing.
@@ -3895,10 +3972,10 @@ func (e *Executor) moduleMeta(args map[string]any) (*TaskResult, error) {
 		result.Data = map[string]any{"action": action}
 	}
 
-	return result, nil
+	return core.Ok(result)
 }
 
-func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFactsRunner, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFactsRunner, args map[string]any) core.Result {
 	gatherTimeout := getIntArg(args, "gather_timeout", 0)
 	if gatherTimeout > 0 {
 		var cancel context.CancelFunc
@@ -3909,10 +3986,11 @@ func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFacts
 	gatherSubset := normalizeStringList(args["gather_subset"])
 	includeVirtual := containsString(gatherSubset, "all") || containsString(gatherSubset, "virtual")
 
-	facts, err := e.collectFacts(ctx, client, includeVirtual)
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
+	factsResult := e.collectFacts(ctx, client, includeVirtual)
+	if !factsResult.OK {
+		return core.Ok(&TaskResult{Failed: true, Msg: factsResult.Error()})
 	}
+	facts := factsResult.Value.(*Facts)
 
 	factMap := factsToMap(facts)
 	factMap = applyGatherSubsetFilter(factMap, gatherSubset)
@@ -3923,11 +4001,11 @@ func (e *Executor) moduleSetup(ctx context.Context, host string, client sshFacts
 	e.facts[host] = filteredFacts
 	e.mu.Unlock()
 
-	return &TaskResult{
+	return core.Ok(&TaskResult{
 		Changed: false,
 		Msg:     "facts gathered",
 		Data:    map[string]any{"ansible_facts": filteredFactMap},
-	}, nil
+	})
 }
 
 func containsString(values []string, target string) bool {
@@ -4091,39 +4169,42 @@ func gatherSubsetKeys(subset string) []string {
 	}
 }
 
-func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner, includeVirtual bool) (*Facts, error) {
+func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner, includeVirtual bool) core.Result {
 	facts := &Facts{}
-	read := func(cmd string) (string, error) {
-		stdout, _, _, err := client.Run(ctx, cmd)
-		if err != nil {
+	read := func(cmd string) core.Result {
+		run := client.Run(ctx, cmd)
+		if !run.OK {
 			if ctx.Err() != nil {
-				return "", ctx.Err()
+				return core.Fail(ctx.Err())
 			}
-			return "", nil
+			return core.Ok("")
 		}
-		return stdout, nil
+		return core.Ok(commandRunValue(run).Stdout)
 	}
 
-	stdout, err := read("hostname -f 2>/dev/null || hostname")
-	if err != nil {
-		return nil, err
+	stdoutResult := read("hostname -f 2>/dev/null || hostname")
+	if !stdoutResult.OK {
+		return stdoutResult
 	}
+	stdout := stdoutResult.Value.(string)
 	if stdout != "" {
 		facts.FQDN = corexTrimSpace(stdout)
 	}
 
-	stdout, err = read("hostname -s 2>/dev/null || hostname")
-	if err != nil {
-		return nil, err
+	stdoutResult = read("hostname -s 2>/dev/null || hostname")
+	if !stdoutResult.OK {
+		return stdoutResult
 	}
+	stdout = stdoutResult.Value.(string)
 	if stdout != "" {
 		facts.Hostname = corexTrimSpace(stdout)
 	}
 
-	stdout, err = read("cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID|NAME)=' | head -3")
-	if err != nil {
-		return nil, err
+	stdoutResult = read("cat /etc/os-release 2>/dev/null | grep -E '^(ID|VERSION_ID|NAME)=' | head -3")
+	if !stdoutResult.OK {
+		return stdoutResult
 	}
+	stdout = stdoutResult.Value.(string)
 	if stdout != "" {
 		for _, line := range split(stdout, "\n") {
 			switch {
@@ -4146,55 +4227,61 @@ func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner, incl
 		}
 	}
 
-	stdout, err = read("uname -m")
-	if err != nil {
-		return nil, err
+	stdoutResult = read("uname -m")
+	if !stdoutResult.OK {
+		return stdoutResult
 	}
+	stdout = stdoutResult.Value.(string)
 	if stdout != "" {
 		facts.Architecture = corexTrimSpace(stdout)
 	}
 
-	stdout, err = read("uname -r")
-	if err != nil {
-		return nil, err
+	stdoutResult = read("uname -r")
+	if !stdoutResult.OK {
+		return stdoutResult
 	}
+	stdout = stdoutResult.Value.(string)
 	if stdout != "" {
 		facts.Kernel = corexTrimSpace(stdout)
 	}
 
-	stdout, err = read("nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null")
-	if err != nil {
-		return nil, err
+	stdoutResult = read("nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null")
+	if !stdoutResult.OK {
+		return stdoutResult
 	}
+	stdout = stdoutResult.Value.(string)
 	if stdout != "" {
 		if n, parseErr := strconv.Atoi(corexTrimSpace(stdout)); parseErr == nil {
 			facts.CPUs = n
 		}
 	}
 
-	stdout, err = read("free -m 2>/dev/null | awk '/^Mem:/ {print $2}'")
-	if err != nil {
-		return nil, err
+	stdoutResult = read("free -m 2>/dev/null | awk '/^Mem:/ {print $2}'")
+	if !stdoutResult.OK {
+		return stdoutResult
 	}
+	stdout = stdoutResult.Value.(string)
 	if stdout != "" {
 		if n, parseErr := strconv.ParseInt(corexTrimSpace(stdout), 10, 64); parseErr == nil {
 			facts.Memory = n
 		}
 	}
 
-	stdout, err = read("hostname -I 2>/dev/null | awk '{print $1}'")
-	if err != nil {
-		return nil, err
+	stdoutResult = read("hostname -I 2>/dev/null | awk '{print $1}'")
+	if !stdoutResult.OK {
+		return stdoutResult
 	}
+	stdout = stdoutResult.Value.(string)
 	if stdout != "" {
 		facts.IPv4 = corexTrimSpace(stdout)
 	}
 
 	if includeVirtual {
-		stdout, err = read("systemd-detect-virt 2>/dev/null")
-		if err != nil {
-			return nil, err
+		stdoutResult = read("systemd-detect-virt 2>/dev/null")
+		if !stdoutResult.OK {
+			return stdoutResult
 		}
+		stdout = stdoutResult.Value.(string)
 		virtType := corexTrimSpace(stdout)
 		if virtType == "" || virtType == "none" {
 			facts.VirtualizationRole = "host"
@@ -4205,7 +4292,7 @@ func (e *Executor) collectFacts(ctx context.Context, client sshFactsRunner, incl
 		}
 	}
 
-	return facts, nil
+	return core.Ok(facts)
 }
 
 func factsToMap(facts *Facts) map[string]any {
@@ -4237,8 +4324,9 @@ func filterFactsMap(facts map[string]any, patterns []string) map[string]any {
 	filtered := make(map[string]any)
 	for key, value := range facts {
 		for _, pattern := range patterns {
-			matched, err := pathMatch(pattern, key)
-			if err != nil {
+			matchResult := pathMatch(pattern, key)
+			matched, _ := matchResult.Value.(bool)
+			if !matchResult.OK {
 				matched = pattern == key
 			}
 			if matched {
@@ -4318,7 +4406,7 @@ func osFamilyFromReleaseID(id string) string {
 	}
 }
 
-func (e *Executor) moduleReboot(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleReboot(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	preRebootDelay := getIntArg(args, "pre_reboot_delay", 0)
 	postRebootDelay := getIntArg(args, "post_reboot_delay", 0)
 	rebootTimeout := getIntArg(args, "reboot_timeout", 600)
@@ -4326,48 +4414,50 @@ func (e *Executor) moduleReboot(ctx context.Context, client sshExecutorClient, a
 	rebootCommand := getStringArg(args, "reboot_command", "")
 
 	msg := getStringArg(args, "msg", "Reboot initiated by Ansible")
-	runReboot := func(cmd string) (*TaskResult, error) {
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			msg := stderr
-			if msg == "" && err != nil {
-				msg = err.Error()
+	runReboot := func(cmd string) core.Result {
+		runResult := client.Run(ctx, cmd)
+		run := commandRunValue(runResult)
+		if !runResult.OK || run.ExitCode != 0 {
+			msg := run.Stderr
+			if msg == "" && !runResult.OK {
+				msg = resultErrorMessage(runResult)
 			}
-			return &TaskResult{Failed: true, Msg: msg, Stdout: stdout, Stderr: stderr, RC: rc}, nil
+			return core.Ok(&TaskResult{Failed: true, Msg: msg, Stdout: run.Stdout, Stderr: run.Stderr, RC: run.ExitCode})
 		}
-		return nil, nil
+		return core.Ok(nil)
 	}
 
 	if rebootCommand != "" {
 		if preRebootDelay > 0 {
-			if result, err := runReboot(sprintf("sleep %d && %s", preRebootDelay, rebootCommand)); err != nil || result != nil {
-				return result, err
+			if result := runReboot(sprintf("sleep %d && %s", preRebootDelay, rebootCommand)); !result.OK || result.Value != nil {
+				return result
 			}
 		} else {
-			if result, err := runReboot(rebootCommand); err != nil || result != nil {
-				return result, err
+			if result := runReboot(rebootCommand); !result.OK || result.Value != nil {
+				return result
 			}
 		}
 	} else if preRebootDelay > 0 {
 		cmd := sprintf("sleep %d && shutdown -r now '%s' &", preRebootDelay, msg)
-		if result, err := runReboot(cmd); err != nil || result != nil {
-			return result, err
+		if result := runReboot(cmd); !result.OK || result.Value != nil {
+			return result
 		}
 	} else {
-		if result, err := runReboot(sprintf("shutdown -r now '%s' &", msg)); err != nil || result != nil {
-			return result, err
+		if result := runReboot(sprintf("shutdown -r now '%s' &", msg)); !result.OK || result.Value != nil {
+			return result
 		}
 	}
 
 	if postRebootDelay > 0 {
-		stdout, stderr, rc, err := client.Run(ctx, sprintf("sleep %d", postRebootDelay))
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		runResult := client.Run(ctx, sprintf("sleep %d", postRebootDelay))
+		run := commandRunValue(runResult)
+		if !runResult.OK || run.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: run.Stderr, Stdout: run.Stdout, RC: run.ExitCode})
 		}
 	}
 
 	if testCommand == "" {
-		return &TaskResult{Changed: true, Msg: "Reboot initiated"}, nil
+		return core.Ok(&TaskResult{Changed: true, Msg: "Reboot initiated"})
 	}
 
 	deadline := time.NewTimer(time.Duration(rebootTimeout) * time.Second)
@@ -4378,33 +4468,34 @@ func (e *Executor) moduleReboot(ctx context.Context, client sshExecutorClient, a
 	var lastStdout, lastStderr string
 	var lastRC int
 	for {
-		stdout, stderr, rc, err := client.Run(ctx, testCommand)
-		lastStdout = stdout
-		lastStderr = stderr
-		lastRC = rc
-		if err == nil && rc == 0 {
+		runResult := client.Run(ctx, testCommand)
+		run := commandRunValue(runResult)
+		lastStdout = run.Stdout
+		lastStderr = run.Stderr
+		lastRC = run.ExitCode
+		if runResult.OK && run.ExitCode == 0 {
 			break
 		}
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return core.Fail(ctx.Err())
 		case <-deadline.C:
-			return &TaskResult{
+			return core.Ok(&TaskResult{
 				Failed: true,
 				Msg:    "reboot timed out waiting for host to become ready",
 				Stdout: lastStdout,
 				Stderr: lastStderr,
 				RC:     lastRC,
-			}, nil
+			})
 		case <-ticker.C:
 		}
 	}
 
-	return &TaskResult{Changed: true, Msg: "Reboot initiated"}, nil
+	return core.Ok(&TaskResult{Changed: true, Msg: "Reboot initiated"})
 }
 
-func (e *Executor) moduleUFW(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleUFW(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	rule := getStringArg(args, "rule", "")
 	port := getStringArg(args, "port", "")
 	proto := getStringArg(args, "proto", "tcp")
@@ -4417,11 +4508,12 @@ func (e *Executor) moduleUFW(ctx context.Context, client sshExecutorClient, args
 	// Handle logging configuration.
 	if logging != "" {
 		cmd = sprintf("ufw logging %s", logging)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		runResult := client.Run(ctx, cmd)
+		run := commandRunValue(runResult)
+		if !runResult.OK || run.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: run.Stderr, Stdout: run.Stdout, RC: run.ExitCode})
 		}
-		return &TaskResult{Changed: true}, nil
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	// Handle state (enable/disable)
@@ -4437,11 +4529,12 @@ func (e *Executor) moduleUFW(ctx context.Context, client sshExecutorClient, args
 			cmd = "ufw --force reset"
 		}
 		if cmd != "" {
-			stdout, stderr, rc, err := client.Run(ctx, cmd)
-			if err != nil || rc != 0 {
-				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+			runResult := client.Run(ctx, cmd)
+			run := commandRunValue(runResult)
+			if !runResult.OK || run.ExitCode != 0 {
+				return core.Ok(&TaskResult{Failed: true, Msg: run.Stderr, Stdout: run.Stdout, RC: run.ExitCode})
 			}
-			return &TaskResult{Changed: true}, nil
+			return core.Ok(&TaskResult{Changed: true})
 		}
 	}
 
@@ -4461,16 +4554,17 @@ func (e *Executor) moduleUFW(ctx context.Context, client sshExecutorClient, args
 			cmd = "ufw delete " + corexTrimPrefix(cmd, "ufw ")
 		}
 
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+		runResult := client.Run(ctx, cmd)
+		run := commandRunValue(runResult)
+		if !runResult.OK || run.ExitCode != 0 {
+			return core.Ok(&TaskResult{Failed: true, Msg: run.Stderr, Stdout: run.Stdout, RC: run.ExitCode})
 		}
 	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
-func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	user := getStringArg(args, "user", "")
 	key := getStringArg(args, "key", "")
 	state := getStringArg(args, "state", "present")
@@ -4481,15 +4575,15 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 	comment := getStringArg(args, "comment", "")
 
 	if user == "" || key == "" {
-		return nil, coreerr.E("Executor.moduleAuthorizedKey", "user and key required", nil)
+		return core.Fail(coreerr.E("Executor.moduleAuthorizedKey", "user and key required", nil))
 	}
 
 	// Get user's home directory
-	stdout, _, _, err := client.Run(ctx, sprintf("getent passwd %s | cut -d: -f6", user))
-	if err != nil {
-		return nil, coreerr.E("Executor.moduleAuthorizedKey", "get home dir", err)
+	homeResult := client.Run(ctx, sprintf("getent passwd %s | cut -d: -f6", user))
+	if !homeResult.OK {
+		return wrapFailure(homeResult, "Executor.moduleAuthorizedKey", "get home dir")
 	}
-	home := corexTrimSpace(stdout)
+	home := corexTrimSpace(commandRunValue(homeResult).Stdout)
 	if home == "" {
 		home = "/root"
 		if user != "root" {
@@ -4515,60 +4609,76 @@ func (e *Executor) moduleAuthorizedKey(ctx context.Context, client sshExecutorCl
 	if state == "absent" {
 		content, ok := remoteFileText(ctx, client, authKeysPath)
 		if !ok || !authorizedKeyContainsBase(content, base) {
-			return &TaskResult{Changed: false}, nil
+			return core.Ok(&TaskResult{Changed: false})
 		}
 
 		updated, changed := rewriteAuthorizedKeyContent(content, base, "")
 		if !changed {
-			return &TaskResult{Changed: false}, nil
+			return core.Ok(&TaskResult{Changed: false})
 		}
-		if err := client.Upload(ctx, newReader(updated), authKeysPath, 0600); err != nil {
-			return nil, coreerr.E("Executor.moduleAuthorizedKey", "upload authorised keys", err)
+		if uploadResult := client.Upload(ctx, newReader(updated), authKeysPath, 0600); !uploadResult.OK {
+			return wrapFailure(uploadResult, "Executor.moduleAuthorizedKey", "upload authorised keys")
 		}
-		return &TaskResult{Changed: true}, nil
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	if content, ok := remoteFileText(ctx, client, authKeysPath); ok {
 		updated, changed := rewriteAuthorizedKeyContent(content, base, line)
 		if !changed {
-			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", authKeysPath)}, nil
+			return core.Ok(&TaskResult{Changed: false, Msg: sprintf("already up to date: %s", authKeysPath)})
 		}
-		if err := client.Upload(ctx, newReader(updated), authKeysPath, 0600); err != nil {
-			return nil, coreerr.E("Executor.moduleAuthorizedKey", "upload authorised keys", err)
+		if uploadResult := client.Upload(ctx, newReader(updated), authKeysPath, 0600); !uploadResult.OK {
+			return wrapFailure(uploadResult, "Executor.moduleAuthorizedKey", "upload authorised keys")
 		}
-		_, _, _, _ = client.Run(ctx, sprintf("chmod 600 %q && chown %s:%s %q",
+		chmodResult := client.Run(ctx, sprintf("chmod 600 %q && chown %s:%s %q",
 			authKeysPath, user, user, authKeysPath))
-		return &TaskResult{Changed: true}, nil
+		if !chmodResult.OK {
+			return core.Ok(&TaskResult{Changed: true})
+		}
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	if manageDir {
 		// Ensure the parent directory exists (best-effort).
-		_, _, _, _ = client.Run(ctx, sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
+		mkdirResult := client.Run(ctx, sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
 			pathDir(authKeysPath), pathDir(authKeysPath), user, user, pathDir(authKeysPath)))
+		if !mkdirResult.OK {
+			return core.Ok(&TaskResult{Changed: false, Msg: "failed to prepare authorized_keys directory"})
+		}
 	}
 
 	if exclusive {
-		if err := client.Upload(ctx, newReader(line+"\n"), authKeysPath, 0600); err != nil {
-			return nil, coreerr.E("Executor.moduleAuthorizedKey", "upload authorised keys", err)
+		if uploadResult := client.Upload(ctx, newReader(line+"\n"), authKeysPath, 0600); !uploadResult.OK {
+			return wrapFailure(uploadResult, "Executor.moduleAuthorizedKey", "upload authorised keys")
 		}
-		_, _, _, _ = client.Run(ctx, sprintf("chmod 600 %q && chown %s:%s %q",
+		chmodResult := client.Run(ctx, sprintf("chmod 600 %q && chown %s:%s %q",
 			authKeysPath, user, user, authKeysPath))
-		return &TaskResult{Changed: true}, nil
+		if !chmodResult.OK {
+			return core.Ok(&TaskResult{Changed: true})
+		}
+		return core.Ok(&TaskResult{Changed: true})
 	}
 
 	var updated string
 	if content, ok := remoteFileText(ctx, client, authKeysPath); ok {
-		updated, _ = rewriteAuthorizedKeyContent(content, base, line)
+		updatedValue, changed := rewriteAuthorizedKeyContent(content, base, line)
+		if !changed {
+			return core.Ok(&TaskResult{Changed: false})
+		}
+		updated = updatedValue
 	} else {
 		updated = line + "\n"
 	}
-	if err := client.Upload(ctx, newReader(updated), authKeysPath, 0600); err != nil {
-		return nil, coreerr.E("Executor.moduleAuthorizedKey", "upload authorised keys", err)
+	if uploadResult := client.Upload(ctx, newReader(updated), authKeysPath, 0600); !uploadResult.OK {
+		return wrapFailure(uploadResult, "Executor.moduleAuthorizedKey", "upload authorised keys")
 	}
-	_, _, _, _ = client.Run(ctx, sprintf("chmod 600 %q && chown %s:%s %q",
+	chmodResult := client.Run(ctx, sprintf("chmod 600 %q && chown %s:%s %q",
 		authKeysPath, user, user, authKeysPath))
+	if !chmodResult.OK {
+		return core.Ok(&TaskResult{Changed: true})
+	}
 
-	return &TaskResult{Changed: true}, nil
+	return core.Ok(&TaskResult{Changed: true})
 }
 
 func authorizedKeyLine(key, keyOptions, comment string) string {
@@ -4691,14 +4801,14 @@ func rewriteAuthorizedKeyContent(content, base, line string) (string, bool) {
 	return join("\n", kept) + "\n", true
 }
 
-func (e *Executor) moduleDockerCompose(ctx context.Context, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+func (e *Executor) moduleDockerCompose(ctx context.Context, client sshExecutorClient, args map[string]any) core.Result {
 	projectSrc := getStringArg(args, "project_src", "")
 	state := getStringArg(args, "state", "present")
 	projectName := getStringArg(args, "project_name", "")
 	files := normalizeStringArgs(args["files"])
 
 	if projectSrc == "" {
-		return nil, coreerr.E("Executor.moduleDockerCompose", "project_src required", nil)
+		return core.Fail(coreerr.E("Executor.moduleDockerCompose", "project_src required", nil))
 	}
 
 	var cmdParts []string
@@ -4725,16 +4835,17 @@ func (e *Executor) moduleDockerCompose(ctx context.Context, client sshExecutorCl
 
 	cmd := join(" ", cmdParts)
 
-	stdout, stderr, rc, err := client.Run(ctx, cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
+	runResult := client.Run(ctx, cmd)
+	run := commandRunValue(runResult)
+	if !runResult.OK || run.ExitCode != 0 {
+		return core.Ok(&TaskResult{Failed: true, Msg: run.Stderr, Stdout: run.Stdout, RC: run.ExitCode})
 	}
 
 	// Heuristic for changed
 	changed := true
-	if contains(stdout, "Up to date") || contains(stderr, "Up to date") {
+	if contains(run.Stdout, "Up to date") || contains(run.Stderr, "Up to date") {
 		changed = false
 	}
 
-	return &TaskResult{Changed: changed, Stdout: stdout}, nil
+	return core.Ok(&TaskResult{Changed: changed, Stdout: run.Stdout})
 }

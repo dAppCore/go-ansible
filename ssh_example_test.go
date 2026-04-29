@@ -7,22 +7,23 @@ import (
 )
 
 func ExampleNewSSHClient() {
-	client, err := NewSSHClient(SSHConfig{Host: "web1"})
-	core.Println(err == nil, client.host, client.port, client.user)
+	result := NewSSHClient(SSHConfig{Host: "web1"})
+	client := result.Value.(*SSHClient)
+	core.Println(result.OK, client.host, client.port, client.user)
 	// Output: true web1 22 root
 }
 
 func ExampleSSHClient_Connect() {
-	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
-	err := client.Connect(context.Background())
-	core.Println(err != nil)
+	client := NewSSHClient(SSHConfig{Host: "web1"}).Value.(*SSHClient)
+	result := client.Connect(context.Background())
+	core.Println(!result.OK)
 	// Output: true
 }
 
 func ExampleSSHClient_Close() {
 	client := &SSHClient{}
-	err := client.Close()
-	core.Println(err == nil, client.client == nil)
+	result := client.Close()
+	core.Println(result.OK, client.client == nil)
 	// Output: true true
 }
 
@@ -34,45 +35,45 @@ func ExampleSSHClient_BecomeState() {
 }
 
 func ExampleSSHClient_Run_remote() {
-	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
-	_, _, code, err := client.Run(context.Background(), "hostname")
-	core.Println(err != nil, code)
-	// Output: true -1
+	client := NewSSHClient(SSHConfig{Host: "web1"}).Value.(*SSHClient)
+	result := client.Run(context.Background(), "hostname")
+	core.Println(!result.OK)
+	// Output: true
 }
 
 func ExampleSSHClient_RunScript_remote() {
-	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
-	_, _, code, err := client.RunScript(context.Background(), "echo ok")
-	core.Println(err != nil, code)
-	// Output: true -1
+	client := NewSSHClient(SSHConfig{Host: "web1"}).Value.(*SSHClient)
+	result := client.RunScript(context.Background(), "echo ok")
+	core.Println(!result.OK)
+	// Output: true
 }
 
 func ExampleSSHClient_Upload() {
-	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
-	err := client.Upload(context.Background(), newReader("payload"), "/tmp/file.txt", 0o644)
-	core.Println(err != nil)
+	client := NewSSHClient(SSHConfig{Host: "web1"}).Value.(*SSHClient)
+	result := client.Upload(context.Background(), newReader("payload"), "/tmp/file.txt", 0o644)
+	core.Println(!result.OK)
 	// Output: true
 }
 
 func ExampleSSHClient_Download() {
-	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
-	data, err := client.Download(context.Background(), "/tmp/file.txt")
-	core.Println(err != nil, data == nil)
-	// Output: true true
-}
-
-func ExampleSSHClient_FileExists() {
-	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
-	exists, err := client.FileExists(context.Background(), "/tmp/file.txt")
-	core.Println(err != nil, exists)
+	client := NewSSHClient(SSHConfig{Host: "web1"}).Value.(*SSHClient)
+	result := client.Download(context.Background(), "/tmp/file.txt")
+	core.Println(!result.OK, result.Value == nil)
 	// Output: true false
 }
 
+func ExampleSSHClient_FileExists() {
+	client := NewSSHClient(SSHConfig{Host: "web1"}).Value.(*SSHClient)
+	result := client.FileExists(context.Background(), "/tmp/file.txt")
+	core.Println(!result.OK)
+	// Output: true
+}
+
 func ExampleSSHClient_Stat() {
-	client, _ := NewSSHClient(SSHConfig{Host: "web1"})
-	info, err := client.Stat(context.Background(), "/tmp/file.txt")
-	core.Println(err != nil, info == nil)
-	// Output: true true
+	client := NewSSHClient(SSHConfig{Host: "web1"}).Value.(*SSHClient)
+	result := client.Stat(context.Background(), "/tmp/file.txt")
+	core.Println(!result.OK, result.Value == nil)
+	// Output: true false
 }
 
 func ExampleSSHClient_SetBecome() {

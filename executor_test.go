@@ -52,12 +52,13 @@ func TestExecutor_SSHClient_Run_Good(t *core.T) {
 	mock := NewMockSSHClient()
 	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "export APP_ENV=prod; "}
 
-	stdout, stderr, code, err := client.Run(context.Background(), "echo $APP_ENV")
+	run := client.Run(context.Background(), "echo $APP_ENV")
+	out := commandRunValue(run)
 
-	core.AssertNoError(t, err)
-	core.AssertEmpty(t, stdout)
-	core.AssertEmpty(t, stderr)
-	core.AssertEqual(t, 0, code)
+	core.AssertTrue(t, run.OK)
+	core.AssertEmpty(t, out.Stdout)
+	core.AssertEmpty(t, out.Stderr)
+	core.AssertEqual(t, 0, out.ExitCode)
 	core.AssertEqual(t, "export APP_ENV=prod; echo $APP_ENV", mock.lastCommand().Cmd)
 }
 
@@ -66,11 +67,12 @@ func TestExecutor_SSHClient_Run_Bad(t *core.T) {
 	mock.expectCommand("false", "", "failed", 2)
 	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "set -e; "}
 
-	_, stderr, code, err := client.Run(context.Background(), "false")
+	run := client.Run(context.Background(), "false")
+	out := commandRunValue(run)
 
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "failed", stderr)
-	core.AssertEqual(t, 2, code)
+	core.AssertTrue(t, run.OK)
+	core.AssertEqual(t, "failed", out.Stderr)
+	core.AssertEqual(t, 2, out.ExitCode)
 	core.AssertEqual(t, "set -e; false", mock.lastCommand().Cmd)
 }
 
@@ -78,10 +80,11 @@ func TestExecutor_SSHClient_Run_Ugly(t *core.T) {
 	mock := NewMockSSHClient()
 	client := &environmentSSHClient{sshExecutorClient: mock, prefix: ""}
 
-	_, _, code, err := client.Run(context.Background(), "")
+	run := client.Run(context.Background(), "")
+	out := commandRunValue(run)
 
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, 0, code)
+	core.AssertTrue(t, run.OK)
+	core.AssertEqual(t, 0, out.ExitCode)
 	core.AssertEqual(t, "", mock.lastCommand().Cmd)
 }
 
@@ -89,10 +92,11 @@ func TestExecutor_SSHClient_RunScript_Good(t *core.T) {
 	mock := NewMockSSHClient()
 	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "export APP_ENV=prod\n"}
 
-	_, _, code, err := client.RunScript(context.Background(), "echo $APP_ENV")
+	run := client.RunScript(context.Background(), "echo $APP_ENV")
+	out := commandRunValue(run)
 
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, 0, code)
+	core.AssertTrue(t, run.OK)
+	core.AssertEqual(t, 0, out.ExitCode)
 	core.AssertEqual(t, "export APP_ENV=prod\necho $APP_ENV", mock.lastCommand().Cmd)
 }
 
@@ -101,11 +105,12 @@ func TestExecutor_SSHClient_RunScript_Bad(t *core.T) {
 	mock.expectCommand("exit 3", "", "bad script", 3)
 	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "set -e\n"}
 
-	_, stderr, code, err := client.RunScript(context.Background(), "exit 3")
+	run := client.RunScript(context.Background(), "exit 3")
+	out := commandRunValue(run)
 
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "bad script", stderr)
-	core.AssertEqual(t, 3, code)
+	core.AssertTrue(t, run.OK)
+	core.AssertEqual(t, "bad script", out.Stderr)
+	core.AssertEqual(t, 3, out.ExitCode)
 	core.AssertEqual(t, "set -e\nexit 3", mock.lastCommand().Cmd)
 }
 
@@ -113,10 +118,11 @@ func TestExecutor_SSHClient_RunScript_Ugly(t *core.T) {
 	mock := NewMockSSHClient()
 	client := &environmentSSHClient{sshExecutorClient: mock, prefix: ""}
 
-	_, _, code, err := client.RunScript(context.Background(), "")
+	run := client.RunScript(context.Background(), "")
+	out := commandRunValue(run)
 
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, 0, code)
+	core.AssertTrue(t, run.OK)
+	core.AssertEqual(t, 0, out.ExitCode)
 	core.AssertEqual(t, "", mock.lastCommand().Cmd)
 }
 
@@ -239,8 +245,9 @@ func TestExecutor_GetClient_Good_PlayVarsOverrideInventoryVars(t *core.T) {
 	e.SetVar("ansible_host", "10.0.0.20")
 	e.SetVar("ansible_user", "play-user")
 
-	client, err := e.getClient("host1", &Play{})
-	core.RequireNoError(t, err)
+	clientResult := e.getClient("host1", &Play{})
+	core.RequireTrue(t, clientResult.OK)
+	client := clientResult.Value.(sshExecutorClient)
 
 	sshClient, ok := client.(*SSHClient)
 	core.RequireTrue(t, ok)
@@ -261,8 +268,9 @@ func TestExecutor_GetClient_Good_UsesInventoryBecomePassword(t *core.T) {
 		},
 	})
 
-	client, err := e.getClient("host1", &Play{Become: true, BecomeUser: "admin"})
-	core.RequireNoError(t, err)
+	clientResult := e.getClient("host1", &Play{Become: true, BecomeUser: "admin"})
+	core.RequireTrue(t, clientResult.OK)
+	client := clientResult.Value.(sshExecutorClient)
 
 	sshClient, ok := client.(*SSHClient)
 	core.RequireTrue(t, ok)
@@ -286,8 +294,9 @@ func TestExecutor_GetClient_Good_UpdatesCachedBecomeState(t *core.T) {
 	e.clients["host1"] = cached
 
 	play := &Play{Become: true, BecomeUser: "admin"}
-	client, err := e.getClient("host1", play)
-	core.RequireNoError(t, err)
+	clientResult := e.getClient("host1", play)
+	core.RequireTrue(t, clientResult.OK)
+	client := clientResult.Value.(sshExecutorClient)
 	core.AssertSame(t, cached, client)
 
 	become, user, pass := cached.BecomeState()
@@ -669,8 +678,7 @@ func TestExecutor_ExecuteModule_Good_ShortFormCommunityAlias(t *core.T) {
 		},
 	}
 
-	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
-	core.RequireNoError(t, err)
+	result := requireTaskResult(t, e.executeModule(context.Background(), "host1", mock, task, &Play{}))
 	core.AssertNotNil(t, result)
 	core.AssertTrue(t, result.Changed)
 	core.AssertFalse(t, result.Failed)
@@ -1873,15 +1881,15 @@ func TestExecutor_RunTaskWithRetries_Good_UntilSuccess(t *core.T) {
 		Delay:   0,
 	}
 
-	result, err := e.runTaskWithRetries(context.Background(), "host1", task, &Play{}, func() (*TaskResult, error) {
+	retryResult := e.runTaskWithRetries(context.Background(), "host1", task, &Play{}, func() core.Result {
 		attempts++
 		if attempts < 2 {
-			return &TaskResult{Failed: true, Msg: "not yet", RC: 1}, nil
+			return core.Ok(&TaskResult{Failed: true, Msg: "not yet", RC: 1})
 		}
-		return &TaskResult{Changed: true, Msg: "ok", RC: 0}, nil
+		return core.Ok(&TaskResult{Changed: true, Msg: "ok", RC: 0})
 	})
+	result := requireTaskResult(t, retryResult)
 
-	core.RequireNoError(t, err)
 	core.AssertNotNil(t, result)
 	core.AssertEqual(t, 2, attempts)
 	core.AssertFalse(t, result.Failed)
@@ -3058,16 +3066,16 @@ func TestExecutor_Executor_TemplateFile_Good(t *core.T) {
 	writeTextFile(t, path, "hello {{ name }}")
 	executor := NewExecutor(dir)
 	executor.SetVar("name", "world")
-	content, err := executor.TemplateFile(path, "", nil)
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "hello world", content)
+	result := executor.TemplateFile(path, "", nil)
+	core.AssertTrue(t, result.OK)
+	core.AssertEqual(t, "hello world", result.Value)
 }
 
 func TestExecutor_Executor_TemplateFile_Bad(t *core.T) {
 	executor := NewExecutor(t.TempDir())
-	content, err := executor.TemplateFile("", "", nil)
-	core.AssertError(t, err)
-	core.AssertEmpty(t, content)
+	result := executor.TemplateFile("", "", nil)
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, resultErrorMessage(result), "template source path required")
 }
 
 func TestExecutor_Executor_TemplateFile_Ugly(t *core.T) {
@@ -3075,7 +3083,7 @@ func TestExecutor_Executor_TemplateFile_Ugly(t *core.T) {
 	path := joinPath(dir, "template.j2")
 	writeTextFile(t, path, "hello {{ missing }}")
 	executor := NewExecutor(dir)
-	content, err := executor.TemplateFile(path, "", nil)
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "hello {{ missing }}", content)
+	result := executor.TemplateFile(path, "", nil)
+	core.AssertTrue(t, result.OK)
+	core.AssertEqual(t, "hello {{ missing }}", result.Value)
 }

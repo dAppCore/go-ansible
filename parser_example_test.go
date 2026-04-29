@@ -1,6 +1,8 @@
 package ansible
 
 import (
+	"iter"
+
 	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	"gopkg.in/yaml.v3"
@@ -37,8 +39,9 @@ func ExampleParser_ParsePlaybook() {
 	defer core.RemoveAll(dir)
 	file := joinPath(dir, "site.yml")
 	exampleWrite(file, "- hosts: all\n  tasks: []\n")
-	plays, err := NewParser(dir).ParsePlaybook(file)
-	core.Println(err == nil, len(plays), plays[0].Hosts)
+	result := NewParser(dir).ParsePlaybook(file)
+	plays := result.Value.([]Play)
+	core.Println(result.OK, len(plays), plays[0].Hosts)
 	// Output: true 1 all
 }
 
@@ -47,12 +50,13 @@ func ExampleParser_ParsePlaybookIter() {
 	defer core.RemoveAll(dir)
 	file := joinPath(dir, "site.yml")
 	exampleWrite(file, "- hosts: web\n  tasks: []\n")
-	seq, err := NewParser(dir).ParsePlaybookIter(file)
+	result := NewParser(dir).ParsePlaybookIter(file)
+	seq := result.Value.(iter.Seq[Play])
 	count := 0
 	for range seq {
 		count++
 	}
-	core.Println(err == nil, count)
+	core.Println(result.OK, count)
 	// Output: true 1
 }
 
@@ -61,9 +65,10 @@ func ExampleParser_ParseInventory() {
 	defer core.RemoveAll(dir)
 	file := joinPath(dir, "inventory.yml")
 	exampleWrite(file, "all:\n  hosts:\n    web1: {}\n")
-	inv, err := NewParser(dir).ParseInventory(file)
+	result := NewParser(dir).ParseInventory(file)
+	inv := result.Value.(*Inventory)
 	_, ok := inv.All.Hosts["web1"]
-	core.Println(err == nil, ok)
+	core.Println(result.OK, ok)
 	// Output: true true
 }
 
@@ -72,8 +77,9 @@ func ExampleParser_ParseTasks() {
 	defer core.RemoveAll(dir)
 	file := joinPath(dir, "tasks.yml")
 	exampleWrite(file, "- shell: echo ok\n")
-	tasks, err := NewParser(dir).ParseTasks(file)
-	core.Println(err == nil, len(tasks), tasks[0].Module)
+	result := NewParser(dir).ParseTasks(file)
+	tasks := result.Value.([]Task)
+	core.Println(result.OK, len(tasks), tasks[0].Module)
 	// Output: true 1 shell
 }
 
@@ -82,8 +88,9 @@ func ExampleParser_ParseTasksFromDir() {
 	defer core.RemoveAll(dir)
 	tasksDir := joinPath(dir, "tasks")
 	exampleWrite(joinPath(tasksDir, "main.yml"), "- debug:\n    msg: ok\n")
-	tasks, err := NewParser(dir).ParseTasksFromDir(tasksDir)
-	core.Println(err == nil, len(tasks), tasks[0].Module)
+	result := NewParser(dir).ParseTasksFromDir(tasksDir)
+	tasks := result.Value.([]Task)
+	core.Println(result.OK, len(tasks), tasks[0].Module)
 	// Output: true 1 debug
 }
 
@@ -92,8 +99,9 @@ func ExampleParser_ParseVarsFiles() {
 	defer core.RemoveAll(dir)
 	file := joinPath(dir, "vars.yml")
 	exampleWrite(file, "answer: 42\n")
-	vars, err := NewParser(dir).ParseVarsFiles(file)
-	core.Println(err == nil, vars["answer"])
+	result := NewParser(dir).ParseVarsFiles(file)
+	vars := result.Value.(map[string]any)
+	core.Println(result.OK, vars["answer"])
 	// Output: true 42
 }
 
@@ -101,9 +109,10 @@ func ExampleParser_ParseRoles() {
 	dir := exampleDir()
 	defer core.RemoveAll(dir)
 	exampleWrite(joinPath(dir, "roles", "web", "tasks", "main.yml"), "- debug:\n    msg: ok\n")
-	roles, err := NewParser(dir).ParseRoles(joinPath(dir, "roles"))
+	result := NewParser(dir).ParseRoles(joinPath(dir, "roles"))
+	roles := result.Value.(map[string]*Role)
 	_, ok := roles["web"]
-	core.Println(err == nil, ok)
+	core.Println(result.OK, ok)
 	// Output: true true
 }
 
@@ -112,12 +121,13 @@ func ExampleParser_ParseTasksIter() {
 	defer core.RemoveAll(dir)
 	file := joinPath(dir, "tasks.yml")
 	exampleWrite(file, "- shell: echo one\n- shell: echo two\n")
-	seq, err := NewParser(dir).ParseTasksIter(file)
+	result := NewParser(dir).ParseTasksIter(file)
+	seq := result.Value.(iter.Seq[Task])
 	count := 0
 	for range seq {
 		count++
 	}
-	core.Println(err == nil, count)
+	core.Println(result.OK, count)
 	// Output: true 2
 }
 
@@ -125,8 +135,9 @@ func ExampleParser_ParseRole() {
 	dir := exampleDir()
 	defer core.RemoveAll(dir)
 	exampleWrite(joinPath(dir, "roles", "web", "tasks", "alt.yml"), "- debug:\n    msg: alt\n")
-	tasks, err := NewParser(dir).ParseRole("web", "alt.yml")
-	core.Println(err == nil, len(tasks), tasks[0].Module)
+	result := NewParser(dir).ParseRole("web", "alt.yml")
+	tasks := result.Value.([]Task)
+	core.Println(result.OK, len(tasks), tasks[0].Module)
 	// Output: true 1 debug
 }
 

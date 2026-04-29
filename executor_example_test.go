@@ -10,16 +10,16 @@ import (
 func ExampleSSHClient_Run_environment() {
 	mock := NewMockSSHClient()
 	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "export APP_ENV=prod; "}
-	_, _, code, err := client.Run(context.Background(), "echo $APP_ENV")
-	core.Println(err == nil, code, mock.lastCommand().Cmd)
+	result := client.Run(context.Background(), "echo $APP_ENV")
+	core.Println(result.OK, commandRunValue(result).ExitCode, mock.lastCommand().Cmd)
 	// Output: true 0 export APP_ENV=prod; echo $APP_ENV
 }
 
 func ExampleSSHClient_RunScript_environment() {
 	mock := NewMockSSHClient()
 	client := &environmentSSHClient{sshExecutorClient: mock, prefix: "export APP_ENV=prod\n"}
-	_, _, code, err := client.RunScript(context.Background(), "echo $APP_ENV")
-	core.Println(err == nil, code, mock.lastCommand().Cmd)
+	result := client.RunScript(context.Background(), "echo $APP_ENV")
+	core.Println(result.OK, commandRunValue(result).ExitCode, mock.lastCommand().Cmd)
 	// Output:
 	// true 0 export APP_ENV=prod
 	// echo $APP_ENV
@@ -89,7 +89,7 @@ func ExampleExecutor_TemplateFile() {
 	exampleWrite(file, "hello {{ name }}")
 	executor := NewExecutor(dir)
 	executor.SetVar("name", "world")
-	rendered, err := executor.TemplateFile(file, "", nil)
-	core.Println(err == nil, rendered)
+	result := executor.TemplateFile(file, "", nil)
+	core.Println(result.OK, result.Value)
 	// Output: true hello world
 }

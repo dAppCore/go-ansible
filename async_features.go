@@ -110,10 +110,11 @@ func cloneExecutorClient(client sshExecutorClient) sshExecutorClient {
 		}
 		cached.mu.Unlock()
 
-		clone, err := NewSSHClient(cfg)
-		if err != nil {
+		cloneResult := NewSSHClient(cfg)
+		if !cloneResult.OK {
 			return nil
 		}
+		clone, _ := cloneResult.Value.(*SSHClient)
 		return clone
 	case *environmentSSHClient:
 		inner := cloneExecutorClient(cached.sshExecutorClient)

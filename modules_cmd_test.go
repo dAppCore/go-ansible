@@ -15,12 +15,13 @@ func TestModulesCmd_MockSSHClient_Good_RunRecordsExecution(t *core.T) {
 	mock := NewMockSSHClient()
 	mock.expectCommand("echo hello", "hello\n", "", 0)
 
-	stdout, stderr, rc, err := mock.Run(nil, "echo hello")
+	runResult := mock.Run(nil, "echo hello")
+	output := commandRunValue(runResult)
 
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "hello\n", stdout)
-	core.AssertEqual(t, "", stderr)
-	core.AssertEqual(t, 0, rc)
+	core.AssertTrue(t, runResult.OK)
+	core.AssertEqual(t, "hello\n", output.Stdout)
+	core.AssertEqual(t, "", output.Stderr)
+	core.AssertEqual(t, 0, output.ExitCode)
 	core.AssertEqual(t, 1, mock.commandCount())
 	core.AssertEqual(t, "Run", mock.lastCommand().Method)
 	core.AssertEqual(t, "echo hello", mock.lastCommand().Cmd)
@@ -30,11 +31,12 @@ func TestModulesCmd_MockSSHClient_Good_RunScriptRecordsExecution(t *core.T) {
 	mock := NewMockSSHClient()
 	mock.expectCommand("set -e", "ok", "", 0)
 
-	stdout, _, rc, err := mock.RunScript(nil, "set -e\necho done")
+	runResult := mock.RunScript(nil, "set -e\necho done")
+	output := commandRunValue(runResult)
 
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "ok", stdout)
-	core.AssertEqual(t, 0, rc)
+	core.AssertTrue(t, runResult.OK)
+	core.AssertEqual(t, "ok", output.Stdout)
+	core.AssertEqual(t, 0, output.ExitCode)
 	core.AssertEqual(t, 1, mock.commandCount())
 	core.AssertEqual(t, "RunScript", mock.lastCommand().Method)
 }
@@ -43,12 +45,13 @@ func TestModulesCmd_MockSSHClient_Good_DefaultSuccessResponse(t *core.T) {
 	mock := NewMockSSHClient()
 
 	// No expectations registered — should return empty success
-	stdout, stderr, rc, err := mock.Run(nil, "anything")
+	runResult := mock.Run(nil, "anything")
+	output := commandRunValue(runResult)
 
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "", stdout)
-	core.AssertEqual(t, "", stderr)
-	core.AssertEqual(t, 0, rc)
+	core.AssertTrue(t, runResult.OK)
+	core.AssertEqual(t, "", output.Stdout)
+	core.AssertEqual(t, "", output.Stderr)
+	core.AssertEqual(t, 0, output.ExitCode)
 }
 
 func TestModulesCmd_MockSSHClient_Good_LastMatchWins(t *core.T) {
@@ -56,43 +59,44 @@ func TestModulesCmd_MockSSHClient_Good_LastMatchWins(t *core.T) {
 	mock.expectCommand("echo", "first", "", 0)
 	mock.expectCommand("echo", "second", "", 0)
 
-	stdout, _, _, _ := mock.Run(nil, "echo hello")
+	output := commandRunValue(mock.Run(nil, "echo hello"))
 
-	core.AssertEqual(t, "second", stdout)
+	core.AssertEqual(t, "second", output.Stdout)
 }
 
 func TestModulesCmd_MockSSHClient_Good_FileOperations(t *core.T) {
 	mock := NewMockSSHClient()
 
 	// File does not exist initially
-	exists, err := mock.FileExists(nil, "/etc/config")
-	core.AssertNoError(t, err)
-	core.AssertFalse(t, exists)
+	existsResult := mock.FileExists(nil, "/etc/config")
+	core.AssertTrue(t, existsResult.OK)
+	core.AssertFalse(t, existsResult.Value.(bool))
 
 	// Add file
 	mock.addFile("/etc/config", []byte("key=value"))
 
 	// Now it exists
-	exists, err = mock.FileExists(nil, "/etc/config")
-	core.AssertNoError(t, err)
-	core.AssertTrue(t, exists)
+	existsResult = mock.FileExists(nil, "/etc/config")
+	core.AssertTrue(t, existsResult.OK)
+	core.AssertTrue(t, existsResult.Value.(bool))
 
 	// Download it
-	content, err := mock.Download(nil, "/etc/config")
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, []byte("key=value"), content)
+	contentResult := mock.Download(nil, "/etc/config")
+	core.AssertTrue(t, contentResult.OK)
+	core.AssertEqual(t, []byte("key=value"), contentResult.Value.([]byte))
 
 	// Download non-existent file
-	_, err = mock.Download(nil, "/nonexistent")
-	core.AssertError(t, err)
+	missingResult := mock.Download(nil, "/nonexistent")
+	core.AssertFalse(t, missingResult.OK)
 }
 
 func TestModulesCmd_MockSSHClient_Good_StatWithExplicit(t *core.T) {
 	mock := NewMockSSHClient()
 	mock.addStat("/var/log", map[string]any{"exists": true, "isdir": true})
 
-	info, err := mock.Stat(nil, "/var/log")
-	core.AssertNoError(t, err)
+	statResult := mock.Stat(nil, "/var/log")
+	core.AssertTrue(t, statResult.OK)
+	info := statResult.Value.(map[string]any)
 	core.AssertEqual(t, true, info["exists"])
 	core.AssertEqual(t, true, info["isdir"])
 }
@@ -101,13 +105,15 @@ func TestModulesCmd_MockSSHClient_Good_StatFallback(t *core.T) {
 	mock := NewMockSSHClient()
 	mock.addFile("/etc/hosts", []byte("127.0.0.1 localhost"))
 
-	info, err := mock.Stat(nil, "/etc/hosts")
-	core.AssertNoError(t, err)
+	statResult := mock.Stat(nil, "/etc/hosts")
+	core.AssertTrue(t, statResult.OK)
+	info := statResult.Value.(map[string]any)
 	core.AssertEqual(t, true, info["exists"])
 	core.AssertEqual(t, false, info["isdir"])
 
-	info, err = mock.Stat(nil, "/nonexistent")
-	core.AssertNoError(t, err)
+	statResult = mock.Stat(nil, "/nonexistent")
+	core.AssertTrue(t, statResult.OK)
+	info = statResult.Value.(map[string]any)
 	core.AssertEqual(t, false, info["exists"])
 }
 
@@ -133,11 +139,10 @@ func TestModulesCmd_ModuleScript_Good_RelativePathResolvedAgainstBasePath(t *cor
 	mock := NewMockSSHClient()
 	mock.expectCommand("echo deploy", "deploy\n", "", 0)
 
-	result, err := e.moduleScript(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleScript(context.Background(), mock, map[string]any{
 		"_raw_params": "scripts/deploy.sh",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, "deploy\n", result.Stdout)
 	core.AssertTrue(t, mock.hasExecuted("echo deploy"))
@@ -145,8 +150,8 @@ func TestModulesCmd_ModuleScript_Good_RelativePathResolvedAgainstBasePath(t *cor
 
 func TestModulesCmd_MockSSHClient_Good_HasExecuted(t *core.T) {
 	mock := NewMockSSHClient()
-	_, _, _, _ = mock.Run(nil, "systemctl restart nginx")
-	_, _, _, _ = mock.Run(nil, "apt-get update")
+	core.RequireTrue(t, mock.Run(nil, "systemctl restart nginx").OK)
+	core.RequireTrue(t, mock.Run(nil, "apt-get update").OK)
 
 	core.AssertTrue(t, mock.hasExecuted("systemctl.*nginx"))
 	core.AssertTrue(t, mock.hasExecuted("apt-get"))
@@ -155,8 +160,8 @@ func TestModulesCmd_MockSSHClient_Good_HasExecuted(t *core.T) {
 
 func TestModulesCmd_MockSSHClient_Good_HasExecutedMethod(t *core.T) {
 	mock := NewMockSSHClient()
-	_, _, _, _ = mock.Run(nil, "echo run")
-	_, _, _, _ = mock.RunScript(nil, "echo script")
+	core.RequireTrue(t, mock.Run(nil, "echo run").OK)
+	core.RequireTrue(t, mock.RunScript(nil, "echo script").OK)
 
 	core.AssertTrue(t, mock.hasExecutedMethod("Run", "echo run"))
 	core.AssertTrue(t, mock.hasExecutedMethod("RunScript", "echo script"))
@@ -166,7 +171,7 @@ func TestModulesCmd_MockSSHClient_Good_HasExecutedMethod(t *core.T) {
 
 func TestModulesCmd_MockSSHClient_Good_Reset(t *core.T) {
 	mock := NewMockSSHClient()
-	_, _, _, _ = mock.Run(nil, "echo hello")
+	core.RequireTrue(t, mock.Run(nil, "echo hello").OK)
 	core.AssertEqual(t, 1, mock.commandCount())
 
 	mock.reset()
@@ -177,8 +182,8 @@ func TestModulesCmd_MockSSHClient_Good_ErrorExpectation(t *core.T) {
 	mock := NewMockSSHClient()
 	mock.expectCommandError("bad cmd", core.AnError)
 
-	_, _, _, err := mock.Run(nil, "bad cmd")
-	core.AssertError(t, err)
+	result := mock.Run(nil, "bad cmd")
+	core.AssertFalse(t, result.OK)
 }
 
 // --- command module ---
@@ -227,9 +232,8 @@ func TestModulesCmd_ModuleCommand_Good_Argv(t *core.T) {
 		},
 	}
 
-	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+	result := requireTaskResult(t, e.executeModule(context.Background(), "host1", mock, task, &Play{}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, "hello world\n", result.Stdout)
 	core.AssertTrue(t, mock.hasExecuted(`hello world`))
@@ -336,8 +340,7 @@ func TestModulesCmd_ModuleCommand_Good_SkipsWhenCreatesExists(t *core.T) {
 		},
 	}
 
-	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
-	core.RequireNoError(t, err)
+	result := requireTaskResult(t, e.executeModule(context.Background(), "host1", mock, task, &Play{}))
 	core.AssertFalse(t, result.Changed)
 	core.AssertEqual(t, 0, mock.commandCount())
 }
@@ -355,9 +358,8 @@ func TestModulesCmd_ModuleCommand_Good_SkipsWhenCreatesExistsUnderChdir(t *core.
 		},
 	}
 
-	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
+	result := requireTaskResult(t, e.executeModule(context.Background(), "host1", mock, task, &Play{}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertEqual(t, 0, mock.commandCount())
 }
@@ -416,12 +418,11 @@ func TestModulesCmd_ModuleShell_Good_ExecutableUsesRun(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`/bin/dash.*echo test`, "test\n", "", 0)
 
-	result, err := e.moduleShell(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleShell(context.Background(), mock, map[string]any{
 		"_raw_params": "echo test",
 		"executable":  "/bin/dash",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 
 	last := mock.lastCommand()
@@ -466,8 +467,7 @@ func TestModulesCmd_ModuleShell_Good_SkipsWhenRemovesMissing(t *core.T) {
 		},
 	}
 
-	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
-	core.RequireNoError(t, err)
+	result := requireTaskResult(t, e.executeModule(context.Background(), "host1", mock, task, &Play{}))
 	core.AssertFalse(t, result.Changed)
 	core.AssertEqual(t, 0, mock.commandCount())
 }
@@ -626,12 +626,11 @@ func TestModulesCmd_ModuleScript_Good_CreatesSkipsExecution(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/already-there", []byte("present"))
 
-	result, err := e.moduleScript(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleScript(context.Background(), mock, map[string]any{
 		"_raw_params": scriptPath,
 		"creates":     "/tmp/already-there",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertNotNil(t, result)
 	core.AssertFalse(t, result.Changed)
 	core.AssertEqual(t, 0, mock.commandCount())
@@ -644,12 +643,11 @@ func TestModulesCmd_ModuleScript_Good_ChdirPrefixesScript(t *core.T) {
 
 	e, mock := newTestExecutorWithMock("host1")
 
-	result, err := e.moduleScript(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleScript(context.Background(), mock, map[string]any{
 		"_raw_params": scriptPath,
 		"chdir":       "/opt/app",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertNotNil(t, result)
 	core.AssertTrue(t, result.Changed)
 
@@ -667,12 +665,11 @@ func TestModulesCmd_ModuleScript_Good_ExecutableUsesRun(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`/bin/dash.*echo script works`, "script works\n", "", 0)
 
-	result, err := e.moduleScript(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleScript(context.Background(), mock, map[string]any{
 		"_raw_params": scriptPath,
 		"executable":  "/bin/dash",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertNotNil(t, result)
 	core.AssertTrue(t, result.Changed)
 

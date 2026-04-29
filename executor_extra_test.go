@@ -2,6 +2,8 @@ package ansible
 
 import (
 	"context"
+	"iter"
+
 	core "dappco.re/go"
 )
 
@@ -13,9 +15,8 @@ import (
 
 func TestExecutorExtra_ModuleDebug_Good_Message(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleDebug("host1", nil, map[string]any{"msg": "Hello world"})
+	result := requireTaskResult(t, e.moduleDebug("host1", nil, map[string]any{"msg": "Hello world"}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertEqual(t, "Hello world", result.Msg)
 }
@@ -24,17 +25,15 @@ func TestExecutorExtra_ModuleDebug_Good_Var(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.setHostVars("host1", map[string]any{"my_version": "1.2.3"})
 
-	result, err := e.moduleDebug("host1", nil, map[string]any{"var": "my_version"})
+	result := requireTaskResult(t, e.moduleDebug("host1", nil, map[string]any{"var": "my_version"}))
 
-	core.RequireNoError(t, err)
 	core.AssertContains(t, result.Msg, "1.2.3")
 }
 
 func TestExecutorExtra_ModuleDebug_Good_EmptyArgs(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleDebug("host1", nil, map[string]any{})
+	result := requireTaskResult(t, e.moduleDebug("host1", nil, map[string]any{}))
 
-	core.RequireNoError(t, err)
 	core.AssertEqual(t, "", result.Msg)
 }
 
@@ -42,18 +41,16 @@ func TestExecutorExtra_ModuleDebug_Good_EmptyArgs(t *core.T) {
 
 func TestExecutorExtra_ModuleFail_Good_DefaultMessage(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleFail(map[string]any{})
+	result := requireTaskResult(t, e.moduleFail(map[string]any{}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Failed)
 	core.AssertEqual(t, "Failed as requested", result.Msg)
 }
 
 func TestExecutorExtra_ModuleFail_Good_CustomMessage(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleFail(map[string]any{"msg": "deployment blocked"})
+	result := requireTaskResult(t, e.moduleFail(map[string]any{"msg": "deployment blocked"}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Failed)
 	core.AssertEqual(t, "deployment blocked", result.Msg)
 }
@@ -96,12 +93,11 @@ func TestExecutorExtra_ModulePing_Good_CustomData(t *core.T) {
 func TestExecutorExtra_moduleSetFact_Good_ReturnsStructuredFacts(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	result, err := e.moduleSetFact("host1", map[string]any{
+	result := requireTaskResult(t, e.moduleSetFact("host1", map[string]any{
 		"app_version": "1.2.3",
 		"cacheable":   true,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 	facts, ok := result.Data["ansible_facts"].(map[string]any)
@@ -125,8 +121,7 @@ func TestExecutorExtra_ExecuteModule_Good_DelegateFactsStoresOnDelegateHost(t *c
 		DelegateFacts: true,
 	}
 
-	result, err := e.executeModule(context.Background(), "host1", mock, task, &Play{})
-	core.RequireNoError(t, err)
+	result := requireTaskResult(t, e.executeModule(context.Background(), "host1", mock, task, &Play{}))
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, "2.0.0", e.hostScopedVars("delegate1")["app_version"])
 	core.AssertNil(t, e.hostScopedVars("host1"))
@@ -155,9 +150,8 @@ func TestExecutorExtra_ModuleAssert_Good_PassingAssertion(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = true
 
-	result, err := e.moduleAssert(map[string]any{"that": "enabled"}, "host1")
+	result := requireTaskResult(t, e.moduleAssert(map[string]any{"that": "enabled"}, "host1"))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Failed)
 	core.AssertEqual(t, "All assertions passed", result.Msg)
 }
@@ -166,9 +160,8 @@ func TestExecutorExtra_ModuleAssert_Bad_FailingAssertion(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.vars["enabled"] = false
 
-	result, err := e.moduleAssert(map[string]any{"that": "enabled"}, "host1")
+	result := requireTaskResult(t, e.moduleAssert(map[string]any{"that": "enabled"}, "host1"))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Failed)
 	core.AssertContains(t, result.Msg, "Assertion failed")
 }
@@ -176,20 +169,19 @@ func TestExecutorExtra_ModuleAssert_Bad_FailingAssertion(t *core.T) {
 func TestExecutorExtra_ModuleAssert_Bad_MissingThat(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	_, err := e.moduleAssert(map[string]any{}, "host1")
-	core.AssertError(t, err)
+	result := e.moduleAssert(map[string]any{}, "host1")
+	core.AssertFalse(t, result.OK)
 }
 
 func TestExecutorExtra_ModuleAssert_Good_CustomFailMsg(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.vars["ready"] = false
 
-	result, err := e.moduleAssert(map[string]any{
+	result := requireTaskResult(t, e.moduleAssert(map[string]any{
 		"that":     "ready",
 		"fail_msg": "Service not ready",
-	}, "host1")
+	}, "host1"))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Failed)
 	core.AssertEqual(t, "Service not ready", result.Msg)
 }
@@ -199,11 +191,10 @@ func TestExecutorExtra_ModuleAssert_Good_MultipleConditions(t *core.T) {
 	e.vars["enabled"] = true
 	e.vars["count"] = 5
 
-	result, err := e.moduleAssert(map[string]any{
+	result := requireTaskResult(t, e.moduleAssert(map[string]any{
 		"that": []any{"enabled", "count"},
-	}, "host1")
+	}, "host1"))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Failed)
 }
 
@@ -212,12 +203,11 @@ func TestExecutorExtra_ModuleAssert_Good_MultipleConditions(t *core.T) {
 func TestExecutorExtra_moduleSetFact_Good(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	result, err := e.moduleSetFact("host1", map[string]any{
+	result := requireTaskResult(t, e.moduleSetFact("host1", map[string]any{
 		"app_version": "2.0.0",
 		"deploy_env":  "production",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertContains(t, e.hostVars, "host1")
 	core.AssertEqual(t, "2.0.0", e.hostVars["host1"]["app_version"])
@@ -227,10 +217,10 @@ func TestExecutorExtra_moduleSetFact_Good(t *core.T) {
 func TestExecutorExtra_moduleSetFact_Good_SkipsCacheable(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	e.moduleSetFact("host1", map[string]any{
+	core.RequireTrue(t, e.moduleSetFact("host1", map[string]any{
 		"my_fact":   "value",
 		"cacheable": true,
-	})
+	}).OK)
 
 	core.AssertContains(t, e.hostVars, "host1")
 	core.AssertEqual(t, "value", e.hostVars["host1"]["my_fact"])
@@ -241,10 +231,10 @@ func TestExecutorExtra_moduleSetFact_Good_SkipsCacheable(t *core.T) {
 func TestExecutorExtra_moduleSetFact_Good_HostScopedLookup(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	_, err := e.moduleSetFact("host1", map[string]any{
+	result := e.moduleSetFact("host1", map[string]any{
 		"build_id": "2026.04.02",
 	})
-	core.RequireNoError(t, err)
+	core.RequireTrue(t, result.OK)
 
 	core.AssertEqual(t, "2026.04.02", e.templateString("{{ build_id }}", "host1", nil))
 	core.AssertEqual(t, "{{ build_id }}", e.templateString("{{ build_id }}", "host2", nil))
@@ -253,10 +243,10 @@ func TestExecutorExtra_moduleSetFact_Good_HostScopedLookup(t *core.T) {
 func TestExecutorExtra_moduleSetFact_Good_ExposesAnsibleFacts(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	_, err := e.moduleSetFact("host1", map[string]any{
+	result := e.moduleSetFact("host1", map[string]any{
 		"app_version": "2.0.0",
 	})
-	core.RequireNoError(t, err)
+	core.RequireTrue(t, result.OK)
 
 	core.AssertEqual(t, "2.0.0", e.templateString("{{ ansible_facts.app_version }}", "host1", nil))
 	core.AssertTrue(t, e.evalCondition("ansible_facts.app_version == '2.0.0'", "host1"))
@@ -265,10 +255,10 @@ func TestExecutorExtra_moduleSetFact_Good_ExposesAnsibleFacts(t *core.T) {
 func TestExecutorExtra_ClearFacts_Good_RemovesSetFacts(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	_, err := e.moduleSetFact("host1", map[string]any{
+	result := e.moduleSetFact("host1", map[string]any{
 		"app_version": "2.0.0",
 	})
-	core.RequireNoError(t, err)
+	core.RequireTrue(t, result.OK)
 
 	e.clearFacts([]string{"host1"})
 
@@ -280,7 +270,7 @@ func TestExecutorExtra_ClearFacts_Good_RemovesSetFacts(t *core.T) {
 func TestExecutorExtra_ModuleAddHost_Good_AddsHostAndGroups(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	result, err := e.moduleAddHost(map[string]any{
+	result := requireTaskResult(t, e.moduleAddHost(map[string]any{
 		"name":                    "db1",
 		"groups":                  "databases,production",
 		"ansible_host":            "10.0.0.5",
@@ -290,9 +280,8 @@ func TestExecutorExtra_ModuleAddHost_Good_AddsHostAndGroups(t *core.T) {
 		"ansible_become_password": "secret",
 		"environment":             "prod",
 		"custom_var":              "custom-value",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, "db1", result.Data["host"])
 	core.AssertContains(t, result.Msg, "db1")
@@ -322,19 +311,18 @@ func TestExecutorExtra_ModuleAddHost_Good_AddsHostAndGroups(t *core.T) {
 func TestExecutorExtra_ModuleAddHost_Good_IdempotentRepeat(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	_, err := e.moduleAddHost(map[string]any{
+	addResult := e.moduleAddHost(map[string]any{
 		"name":   "cache1",
 		"groups": []any{"caches"},
 		"role":   "redis",
 	})
-	core.RequireNoError(t, err)
+	core.RequireTrue(t, addResult.OK)
 
-	result, err := e.moduleAddHost(map[string]any{
+	result := requireTaskResult(t, e.moduleAddHost(map[string]any{
 		"name":   "cache1",
 		"groups": []any{"caches"},
 		"role":   "redis",
-	})
-	core.RequireNoError(t, err)
+	}))
 
 	core.AssertFalse(t, result.Changed)
 	core.AssertEqual(t, []string{"cache1"}, GetHosts(e.inventory, "caches"))
@@ -351,9 +339,8 @@ func TestExecutorExtra_ModuleAddHost_Good_ThroughDispatcher(t *core.T) {
 		},
 	}
 
-	result, err := e.executeModule(context.Background(), "host1", &SSHClient{}, task, &Play{})
+	result := requireTaskResult(t, e.executeModule(context.Background(), "host1", &SSHClient{}, task, &Play{}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, "cache1", result.Data["host"])
 	core.AssertEqual(t, []string{"caches"}, result.Data["groups"])
@@ -374,9 +361,8 @@ func TestExecutorExtra_moduleGroupBy_Good(t *core.T) {
 		},
 	})
 
-	result, err := e.moduleGroupBy("web1", map[string]any{"key": "debian"})
+	result := requireTaskResult(t, e.moduleGroupBy("web1", map[string]any{"key": "debian"}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, "web1", result.Data["host"])
 	core.AssertEqual(t, "debian", result.Data["group"])
@@ -404,10 +390,10 @@ func TestExecutorExtra_moduleGroupBy_Good_ThroughDispatcher(t *core.T) {
 func TestExecutorExtra_ModuleGroupBy_Bad_MissingKey(t *core.T) {
 	e := NewExecutor("/tmp")
 
-	_, err := e.moduleGroupBy("host1", map[string]any{})
+	result := e.moduleGroupBy("host1", map[string]any{})
 
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "key required")
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, result.Error(), "key required")
 }
 
 // --- moduleIncludeVars ---
@@ -418,9 +404,8 @@ func TestExecutorExtra_ModuleIncludeVars_Good_WithFile(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte("app_name: demo\n"), 0644))
 
 	e := NewExecutor("/tmp")
-	result, err := e.moduleIncludeVars(map[string]any{"file": path})
+	result := requireTaskResult(t, e.moduleIncludeVars(map[string]any{"file": path}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertContains(t, result.Msg, path)
 	core.AssertEqual(t, "demo", e.vars["app_name"])
@@ -432,9 +417,8 @@ func TestExecutorExtra_ModuleIncludeVars_Good_WithRawParams(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte("app_port: 8080\n"), 0644))
 
 	e := NewExecutor("/tmp")
-	result, err := e.moduleIncludeVars(map[string]any{"_raw_params": path})
+	result := requireTaskResult(t, e.moduleIncludeVars(map[string]any{"_raw_params": path}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertContains(t, result.Msg, path)
 	core.AssertEqual(t, 8080, e.vars["app_port"])
@@ -442,9 +426,8 @@ func TestExecutorExtra_ModuleIncludeVars_Good_WithRawParams(t *core.T) {
 
 func TestExecutorExtra_ModuleIncludeVars_Good_Empty(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleIncludeVars(map[string]any{})
+	result := requireTaskResult(t, e.moduleIncludeVars(map[string]any{}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 }
 
@@ -452,9 +435,8 @@ func TestExecutorExtra_ModuleIncludeVars_Good_Empty(t *core.T) {
 
 func TestExecutorExtra_moduleMeta_Good(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleMeta(map[string]any{"_raw_params": "flush_handlers"})
+	result := requireTaskResult(t, e.moduleMeta(map[string]any{"_raw_params": "flush_handlers"}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 	core.AssertEqual(t, "flush_handlers", result.Data["action"])
@@ -462,9 +444,8 @@ func TestExecutorExtra_moduleMeta_Good(t *core.T) {
 
 func TestExecutorExtra_moduleMeta_Good_ExplicitActionField(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleMeta(map[string]any{"action": "refresh_inventory"})
+	result := requireTaskResult(t, e.moduleMeta(map[string]any{"action": "refresh_inventory"}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 	core.AssertEqual(t, "refresh_inventory", result.Data["action"])
@@ -474,9 +455,8 @@ func TestExecutorExtra_moduleMeta_Good_ClearFacts(t *core.T) {
 	e := NewExecutor("/tmp")
 	e.facts["host1"] = &Facts{Hostname: "web01"}
 
-	result, err := e.moduleMeta(map[string]any{"_raw_params": "clear_facts"})
+	result := requireTaskResult(t, e.moduleMeta(map[string]any{"_raw_params": "clear_facts"}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 	core.AssertEqual(t, "clear_facts", result.Data["action"])
@@ -484,9 +464,8 @@ func TestExecutorExtra_moduleMeta_Good_ClearFacts(t *core.T) {
 
 func TestExecutorExtra_moduleMeta_Good_ResetConnection(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleMeta(map[string]any{"_raw_params": "reset_connection"})
+	result := requireTaskResult(t, e.moduleMeta(map[string]any{"_raw_params": "reset_connection"}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 	core.AssertEqual(t, "reset_connection", result.Data["action"])
@@ -494,9 +473,8 @@ func TestExecutorExtra_moduleMeta_Good_ResetConnection(t *core.T) {
 
 func TestExecutorExtra_moduleMeta_Good_EndHost(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleMeta(map[string]any{"_raw_params": "end_host"})
+	result := requireTaskResult(t, e.moduleMeta(map[string]any{"_raw_params": "end_host"}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 	core.AssertEqual(t, "end_host", result.Data["action"])
@@ -504,9 +482,8 @@ func TestExecutorExtra_moduleMeta_Good_EndHost(t *core.T) {
 
 func TestExecutorExtra_moduleMeta_Good_EndBatch(t *core.T) {
 	e := NewExecutor("/tmp")
-	result, err := e.moduleMeta(map[string]any{"_raw_params": "end_batch"})
+	result := requireTaskResult(t, e.moduleMeta(map[string]any{"_raw_params": "end_batch"}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 	core.AssertEqual(t, "end_batch", result.Data["action"])
@@ -1090,8 +1067,9 @@ func TestExecutorExtra_ParsePlaybookIter_Good(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	iter, err := p.ParsePlaybookIter(path)
-	core.RequireNoError(t, err)
+	iterResult := p.ParsePlaybookIter(path)
+	core.RequireTrue(t, iterResult.OK)
+	iter := iterResult.Value.(iter.Seq[Play])
 
 	var plays []Play
 	for play := range iter {
@@ -1104,9 +1082,9 @@ func TestExecutorExtra_ParsePlaybookIter_Good(t *core.T) {
 
 func TestExecutorExtra_ParsePlaybookIter_Bad_InvalidFile(t *core.T) {
 	parser := NewParser("/tmp")
-	seq, err := parser.ParsePlaybookIter("/nonexistent.yml")
-	core.AssertError(t, err)
-	core.AssertNil(t, seq)
+	result := parser.ParsePlaybookIter("/nonexistent.yml")
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, resultErrorMessage(result), "read playbook")
 }
 
 func TestExecutorExtra_ParseTasksIter_Good(t *core.T) {
@@ -1123,8 +1101,9 @@ func TestExecutorExtra_ParseTasksIter_Good(t *core.T) {
 	core.RequireNoError(t, writeTestFile(path, []byte(yaml), 0644))
 
 	p := NewParser(dir)
-	iter, err := p.ParseTasksIter(path)
-	core.RequireNoError(t, err)
+	iterResult := p.ParseTasksIter(path)
+	core.RequireTrue(t, iterResult.OK)
+	iter := iterResult.Value.(iter.Seq[Task])
 
 	var tasks []Task
 	for task := range iter {
@@ -1136,9 +1115,9 @@ func TestExecutorExtra_ParseTasksIter_Good(t *core.T) {
 
 func TestExecutorExtra_ParseTasksIter_Bad_InvalidFile(t *core.T) {
 	parser := NewParser("/tmp")
-	seq, err := parser.ParseTasksIter("/nonexistent.yml")
-	core.AssertError(t, err)
-	core.AssertNil(t, seq)
+	result := parser.ParseTasksIter("/nonexistent.yml")
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, resultErrorMessage(result), "read tasks")
 }
 
 func TestExecutorExtra_RunIncludeTasks_Good_RelativePath(t *core.T) {

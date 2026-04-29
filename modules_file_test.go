@@ -25,7 +25,7 @@ func newDiffFileClient(initial map[string]string) *diffFileClient {
 	return &diffFileClient{files: files}
 }
 
-func (c *diffFileClient) Run(_ context.Context, cmd string) (string, string, int, error) {
+func (c *diffFileClient) Run(_ context.Context, cmd string) core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -71,10 +71,10 @@ func (c *diffFileClient) Run(_ context.Context, cmd string) (string, string, int
 		}
 	}
 
-	return "", "", 0, nil
+	return commandRunOK("", "", 0)
 }
 
-func (c *diffFileClient) RunScript(_ context.Context, script string) (string, string, int, error) {
+func (c *diffFileClient) RunScript(_ context.Context, script string) core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -86,48 +86,48 @@ func (c *diffFileClient) RunScript(_ context.Context, script string) (string, st
 		c.files[path] = block + "\n"
 	}
 
-	return "", "", 0, nil
+	return commandRunOK("", "", 0)
 }
 
-func (c *diffFileClient) Upload(_ context.Context, local io.Reader, remote string, _ fs.FileMode) error {
+func (c *diffFileClient) Upload(_ context.Context, local io.Reader, remote string, _ fs.FileMode) core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	content, err := io.ReadAll(local)
 	if err != nil {
-		return err
+		return core.Fail(err)
 	}
 	c.files[remote] = string(content)
-	return nil
+	return core.Ok(nil)
 }
 
-func (c *diffFileClient) Download(_ context.Context, remote string) ([]byte, error) {
+func (c *diffFileClient) Download(_ context.Context, remote string) core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	content, ok := c.files[remote]
 	if !ok {
-		return nil, mockError("diffFileClient.Download", "file not found: "+remote)
+		return core.Fail(mockError("diffFileClient.Download", "file not found: "+remote))
 	}
-	return []byte(content), nil
+	return core.Ok([]byte(content))
 }
 
-func (c *diffFileClient) Stat(_ context.Context, path string) (map[string]any, error) {
+func (c *diffFileClient) Stat(_ context.Context, path string) core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if _, ok := c.files[path]; ok {
-		return map[string]any{"exists": true}, nil
+		return core.Ok(map[string]any{"exists": true})
 	}
-	return map[string]any{"exists": false}, nil
+	return core.Ok(map[string]any{"exists": false})
 }
 
-func (c *diffFileClient) FileExists(_ context.Context, path string) (bool, error) {
+func (c *diffFileClient) FileExists(_ context.Context, path string) core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	_, ok := c.files[path]
-	return ok, nil
+	return core.Ok(ok)
 }
 
 func (c *diffFileClient) BecomeState() (bool, string, string) {
@@ -136,7 +136,14 @@ func (c *diffFileClient) BecomeState() (bool, string, string) {
 
 func (c *diffFileClient) SetBecome(bool, string, string) {}
 
-func (c *diffFileClient) Close() error { return nil }
+func (c *diffFileClient) Close() core.Result { return core.Ok(nil) }
+
+func requireDownloadBytes(t *core.T, result core.Result) []byte {
+	core.RequireTrue(t, result.OK)
+	content, ok := result.Value.([]byte)
+	core.RequireTrue(t, ok)
+	return content
+}
 
 // ============================================================
 // Step 1.2: copy / template / file / lineinfile / blockinfile / stat module tests
@@ -190,13 +197,12 @@ func TestModulesFile_ModuleCopy_Good_RemoteSrc(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/remote-source.txt", []byte("remote payload"))
 
-	result, err := e.moduleCopy(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleCopy(context.Background(), mock, map[string]any{
 		"src":        "/tmp/remote-source.txt",
 		"dest":       "/etc/app/remote.txt",
 		"remote_src": true,
-	}, "host1", &Task{})
+	}, "host1", &Task{}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 
 	up := mock.lastUpload()
@@ -341,8 +347,7 @@ func TestModulesFile_ModuleCopy_Good_BackupExistingDest(t *core.T) {
 	core.RequireTrue(t, ok)
 	core.AssertContains(t, backupPath, "/etc/app/config.")
 	core.AssertEqual(t, 2, mock.uploadCount())
-	backupContent, err := mock.Download(context.Background(), backupPath)
-	core.RequireNoError(t, err)
+	backupContent := requireDownloadBytes(t, mock.Download(context.Background(), backupPath))
 	core.AssertEqual(t, []byte("server_name=old"), backupContent)
 }
 
@@ -601,6 +606,7 @@ func TestModulesFile_ModuleLineinfile_Good_ReplaceRegexp(t *core.T) {
 
 func TestModulesFile_ModuleLineinfile_Good_RemoveLine(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
+	mock.addFile("/etc/hosts", []byte("192.168.1.100 oldhost\n127.0.0.1 localhost\n"))
 
 	result, err := moduleLineinfileWithClient(e, mock, map[string]any{
 		pathArgKey: "/etc/hosts",
@@ -639,14 +645,13 @@ func TestModulesFile_ModuleLineinfile_Good_RegexpFallsBackToAppend(t *core.T) {
 func TestModulesFile_ModuleLineinfile_Good_CreateFile(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
-	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleLineinfile(context.Background(), mock, map[string]any{
 		pathArgKey: "/etc/example.conf",
 		"regexp":   "^setting=",
 		"line":     "setting=value",
 		"create":   true,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertTrue(t, mock.hasExecuted(`touch "/etc/example\.conf"`))
 	core.AssertTrue(t, mock.hasExecuted(`sed -i`))
@@ -695,14 +700,13 @@ func TestModulesFile_ModuleLineinfile_Good_BackrefsNoMatchNoAppend(t *core.T) {
 func TestModulesFile_ModuleLineinfile_Good_InsertBeforeAnchor(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
-	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleLineinfile(context.Background(), mock, map[string]any{
 		pathArgKey:     "/etc/example.conf",
 		"line":         "setting=value",
 		"insertbefore": "^# managed settings",
 		"firstmatch":   true,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertTrue(t, mock.hasExecuted(`grep -Eq`))
 	core.AssertTrue(t, mock.hasExecuted(regexp.QuoteMeta("print line; done=1 } print")))
@@ -711,14 +715,13 @@ func TestModulesFile_ModuleLineinfile_Good_InsertBeforeAnchor(t *core.T) {
 func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
-	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleLineinfile(context.Background(), mock, map[string]any{
 		pathArgKey:    "/etc/example.conf",
 		"line":        "setting=value",
 		"insertafter": "^# managed settings",
 		"firstmatch":  true,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertTrue(t, mock.hasExecuted(`grep -Eq`))
 	core.AssertTrue(t, mock.hasExecuted(regexp.QuoteMeta("print; if (!done && $0 ~ re) { print line; done=1 }")))
@@ -727,13 +730,12 @@ func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor(t *core.T) {
 func TestModulesFile_ModuleLineinfile_Good_InsertAfterAnchor_DefaultUsesLastMatch(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
-	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleLineinfile(context.Background(), mock, map[string]any{
 		pathArgKey:    "/etc/example.conf",
 		"line":        "setting=value",
 		"insertafter": "^# managed settings",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertTrue(t, mock.hasExecuted(`grep -Eq`))
 	core.AssertTrue(t, mock.hasExecuted("pos=NR"))
@@ -798,12 +800,11 @@ func TestModulesFile_ModuleLineinfile_Good_ExactLineAlreadyPresentIsNoOp(t *core
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/etc/example.conf", []byte("setting=value\nother=1\n"))
 
-	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleLineinfile(context.Background(), mock, map[string]any{
 		pathArgKey: "/etc/example.conf",
 		"line":     "setting=value",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertContains(t, result.Msg, "already up to date")
 	core.AssertEqual(t, 0, mock.commandCount())
@@ -822,8 +823,7 @@ func TestModulesFile_ModuleLineinfile_Good_SearchStringReplacesMatchingLine(t *c
 	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 
-	after, err := mock.Download(context.Background(), "/etc/ssh/sshd_config")
-	core.RequireNoError(t, err)
+	after := requireDownloadBytes(t, mock.Download(context.Background(), "/etc/ssh/sshd_config"))
 	core.AssertEqual(t, "PermitRootLogin no\nPasswordAuthentication yes\n", string(after))
 }
 
@@ -840,8 +840,7 @@ func TestModulesFile_ModuleLineinfile_Good_SearchStringRemovesMatchingLine(t *co
 	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 
-	after, err := mock.Download(context.Background(), "/etc/ssh/sshd_config")
-	core.RequireNoError(t, err)
+	after := requireDownloadBytes(t, mock.Download(context.Background(), "/etc/ssh/sshd_config"))
 	core.AssertEqual(t, "PasswordAuthentication yes\n", string(after))
 }
 
@@ -850,13 +849,12 @@ func TestModulesFile_ModuleLineinfile_Good_BackupExistingFile(t *core.T) {
 	path := "/etc/example.conf"
 	mock.addFile(path, []byte("setting=old\n"))
 
-	result, err := e.moduleLineinfile(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleLineinfile(context.Background(), mock, map[string]any{
 		pathArgKey: path,
 		"line":     "setting=new",
 		"backup":   true,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 
@@ -864,8 +862,7 @@ func TestModulesFile_ModuleLineinfile_Good_BackupExistingFile(t *core.T) {
 	core.RequireTrue(t, ok)
 	core.AssertContains(t, backupPath, "/etc/example.conf.")
 
-	backupContent, err := mock.Download(context.Background(), backupPath)
-	core.RequireNoError(t, err)
+	backupContent := requireDownloadBytes(t, mock.Download(context.Background(), backupPath))
 	core.AssertEqual(t, []byte("setting=old\n"), backupContent)
 }
 
@@ -877,12 +874,11 @@ func TestModulesFile_ModuleLineinfile_Good_DiffData(t *core.T) {
 		"/etc/example.conf": "setting=old\n",
 	})
 
-	result, err := e.moduleLineinfile(context.Background(), client, map[string]any{
+	result := requireTaskResult(t, e.moduleLineinfile(context.Background(), client, map[string]any{
 		pathArgKey: "/etc/example.conf",
 		"line":     "setting=new",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 
@@ -902,27 +898,24 @@ func TestModulesFile_ModuleReplace_Good_RegexpReplacementWithBackupAndDiff(t *co
 		"/etc/app.conf": "port=8080\nmode=prod\n",
 	})
 
-	result, err := e.moduleReplace(context.Background(), client, map[string]any{
+	result := requireTaskResult(t, e.moduleReplace(context.Background(), client, map[string]any{
 		pathArgKey: "/etc/app.conf",
 		"regexp":   `port=(\d+)`,
 		"replace":  "port=9090",
 		"backup":   true,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 	core.AssertContains(t, result.Data, "backup_file")
 	core.AssertContains(t, result.Data, "diff")
 
-	after, err := client.Download(context.Background(), "/etc/app.conf")
-	core.RequireNoError(t, err)
+	after := requireDownloadBytes(t, client.Download(context.Background(), "/etc/app.conf"))
 	core.AssertEqual(t, "port=9090\nmode=prod\n", string(after))
 
 	backupPath, _ := result.Data["backup_file"].(string)
 	core.RequireNotEmpty(t, backupPath)
-	backup, err := client.Download(context.Background(), backupPath)
-	core.RequireNoError(t, err)
+	backup := requireDownloadBytes(t, client.Download(context.Background(), backupPath))
 	core.AssertEqual(t, "port=8080\nmode=prod\n", string(backup))
 }
 
@@ -932,13 +925,12 @@ func TestModulesFile_ModuleReplace_Good_NoOpWhenPatternMissing(t *core.T) {
 		"/etc/app.conf": "port=8080\n",
 	})
 
-	result, err := e.moduleReplace(context.Background(), client, map[string]any{
+	result := requireTaskResult(t, e.moduleReplace(context.Background(), client, map[string]any{
 		pathArgKey: "/etc/app.conf",
 		"regexp":   `mode=.+`,
 		"replace":  "mode=prod",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertContains(t, result.Msg, "already up to date")
 }
@@ -947,13 +939,13 @@ func TestModulesFile_ModuleReplace_Bad_MissingPath(t *core.T) {
 	e := NewExecutor("/tmp")
 	client := newDiffFileClient(nil)
 
-	_, err := e.moduleReplace(context.Background(), client, map[string]any{
+	result := e.moduleReplace(context.Background(), client, map[string]any{
 		"regexp":  `mode=.+`,
 		"replace": "mode=prod",
 	})
 
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "path required")
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, resultErrorMessage(result), "path required")
 }
 
 // --- blockinfile module ---
@@ -995,15 +987,14 @@ func TestModulesFile_ModuleBlockinfile_Good_CustomMarkers(t *core.T) {
 func TestModulesFile_ModuleBlockinfile_Good_CustomMarkerBeginAndEnd(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
-	result, err := e.moduleBlockinfile(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleBlockinfile(context.Background(), mock, map[string]any{
 		pathArgKey:     "/etc/app.conf",
 		"block":        "setting=value",
 		"marker":       "# {mark} managed by app",
 		"marker_begin": "START",
 		"marker_end":   "STOP",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertTrue(t, mock.hasExecutedMethod("RunScript", "# START managed by app"))
 	core.AssertTrue(t, mock.hasExecutedMethod("RunScript", "# STOP managed by app"))
@@ -1059,23 +1050,21 @@ func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithBackup(t *core.T) {
 	core.RequireTrue(t, ok)
 	core.AssertContains(t, backupPath, "/etc/config.")
 
-	backupContent, err := mock.Download(context.Background(), backupPath)
-	core.RequireNoError(t, err)
+	backupContent := requireDownloadBytes(t, mock.Download(context.Background(), backupPath))
 	core.AssertEqual(t, []byte("before\n# BEGIN ANSIBLE MANAGED BLOCK\nmanaged\n# END ANSIBLE MANAGED BLOCK\nafter\n"), backupContent)
 }
 
 func TestModulesFile_ModuleBlockinfile_Good_RemoveBlockWithCustomMarkerBeginAndEnd(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
-	result, err := e.moduleBlockinfile(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleBlockinfile(context.Background(), mock, map[string]any{
 		pathArgKey:     "/etc/app.conf",
 		"state":        "absent",
 		"marker":       "# {mark} managed by app",
 		"marker_begin": "START",
 		"marker_end":   "STOP",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertTrue(t, mock.hasExecuted(`sed -i '/.*START managed by app/,/.*STOP managed by app/d'`))
 }
@@ -1115,8 +1104,7 @@ func TestModulesFile_ModuleBlockinfile_Good_BackupExistingDest(t *core.T) {
 	core.AssertContains(t, backupPath, "/etc/config.")
 	core.AssertEqual(t, 1, mock.uploadCount())
 
-	backupContent, err := mock.Download(context.Background(), backupPath)
-	core.RequireNoError(t, err)
+	backupContent := requireDownloadBytes(t, mock.Download(context.Background(), backupPath))
 	core.AssertEqual(t, []byte("old block contents"), backupContent)
 }
 
@@ -1128,12 +1116,11 @@ func TestModulesFile_ModuleBlockinfile_Good_DiffData(t *core.T) {
 		"/etc/config": "old block contents\n",
 	})
 
-	result, err := e.moduleBlockinfile(context.Background(), client, map[string]any{
+	result := requireTaskResult(t, e.moduleBlockinfile(context.Background(), client, map[string]any{
 		pathArgKey: "/etc/config",
 		"block":    "new block contents",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertNotNil(t, result.Data)
 
@@ -1409,8 +1396,7 @@ func TestModulesFile_ModuleTemplate_Good_BackupExistingDest(t *core.T) {
 	core.RequireTrue(t, ok)
 	core.AssertContains(t, backupPath, "/etc/app/config.")
 	core.AssertEqual(t, 2, mock.uploadCount())
-	backupContent, err := mock.Download(context.Background(), backupPath)
-	core.RequireNoError(t, err)
+	backupContent := requireDownloadBytes(t, mock.Download(context.Background(), backupPath))
 	core.AssertEqual(t, []byte("server_name=old"), backupContent)
 }
 
@@ -1662,14 +1648,13 @@ func TestModulesFile_ModuleGetURL_Good_Checksum(t *core.T) {
 	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, payload, "", 0)
 
 	sum := sha256.Sum256([]byte(payload))
-	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleGetURL(context.Background(), mock, map[string]any{
 		"url":      "https://downloads.example.com/app.tgz",
 		"dest":     "/tmp/app.tgz",
 		"checksum": "sha256:" + hex.EncodeToString(sum[:]),
 		"mode":     "0600",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, 1, mock.uploadCount())
 
@@ -1686,13 +1671,12 @@ func TestModulesFile_ModuleGetURL_Good_Sha512Checksum(t *core.T) {
 	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, payload, "", 0)
 
 	sum := sha512.Sum512([]byte(payload))
-	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleGetURL(context.Background(), mock, map[string]any{
 		"url":      "https://downloads.example.com/app.tgz",
 		"dest":     "/tmp/app.tgz",
 		"checksum": "sha512:" + hex.EncodeToString(sum[:]),
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, 1, mock.uploadCount())
 
@@ -1711,13 +1695,12 @@ func TestModulesFile_ModuleGetURL_Good_ChecksumFileURL(t *core.T) {
 	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz\.sha256(?:["\s]|$)`, hex.EncodeToString(sum[:])+"  app.tgz\n", "", 0)
 	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz(?:["\s]|$)`, payload, "", 0)
 
-	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleGetURL(context.Background(), mock, map[string]any{
 		"url":      "https://downloads.example.com/app.tgz",
 		"dest":     "/tmp/app.tgz",
 		"checksum": "sha256:" + checksumURL,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertEqual(t, 1, mock.uploadCount())
 
@@ -1731,13 +1714,12 @@ func TestModulesFile_ModuleGetURL_Good_ForceFalseSkipsExistingDestination(t *cor
 	e, mock := newTestExecutorWithMock("host1")
 	mock.addFile("/tmp/app.tgz", []byte("existing artifact"))
 
-	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleGetURL(context.Background(), mock, map[string]any{
 		"url":   "https://downloads.example.com/app.tgz",
 		"dest":  "/tmp/app.tgz",
 		"force": false,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertFalse(t, result.Changed)
 	core.AssertEqual(t, "skipped existing destination: /tmp/app.tgz", result.Msg)
 	core.AssertEqual(t, 0, mock.commandCount())
@@ -1748,13 +1730,12 @@ func TestModulesFile_ModuleGetURL_Good_DisablesProxyUsage(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, "downloaded artifact", "", 0)
 
-	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleGetURL(context.Background(), mock, map[string]any{
 		"url":       "https://downloads.example.com/app.tgz",
 		"dest":      "/tmp/app.tgz",
 		"use_proxy": false,
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Changed)
 	core.AssertTrue(t, mock.hasExecuted(`--noproxy`))
 	core.AssertTrue(t, mock.hasExecuted(`wget --no-proxy`))
@@ -1764,13 +1745,12 @@ func TestModulesFile_ModuleGetURL_Bad_ChecksumMismatch(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*https://downloads\.example\.com/app\.tgz`, "downloaded artifact", "", 0)
 
-	result, err := e.moduleGetURL(context.Background(), mock, map[string]any{
+	result := requireTaskResult(t, e.moduleGetURL(context.Background(), mock, map[string]any{
 		"url":      "https://downloads.example.com/app.tgz",
 		"dest":     "/tmp/app.tgz",
 		"checksum": "sha256:deadbeef",
-	})
+	}))
 
-	core.RequireNoError(t, err)
 	core.AssertTrue(t, result.Failed)
 	core.AssertContains(t, result.Msg, "checksum mismatch")
 	core.AssertEqual(t, 0, mock.uploadCount())

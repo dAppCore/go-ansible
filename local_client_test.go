@@ -8,17 +8,19 @@ import (
 func TestLocalClient_Good_RunAndRunScript(t *core.T) {
 	client := newLocalClient()
 
-	stdout, stderr, rc, err := client.Run(context.Background(), "printf 'hello\\n'")
-	core.RequireNoError(t, err)
-	core.AssertEqual(t, "hello\n", stdout)
-	core.AssertEqual(t, "", stderr)
-	core.AssertEqual(t, 0, rc)
+	run := client.Run(context.Background(), "printf 'hello\\n'")
+	out := commandRunValue(run)
+	core.RequireTrue(t, run.OK)
+	core.AssertEqual(t, "hello\n", out.Stdout)
+	core.AssertEqual(t, "", out.Stderr)
+	core.AssertEqual(t, 0, out.ExitCode)
 
-	stdout, stderr, rc, err = client.RunScript(context.Background(), "printf 'script\\n'")
-	core.RequireNoError(t, err)
-	core.AssertEqual(t, "script\n", stdout)
-	core.AssertEqual(t, "", stderr)
-	core.AssertEqual(t, 0, rc)
+	run = client.RunScript(context.Background(), "printf 'script\\n'")
+	out = commandRunValue(run)
+	core.RequireTrue(t, run.OK)
+	core.AssertEqual(t, "script\n", out.Stdout)
+	core.AssertEqual(t, "", out.Stderr)
+	core.AssertEqual(t, 0, out.ExitCode)
 }
 
 func TestLocalClient_Good_FileOperations(t *core.T) {
@@ -26,20 +28,21 @@ func TestLocalClient_Good_FileOperations(t *core.T) {
 	dir := t.TempDir()
 	path := joinPath(dir, "nested", "file.txt")
 
-	core.RequireNoError(t, client.Upload(context.Background(), newReader("content"), path, 0o644))
+	core.RequireTrue(t, client.Upload(context.Background(), newReader("content"), path, 0o644).OK)
 
-	exists, err := client.FileExists(context.Background(), path)
-	core.RequireNoError(t, err)
-	core.AssertTrue(t, exists)
+	existsResult := client.FileExists(context.Background(), path)
+	core.RequireTrue(t, existsResult.OK)
+	core.AssertTrue(t, existsResult.Value.(bool))
 
-	info, err := client.Stat(context.Background(), path)
-	core.RequireNoError(t, err)
+	infoResult := client.Stat(context.Background(), path)
+	core.RequireTrue(t, infoResult.OK)
+	info := infoResult.Value.(map[string]any)
 	core.AssertEqual(t, true, info["exists"])
 	core.AssertEqual(t, false, info["isdir"])
 
-	content, err := client.Download(context.Background(), path)
-	core.RequireNoError(t, err)
-	core.AssertEqual(t, []byte("content"), content)
+	contentResult := client.Download(context.Background(), path)
+	core.RequireTrue(t, contentResult.OK)
+	core.AssertEqual(t, []byte("content"), contentResult.Value.([]byte))
 }
 
 func TestExecutor_RunTaskOnHost_Good_LocalConnection(t *core.T) {
@@ -164,8 +167,8 @@ func TestLocalClient_Client_SetBecome_Ugly(t *core.T) {
 
 func TestLocalClient_Client_Close_Good(t *core.T) {
 	client := newLocalClient()
-	err := client.Close()
-	core.AssertNoError(t, err)
+	result := client.Close()
+	core.AssertTrue(t, result.OK)
 	core.AssertNotNil(t, client)
 }
 
@@ -173,73 +176,79 @@ func TestLocalClient_Client_Close_Bad(t *core.T) {
 	client := newLocalClient()
 	first := client.Close()
 	second := client.Close()
-	core.AssertNoError(t, first)
-	core.AssertNoError(t, second)
+	core.AssertTrue(t, first.OK)
+	core.AssertTrue(t, second.OK)
 }
 
 func TestLocalClient_Client_Close_Ugly(t *core.T) {
 	client := newLocalClient()
 	client.SetBecome(true, "root", "pw")
-	err := client.Close()
-	core.AssertNoError(t, err)
+	result := client.Close()
+	core.AssertTrue(t, result.OK)
 	core.AssertNotNil(t, client)
 }
 
 func TestLocalClient_Client_Run_Good(t *core.T) {
 	client := newLocalClient()
-	stdout, stderr, code, err := client.Run(context.Background(), "printf local")
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "local", stdout)
-	core.AssertEmpty(t, stderr)
-	core.AssertEqual(t, 0, code)
+	result := client.Run(context.Background(), "printf local")
+	out := commandRunValue(result)
+	core.AssertTrue(t, result.OK)
+	core.AssertEqual(t, "local", out.Stdout)
+	core.AssertEmpty(t, out.Stderr)
+	core.AssertEqual(t, 0, out.ExitCode)
 }
 
 func TestLocalClient_Client_Run_Bad(t *core.T) {
 	client := newLocalClient()
-	stdout, _, code, err := client.Run(context.Background(), "exit 7")
-	core.AssertNoError(t, err)
-	core.AssertEmpty(t, stdout)
-	core.AssertEqual(t, 7, code)
+	result := client.Run(context.Background(), "exit 7")
+	out := commandRunValue(result)
+	core.AssertTrue(t, result.OK)
+	core.AssertEmpty(t, out.Stdout)
+	core.AssertEqual(t, 7, out.ExitCode)
 }
 
 func TestLocalClient_Client_Run_Ugly(t *core.T) {
 	client := newLocalClient()
-	stdout, stderr, code, err := client.Run(context.Background(), "")
-	core.AssertNoError(t, err)
-	core.AssertEmpty(t, stdout)
-	core.AssertEmpty(t, stderr)
-	core.AssertEqual(t, 0, code)
+	result := client.Run(context.Background(), "")
+	out := commandRunValue(result)
+	core.AssertTrue(t, result.OK)
+	core.AssertEmpty(t, out.Stdout)
+	core.AssertEmpty(t, out.Stderr)
+	core.AssertEqual(t, 0, out.ExitCode)
 }
 
 func TestLocalClient_Client_RunScript_Good(t *core.T) {
 	client := newLocalClient()
-	stdout, _, code, err := client.RunScript(context.Background(), "printf script")
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "script", stdout)
-	core.AssertEqual(t, 0, code)
+	result := client.RunScript(context.Background(), "printf script")
+	out := commandRunValue(result)
+	core.AssertTrue(t, result.OK)
+	core.AssertEqual(t, "script", out.Stdout)
+	core.AssertEqual(t, 0, out.ExitCode)
 }
 
 func TestLocalClient_Client_RunScript_Bad(t *core.T) {
 	client := newLocalClient()
-	_, _, code, err := client.RunScript(context.Background(), "exit 9")
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, 9, code)
+	result := client.RunScript(context.Background(), "exit 9")
+	out := commandRunValue(result)
+	core.AssertTrue(t, result.OK)
+	core.AssertEqual(t, 9, out.ExitCode)
 }
 
 func TestLocalClient_Client_RunScript_Ugly(t *core.T) {
 	client := newLocalClient()
-	stdout, stderr, code, err := client.RunScript(context.Background(), "\n")
-	core.AssertNoError(t, err)
-	core.AssertEmpty(t, stdout)
-	core.AssertEmpty(t, stderr)
-	core.AssertEqual(t, 0, code)
+	result := client.RunScript(context.Background(), "\n")
+	out := commandRunValue(result)
+	core.AssertTrue(t, result.OK)
+	core.AssertEmpty(t, out.Stdout)
+	core.AssertEmpty(t, out.Stderr)
+	core.AssertEqual(t, 0, out.ExitCode)
 }
 
 func TestLocalClient_Client_Upload_Good(t *core.T) {
 	client := newLocalClient()
 	path := joinPath(t.TempDir(), "remote.txt")
-	err := client.Upload(context.Background(), newReader("payload"), path, 0o644)
-	core.AssertNoError(t, err)
+	result := client.Upload(context.Background(), newReader("payload"), path, 0o644)
+	core.AssertTrue(t, result.OK)
 	content, readErr := readTestFile(path)
 	core.AssertNoError(t, readErr)
 	core.AssertEqual(t, "payload", string(content))
@@ -247,16 +256,16 @@ func TestLocalClient_Client_Upload_Good(t *core.T) {
 
 func TestLocalClient_Client_Upload_Bad(t *core.T) {
 	client := newLocalClient()
-	err := client.Upload(context.Background(), newReader("payload"), "", 0o644)
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "write remote file")
+	result := client.Upload(context.Background(), newReader("payload"), "", 0o644)
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, result.Error(), "write remote file")
 }
 
 func TestLocalClient_Client_Upload_Ugly(t *core.T) {
 	client := newLocalClient()
 	path := joinPath(t.TempDir(), "nested", "remote.txt")
-	err := client.Upload(context.Background(), newReader(""), path, 0)
-	core.AssertNoError(t, err)
+	result := client.Upload(context.Background(), newReader(""), path, 0)
+	core.AssertTrue(t, result.OK)
 	info, statErr := statTestFile(path)
 	core.AssertNoError(t, statErr)
 	core.AssertEqual(t, core.FileMode(0), info.Mode().Perm())
@@ -266,70 +275,72 @@ func TestLocalClient_Client_Download_Good(t *core.T) {
 	client := newLocalClient()
 	path := joinPath(t.TempDir(), "remote.txt")
 	writeTextFile(t, path, "download")
-	data, err := client.Download(context.Background(), path)
-	core.AssertNoError(t, err)
-	core.AssertEqual(t, "download", string(data))
+	result := client.Download(context.Background(), path)
+	core.AssertTrue(t, result.OK)
+	core.AssertEqual(t, "download", string(result.Value.([]byte)))
 }
 
 func TestLocalClient_Client_Download_Bad(t *core.T) {
 	client := newLocalClient()
-	data, err := client.Download(context.Background(), joinPath(t.TempDir(), "missing.txt"))
-	core.AssertError(t, err)
-	core.AssertNil(t, data)
+	result := client.Download(context.Background(), joinPath(t.TempDir(), "missing.txt"))
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, resultErrorMessage(result), "read remote file")
 }
 
 func TestLocalClient_Client_Download_Ugly(t *core.T) {
 	client := newLocalClient()
-	data, err := client.Download(context.Background(), "")
-	core.AssertError(t, err)
-	core.AssertNil(t, data)
+	result := client.Download(context.Background(), "")
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, resultErrorMessage(result), "read remote file")
 }
 
 func TestLocalClient_Client_FileExists_Good(t *core.T) {
 	client := newLocalClient()
 	path := joinPath(t.TempDir(), "exists.txt")
 	writeTextFile(t, path, "x")
-	exists, err := client.FileExists(context.Background(), path)
-	core.AssertNoError(t, err)
-	core.AssertTrue(t, exists)
+	result := client.FileExists(context.Background(), path)
+	core.AssertTrue(t, result.OK)
+	core.AssertTrue(t, result.Value.(bool))
 }
 
 func TestLocalClient_Client_FileExists_Bad(t *core.T) {
 	client := newLocalClient()
-	exists, err := client.FileExists(context.Background(), joinPath(t.TempDir(), "missing.txt"))
-	core.AssertNoError(t, err)
-	core.AssertFalse(t, exists)
+	result := client.FileExists(context.Background(), joinPath(t.TempDir(), "missing.txt"))
+	core.AssertTrue(t, result.OK)
+	core.AssertFalse(t, result.Value.(bool))
 }
 
 func TestLocalClient_Client_FileExists_Ugly(t *core.T) {
 	client := newLocalClient()
-	exists, err := client.FileExists(context.Background(), string([]byte{'b', 0, 'd'}))
-	core.AssertError(t, err)
-	core.AssertFalse(t, exists)
+	result := client.FileExists(context.Background(), string([]byte{'b', 0, 'd'}))
+	core.AssertFalse(t, result.OK)
 }
 
 func TestLocalClient_Client_Stat_Good(t *core.T) {
 	client := newLocalClient()
 	path := joinPath(t.TempDir(), "exists.txt")
 	writeTextFile(t, path, "x")
-	info, err := client.Stat(context.Background(), path)
-	core.AssertNoError(t, err)
+	result := client.Stat(context.Background(), path)
+	core.AssertTrue(t, result.OK)
+	info := result.Value.(map[string]any)
 	core.AssertEqual(t, true, info["exists"])
 	core.AssertEqual(t, false, info["isdir"])
 }
 
 func TestLocalClient_Client_Stat_Bad(t *core.T) {
 	client := newLocalClient()
-	info, err := client.Stat(context.Background(), joinPath(t.TempDir(), "missing.txt"))
-	core.AssertNoError(t, err)
+	result := client.Stat(context.Background(), joinPath(t.TempDir(), "missing.txt"))
+	core.AssertTrue(t, result.OK)
+	info := result.Value.(map[string]any)
 	core.AssertEqual(t, false, info["exists"])
 }
 
 func TestLocalClient_Client_Stat_Ugly(t *core.T) {
 	client := newLocalClient()
 	dir := t.TempDir()
-	info, err := client.Stat(context.Background(), dir)
-	core.AssertNoError(t, err)
+	result := client.Stat(context.Background(), dir)
+	core.AssertTrue(t, result.OK)
+	info := result.Value.(map[string]any)
 	core.AssertEqual(t, true, info["exists"])
 	core.AssertEqual(t, true, info["isdir"])
 }

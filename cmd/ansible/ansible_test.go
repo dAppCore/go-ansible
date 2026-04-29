@@ -2,6 +2,13 @@ package ansiblecmd
 
 import "dappco.re/go"
 
+func requireCmdResultValue[T any](t *core.T, result core.Result) T {
+	core.RequireTrue(t, result.OK)
+	value, ok := result.Value.(T)
+	core.RequireTrue(t, ok)
+	return value
+}
+
 func TestExtraVars_Good_RepeatableAndCommaSeparated(t *core.T) {
 	opts := core.NewOptions(
 		core.Option{Key: "extra-vars", Value: "version=1.2.3,env=prod"},
@@ -9,8 +16,7 @@ func TestExtraVars_Good_RepeatableAndCommaSeparated(t *core.T) {
 		core.Option{Key: "extra-vars", Value: []string{"build=42"}},
 	)
 
-	vars, err := extraVars(opts)
-	core.RequireNoError(t, err)
+	vars := requireCmdResultValue[map[string]any](t, extraVars(opts))
 
 	core.AssertEqual(t, map[string]any{
 		"version": "1.2.3",
@@ -25,8 +31,7 @@ func TestExtraVars_Good_UsesShortAlias(t *core.T) {
 		core.Option{Key: "e", Value: "version=1.2.3,env=prod"},
 	)
 
-	vars, err := extraVars(opts)
-	core.RequireNoError(t, err)
+	vars := requireCmdResultValue[map[string]any](t, extraVars(opts))
 
 	core.AssertEqual(t, map[string]any{
 		"version": "1.2.3",
@@ -39,8 +44,7 @@ func TestExtraVars_Good_TrimsWhitespaceAroundPairs(t *core.T) {
 		core.Option{Key: "extra-vars", Value: " version = 1.2.3 , env = prod , empty = "},
 	)
 
-	vars, err := extraVars(opts)
-	core.RequireNoError(t, err)
+	vars := requireCmdResultValue[map[string]any](t, extraVars(opts))
 
 	core.AssertEqual(t, map[string]any{
 		"version": "1.2.3",
@@ -55,8 +59,7 @@ func TestExtraVars_Good_IgnoresMalformedPairs(t *core.T) {
 		core.Option{Key: "extra-vars", Value: "also_bad="},
 	)
 
-	vars, err := extraVars(opts)
-	core.RequireNoError(t, err)
+	vars := requireCmdResultValue[map[string]any](t, extraVars(opts))
 
 	core.AssertEqual(t, map[string]any{
 		"keep":     "this",
@@ -69,8 +72,7 @@ func TestExtraVars_Good_ParsesYAMLScalarsInKeyValuePairs(t *core.T) {
 		core.Option{Key: "extra-vars", Value: "enabled=true,count=42,threshold=3.5"},
 	)
 
-	vars, err := extraVars(opts)
-	core.RequireNoError(t, err)
+	vars := requireCmdResultValue[map[string]any](t, extraVars(opts))
 
 	core.AssertEqual(t, map[string]any{
 		"enabled":   true,
@@ -91,8 +93,7 @@ func TestExtraVars_Good_SupportsStructuredYAMLAndJSON(t *core.T) {
 		core.Option{Key: "extra-vars", Value: `{"image":"nginx:latest","replicas":3}`},
 	)
 
-	vars, err := extraVars(opts)
-	core.RequireNoError(t, err)
+	vars := requireCmdResultValue[map[string]any](t, extraVars(opts))
 
 	core.AssertEqual(t, map[string]any{
 		"app": map[string]any{
@@ -113,8 +114,7 @@ func TestExtraVars_Good_LoadsFileReferences(t *core.T) {
 		core.Option{Key: "extra-vars", Value: "@" + path},
 	)
 
-	vars, err := extraVars(opts)
-	core.RequireNoError(t, err)
+	vars := requireCmdResultValue[map[string]any](t, extraVars(opts))
 
 	core.AssertEqual(t, map[string]any{
 		"deploy_env": "prod",
@@ -127,9 +127,9 @@ func TestExtraVars_Bad_MissingFile(t *core.T) {
 		core.Option{Key: "extra-vars", Value: "@/definitely/missing/vars.yml"},
 	)
 
-	_, err := extraVars(opts)
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "read extra vars file")
+	result := extraVars(opts)
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, result.Error(), "read extra vars file")
 }
 
 func TestFirstString_Good_PrefersFirstNonEmptyKey(t *core.T) {
@@ -185,8 +185,7 @@ func TestBuildPlaybookCommandSettings_Good_AppliesFlags(t *core.T) {
 		core.Option{Key: "diff", Value: true},
 	)
 
-	settings, err := buildPlaybookCommandSettings(opts, []string{"-vvv"})
-	core.RequireNoError(t, err)
+	settings := requireCmdResultValue[playbookCommandOptions](t, buildPlaybookCommandSettings(opts, []string{"-vvv"}))
 
 	core.AssertEqual(t, playbookPath, settings.playbookPath)
 	core.AssertEqual(t, dir, settings.basePath)
@@ -214,8 +213,7 @@ func TestBuildPlaybookCommandSettings_Good_MergesRepeatedListFlags(t *core.T) {
 		core.Option{Key: "skip-tags", Value: []string{"flaky,experimental"}},
 	)
 
-	settings, err := buildPlaybookCommandSettings(opts, nil)
-	core.RequireNoError(t, err)
+	settings := requireCmdResultValue[playbookCommandOptions](t, buildPlaybookCommandSettings(opts, nil))
 
 	core.AssertEqual(t, "web1,web2", settings.limit)
 	core.AssertEqual(t, []string{"deploy", "setup", "smoke"}, settings.tags)
@@ -223,10 +221,10 @@ func TestBuildPlaybookCommandSettings_Good_MergesRepeatedListFlags(t *core.T) {
 }
 
 func TestBuildPlaybookCommandSettings_Bad_MissingPlaybook(t *core.T) {
-	_, err := buildPlaybookCommandSettings(core.NewOptions(), nil)
+	result := buildPlaybookCommandSettings(core.NewOptions(), nil)
 
-	core.AssertError(t, err)
-	core.AssertContains(t, err.Error(), "usage: ansible <playbook>")
+	core.AssertFalse(t, result.OK)
+	core.AssertContains(t, result.Error(), "usage: ansible <playbook>")
 }
 
 func TestDiffOutputLines_Good_IncludesPathAndBeforeAfter(t *core.T) {

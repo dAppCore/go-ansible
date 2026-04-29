@@ -5,9 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"regexp"
-	"strconv"
 	"sync"
-	"time"
 
 	core "dappco.re/go"
 )
@@ -132,8 +130,8 @@ func (m *MockSSHClient) addStat(path string, info map[string]any) {
 //
 // Example:
 //
-//	stdout, stderr, rc, err := mock.Run(context.Background(), "echo ok")
-func (m *MockSSHClient) Run(_ context.Context, cmd string) (string, string, int, error) {
+//	result := mock.Run(context.Background(), "echo ok")
+func (m *MockSSHClient) Run(_ context.Context, cmd string) core.Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -143,20 +141,23 @@ func (m *MockSSHClient) Run(_ context.Context, cmd string) (string, string, int,
 	for i := len(m.commands) - 1; i >= 0; i-- {
 		exp := m.commands[i]
 		if exp.pattern.MatchString(cmd) {
-			return exp.stdout, exp.stderr, exp.rc, exp.err
+			if exp.err != nil {
+				return commandRunFail(exp.stdout, exp.stderr, exp.rc, exp.err)
+			}
+			return commandRunOK(exp.stdout, exp.stderr, exp.rc)
 		}
 	}
 
 	// Default: success with empty output
-	return "", "", 0, nil
+	return commandRunOK("", "", 0)
 }
 
 // RunScript simulates executing a script via heredoc.
 //
 // Example:
 //
-//	stdout, stderr, rc, err := mock.RunScript(context.Background(), "echo ok")
-func (m *MockSSHClient) RunScript(_ context.Context, script string) (string, string, int, error) {
+//	result := mock.RunScript(context.Background(), "echo ok")
+func (m *MockSSHClient) RunScript(_ context.Context, script string) core.Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -166,25 +167,28 @@ func (m *MockSSHClient) RunScript(_ context.Context, script string) (string, str
 	for i := len(m.commands) - 1; i >= 0; i-- {
 		exp := m.commands[i]
 		if exp.pattern.MatchString(script) {
-			return exp.stdout, exp.stderr, exp.rc, exp.err
+			if exp.err != nil {
+				return commandRunFail(exp.stdout, exp.stderr, exp.rc, exp.err)
+			}
+			return commandRunOK(exp.stdout, exp.stderr, exp.rc)
 		}
 	}
 
-	return "", "", 0, nil
+	return commandRunOK("", "", 0)
 }
 
 // Upload simulates uploading content to the remote filesystem.
 //
 // Example:
 //
-//	err := mock.Upload(context.Background(), newReader("hello"), "/tmp/hello.txt", 0644)
-func (m *MockSSHClient) Upload(_ context.Context, local io.Reader, remote string, mode fs.FileMode) error {
+//	result := mock.Upload(context.Background(), newReader("hello"), "/tmp/hello.txt", 0644)
+func (m *MockSSHClient) Upload(_ context.Context, local io.Reader, remote string, mode fs.FileMode) core.Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	content, err := io.ReadAll(local)
 	if err != nil {
-		return mockWrap("MockSSHClient.Upload", "mock upload read", err)
+		return core.Fail(mockWrap("MockSSHClient.Upload", "mock upload read", err))
 	}
 
 	m.uploads = append(m.uploads, uploadRecord{
@@ -193,36 +197,36 @@ func (m *MockSSHClient) Upload(_ context.Context, local io.Reader, remote string
 		Mode:    mode,
 	})
 	m.files[remote] = content
-	return nil
+	return core.Ok(nil)
 }
 
 // Download simulates downloading content from the remote filesystem.
 //
 // Example:
 //
-//	data, err := mock.Download(context.Background(), "/tmp/hello.txt")
-func (m *MockSSHClient) Download(_ context.Context, remote string) ([]byte, error) {
+//	result := mock.Download(context.Background(), "/tmp/hello.txt")
+func (m *MockSSHClient) Download(_ context.Context, remote string) core.Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	content, ok := m.files[remote]
 	if !ok {
-		return nil, mockError("MockSSHClient.Download", sprintf("file not found: %s", remote))
+		return core.Fail(mockError("MockSSHClient.Download", sprintf("file not found: %s", remote)))
 	}
-	return content, nil
+	return core.Ok(content)
 }
 
 // FileExists checks if a path exists in the simulated filesystem.
 //
 // Example:
 //
-//	ok, err := mock.FileExists(context.Background(), "/tmp/hello.txt")
-func (m *MockSSHClient) FileExists(_ context.Context, path string) (bool, error) {
+//	result := mock.FileExists(context.Background(), "/tmp/hello.txt")
+func (m *MockSSHClient) FileExists(_ context.Context, path string) core.Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	_, ok := m.files[path]
-	return ok, nil
+	return core.Ok(ok)
 }
 
 // Stat returns stat info from the pre-configured map, or constructs
@@ -230,21 +234,21 @@ func (m *MockSSHClient) FileExists(_ context.Context, path string) (bool, error)
 //
 // Example:
 //
-//	info, err := mock.Stat(context.Background(), "/tmp/hello.txt")
-func (m *MockSSHClient) Stat(_ context.Context, path string) (map[string]any, error) {
+//	result := mock.Stat(context.Background(), "/tmp/hello.txt")
+func (m *MockSSHClient) Stat(_ context.Context, path string) core.Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Check explicit stat results first
 	if info, ok := m.stats[path]; ok {
-		return info, nil
+		return core.Ok(info)
 	}
 
 	// Fall back to file existence
 	if _, ok := m.files[path]; ok {
-		return map[string]any{"exists": true, "isdir": false}, nil
+		return core.Ok(map[string]any{"exists": true, "isdir": false})
 	}
-	return map[string]any{"exists": false}, nil
+	return core.Ok(map[string]any{"exists": false})
 }
 
 // SetBecome records become state changes.
@@ -273,12 +277,12 @@ func (m *MockSSHClient) SetBecome(become bool, user, password string) {
 //
 // Example:
 //
-//	_ = mock.Close()
-func (m *MockSSHClient) Close() error {
+//	result := mock.Close()
+func (m *MockSSHClient) Close() core.Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closed = true
-	return nil
+	return core.Ok(nil)
 }
 
 // BecomeState returns the current privilege escalation settings.
@@ -464,7 +468,7 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 	case "ansible.builtin.group":
 		return moduleGroupWithClient(e, mock, args)
 	case "ansible.builtin.group_by", "group_by":
-		return e.moduleGroupBy(host, args)
+		return taskResultFromResult(e.moduleGroupBy(host, args))
 
 	// Cron
 	case "ansible.builtin.cron":
@@ -479,7 +483,7 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 		return moduleGitWithClient(e, mock, args)
 
 	case "ansible.builtin.wait_for_connection", "wait_for_connection":
-		return e.moduleWaitForConnection(context.Background(), mock, args)
+		return taskResultFromResult(e.moduleWaitForConnection(context.Background(), mock, args))
 
 	// Archive
 	case "ansible.builtin.unarchive":
@@ -488,16 +492,16 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 		return moduleArchiveWithClient(e, mock, args)
 
 	case "ansible.builtin.ping", "ping":
-		return e.modulePing(context.Background(), mock, args)
+		return taskResultFromResult(e.modulePing(context.Background(), mock, args))
 
 	case "ansible.builtin.debug":
-		return e.moduleDebug(host, task, args)
+		return taskResultFromResult(e.moduleDebug(host, task, args))
 
 	case "ansible.builtin.set_fact":
-		return e.moduleSetFact(host, args)
+		return taskResultFromResult(e.moduleSetFact(host, args))
 
 	case "ansible.builtin.setup":
-		return e.moduleSetup(context.Background(), host, mock, args)
+		return taskResultFromResult(e.moduleSetup(context.Background(), host, mock, args))
 
 	// HTTP
 	case "ansible.builtin.uri":
@@ -519,1767 +523,148 @@ func executeModuleWithMock(e *Executor, mock *MockSSHClient, host string, task *
 // --- Module shims that accept the mock interface ---
 // These mirror the module methods but accept our mock instead of *SSHClient.
 
-type sshRunner interface {
-	Run(ctx context.Context, cmd string) (string, string, int, error)
-	RunScript(ctx context.Context, script string) (string, string, int, error)
-	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
-	Download(ctx context.Context, remote string) ([]byte, error)
-}
-
-type sshFileTransferRunner interface {
-	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
-	Download(ctx context.Context, remote string) ([]byte, error)
-}
-
-func moduleShellWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	cmd := getStringArg(args, "_raw_params", "")
-	if cmd == "" {
-		cmd = getStringArg(args, "cmd", "")
-	}
-	if cmd == "" {
-		return nil, mockError("moduleShellWithClient", "shell: no command specified")
-	}
-
-	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
-		cmd = sprintf("cd %q && %s", chdir, cmd)
-	}
-
-	if stdin := getStringArg(args, "stdin", ""); stdin != "" {
-		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
-	}
-
-	stdout, stderr, rc, err := client.RunScript(context.Background(), cmd)
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error(), Stdout: stdout, Stderr: stderr, RC: rc}, nil
-	}
-
-	return &TaskResult{
-		Changed: true,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      rc,
-		Failed:  rc != 0,
-	}, nil
-}
-
-func moduleCommandWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	cmd := buildCommandModuleCommand(args)
-	if cmd == "" {
-		return nil, mockError("moduleCommandWithClient", "command: no command specified")
-	}
-
-	if chdir := getStringArg(args, "chdir", ""); chdir != "" {
-		cmd = sprintf("cd %q && %s", chdir, cmd)
-	}
-
-	if stdin := getStringArg(args, "stdin", ""); stdin != "" {
-		cmd = prefixCommandStdin(cmd, stdin, getBoolArg(args, "stdin_add_newline", true))
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
-	}
-
-	return &TaskResult{
-		Changed: true,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      rc,
-		Failed:  rc != 0,
-	}, nil
-}
-
-func moduleRawWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	cmd := getStringArg(args, "_raw_params", "")
-	if cmd == "" {
-		return nil, mockError("moduleRawWithClient", "raw: no command specified")
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
-	}
-
-	return &TaskResult{
-		Changed: true,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      rc,
-	}, nil
-}
-
-func moduleScriptWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	script := getStringArg(args, "_raw_params", "")
-	if script == "" {
-		return nil, mockError("moduleScriptWithClient", "script: no script specified")
-	}
-
-	content, err := readTestFile(script)
-	if err != nil {
-		return nil, mockWrap("moduleScriptWithClient", "read script", err)
-	}
-
-	stdout, stderr, rc, err := client.RunScript(context.Background(), string(content))
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
-	}
-
-	return &TaskResult{
-		Changed: true,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      rc,
-		Failed:  rc != 0,
-	}, nil
-}
-
-// --- Extended interface for file operations ---
-// File modules need Upload, Stat, FileExists in addition to Run/RunScript.
-
-type sshFileRunner interface {
-	sshRunner
-	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
-	Download(ctx context.Context, remote string) ([]byte, error)
-	Stat(ctx context.Context, path string) (map[string]any, error)
-	FileExists(ctx context.Context, path string) (bool, error)
-}
-
-func mockRemoteFileText(client sshFileRunner, path string) (string, bool) {
-	data, err := client.Download(context.Background(), path)
-	if err != nil {
-		return "", false
-	}
-	return string(data), true
-}
-
-// --- File module shims ---
-
-func moduleCopyWithClient(e *Executor, client sshFileRunner, args map[string]any, host string, task *Task) (*TaskResult, error) {
-	dest := getStringArg(args, "dest", "")
-	if dest == "" {
-		return nil, mockError("moduleCopyWithClient", "copy: dest required")
-	}
-	force := getBoolArg(args, "force", true)
-	backup := getBoolArg(args, "backup", false)
-	remoteSrc := getBoolArg(args, "remote_src", false)
-
-	var content []byte
-	var err error
-
-	if src := getStringArg(args, "src", ""); src != "" {
-		if remoteSrc {
-			content, err = client.Download(context.Background(), src)
-			if err != nil {
-				return nil, mockWrap("moduleCopyWithClient", "download src", err)
-			}
-		} else {
-			content, err = readTestFile(src)
-			if err != nil {
-				return nil, mockWrap("moduleCopyWithClient", "read src", err)
-			}
-		}
-	} else if c := getStringArg(args, "content", ""); c != "" {
-		content = []byte(c)
-	} else {
-		return nil, mockError("moduleCopyWithClient", "copy: src or content required")
-	}
-
-	mode := fs.FileMode(0644)
-	if m := getStringArg(args, "mode", ""); m != "" {
-		if parsed, parseErr := strconv.ParseInt(m, 8, 32); parseErr == nil {
-			mode = fs.FileMode(parsed)
-		}
-	}
-
-	before, hasBefore := mockRemoteFileText(client, dest)
-	if hasBefore && !force {
-		return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
-	}
-	if hasBefore && before == string(content) {
-		if getStringArg(args, "owner", "") == "" && getStringArg(args, "group", "") == "" {
-			return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
-		}
-	}
-
-	var backupPath string
-	if backup && hasBefore {
-		backupPath = sprintf("%s.%s.bak", dest, time.Now().UTC().Format("20060102T150405Z"))
-		if err := client.Upload(context.Background(), newReader(before), backupPath, 0600); err != nil {
+func taskResultFromResult(result core.Result) (*TaskResult, error) {
+	if !result.OK {
+		if err, ok := result.Value.(error); ok {
 			return nil, err
 		}
+		return nil, mockError("taskResultFromResult", result.Error())
 	}
-
-	err = client.Upload(context.Background(), newReader(string(content)), dest, mode)
-	if err != nil {
-		return nil, err
-	}
-
-	// Handle owner/group (best-effort, errors ignored)
-	if owner := getStringArg(args, "owner", ""); owner != "" {
-		_, _, _, _ = client.Run(context.Background(), sprintf("chown %s %q", owner, dest))
-	}
-	if group := getStringArg(args, "group", ""); group != "" {
-		_, _, _, _ = client.Run(context.Background(), sprintf("chgrp %s %q", group, dest))
-	}
-
-	result := &TaskResult{Changed: true, Msg: sprintf("copied to %s", dest)}
-	if backupPath != "" {
-		result.Data = map[string]any{"backup_file": backupPath}
-	}
-	if e.Diff && hasBefore {
-		if result.Data == nil {
-			result.Data = make(map[string]any)
-		}
-		result.Data["diff"] = map[string]any{
-			pathArgKey: dest,
-			"before":   before,
-			"after":    string(content),
-		}
-	}
-	return result, nil
+	taskResult, _ := result.Value.(*TaskResult)
+	return taskResult, nil
 }
 
-func moduleTemplateWithClient(e *Executor, client sshFileRunner, args map[string]any, host string, task *Task) (*TaskResult, error) {
-	src := getStringArg(args, "src", "")
-	dest := getStringArg(args, "dest", "")
-	if src == "" || dest == "" {
-		return nil, mockError("moduleTemplateWithClient", "template: src and dest required")
-	}
-	force := getBoolArg(args, "force", true)
-	backup := getBoolArg(args, "backup", false)
-
-	// Process template
-	content, err := e.TemplateFile(src, host, task)
-	if err != nil {
-		return nil, mockWrap("moduleTemplateWithClient", "template", err)
-	}
-
-	mode := fs.FileMode(0644)
-	if m := getStringArg(args, "mode", ""); m != "" {
-		if parsed, parseErr := strconv.ParseInt(m, 8, 32); parseErr == nil {
-			mode = fs.FileMode(parsed)
-		}
-	}
-
-	before, hasBefore := mockRemoteFileText(client, dest)
-	if hasBefore && !force {
-		return &TaskResult{Changed: false, Msg: sprintf("skipped existing destination: %s", dest)}, nil
-	}
-	if hasBefore && before == content {
-		return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", dest)}, nil
-	}
-
-	var backupPath string
-	if backup && hasBefore {
-		backupPath = sprintf("%s.%s.bak", dest, time.Now().UTC().Format("20060102T150405Z"))
-		if err := client.Upload(context.Background(), newReader(before), backupPath, 0600); err != nil {
-			return nil, err
-		}
-	}
-
-	err = client.Upload(context.Background(), newReader(content), dest, mode)
-	if err != nil {
-		return nil, err
-	}
-
-	result := &TaskResult{Changed: true, Msg: sprintf("templated to %s", dest)}
-	if backupPath != "" {
-		result.Data = map[string]any{"backup_file": backupPath}
-	}
-	if e.Diff && hasBefore {
-		if result.Data == nil {
-			result.Data = make(map[string]any)
-		}
-		result.Data["diff"] = map[string]any{
-			pathArgKey: dest,
-			"before":   before,
-			"after":    content,
-		}
-	}
-	return result, nil
+func requireTaskResult(t *core.T, result core.Result) *TaskResult {
+	taskResult, err := taskResultFromResult(result)
+	core.RequireNoError(t, err)
+	return taskResult
 }
 
-func moduleFileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, pathArgKey, "")
-	if path == "" {
-		path = getStringArg(args, "dest", "")
+func executorForModuleHelper(e *Executor) *Executor {
+	if e != nil {
+		return e
 	}
-	if path == "" {
-		return nil, mockError("moduleFileWithClient", "file: path required")
-	}
-
-	state := getStringArg(args, "state", "file")
-
-	switch state {
-	case "directory":
-		mode := getStringArg(args, "mode", "0755")
-		cmd := sprintf("mkdir -p %q && chmod %s %q", path, mode, path)
-		stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-		}
-
-	case "absent":
-		cmd := sprintf("rm -rf %q", path)
-		_, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
-		}
-
-	case "touch":
-		cmd := sprintf("touch %q", path)
-		_, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
-		}
-
-	case "link":
-		src := getStringArg(args, "src", "")
-		if src == "" {
-			return nil, mockError("moduleFileWithClient", "file: src required for link state")
-		}
-		cmd := sprintf("ln -sf %q %q", src, path)
-		_, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
-		}
-
-	case "hard":
-		src := getStringArg(args, "src", "")
-		if src == "" {
-			return nil, mockError("moduleFileWithClient", "file: src required for hard state")
-		}
-		cmd := sprintf("ln -f %q %q", src, path)
-		_, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
-		}
-
-	case "file":
-		// Ensure file exists and set permissions
-		if mode := getStringArg(args, "mode", ""); mode != "" {
-			_, _, _, _ = client.Run(context.Background(), sprintf("chmod %s %q", mode, path))
-		}
-	}
-
-	// Handle owner/group (best-effort, errors ignored)
-	if owner := getStringArg(args, "owner", ""); owner != "" {
-		_, _, _, _ = client.Run(context.Background(), sprintf("chown %s %q", owner, path))
-	}
-	if group := getStringArg(args, "group", ""); group != "" {
-		_, _, _, _ = client.Run(context.Background(), sprintf("chgrp %s %q", group, path))
-	}
-	if recurse := getBoolArg(args, "recurse", false); recurse {
-		if owner := getStringArg(args, "owner", ""); owner != "" {
-			_, _, _, _ = client.Run(context.Background(), sprintf("chown -R %s %q", owner, path))
-		}
-		if group := getStringArg(args, "group", ""); group != "" {
-			_, _, _, _ = client.Run(context.Background(), sprintf("chgrp -R %s %q", group, path))
-		}
-		if mode := getStringArg(args, "mode", ""); mode != "" {
-			_, _, _, _ = client.Run(context.Background(), sprintf("chmod -R %s %q", mode, path))
-		}
-	}
-
-	return &TaskResult{Changed: true}, nil
+	return NewExecutor("/tmp")
 }
 
-func moduleLineinfileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, pathArgKey, "")
-	if path == "" {
-		path = getStringArg(args, "dest", "")
-	}
-	if path == "" {
-		return nil, mockError("moduleLineinfileWithClient", "lineinfile: path required")
-	}
-
-	before, _ := mockRemoteFileText(client, path)
-
-	line := getStringArg(args, "line", "")
-	regexpArg := getStringArg(args, "regexp", "")
-	searchString := getStringArg(args, "search_string", "")
-	state := getStringArg(args, "state", "present")
-	backup := getBoolArg(args, "backup", false)
-	backrefs := getBoolArg(args, "backrefs", false)
-	insertBefore := getStringArg(args, "insertbefore", "")
-	insertAfter := getStringArg(args, "insertafter", "")
-	firstMatch := getBoolArg(args, "firstmatch", false)
-	var backupPath string
-	ensureBackup := func() error {
-		if !backup || backupPath != "" {
-			return nil
-		}
-
-		before, hasBefore := mockRemoteFileText(client, path)
-		if !hasBefore {
-			return nil
-		}
-
-		backupPath = sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
-		if err := client.Upload(context.Background(), newReader(before), backupPath, 0600); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	if state == "absent" {
-		if searchString != "" {
-			if before == "" || !contains(before, searchString) {
-				return &TaskResult{Changed: false}, nil
-			}
-			if err := ensureBackup(); err != nil {
-				return nil, err
-			}
-			updated, changed := removeLinesContaining(before, searchString)
-			if !changed {
-				return &TaskResult{Changed: false}, nil
-			}
-			if err := client.Upload(context.Background(), newReader(updated), path, 0600); err != nil {
-				return nil, err
-			}
-			result := &TaskResult{Changed: true}
-			if backupPath != "" {
-				result.Data = map[string]any{"backup_file": backupPath}
-			}
-			if after, ok := mockRemoteFileText(client, path); ok && before != after {
-				if result.Data == nil {
-					result.Data = make(map[string]any)
-				}
-				result.Data["diff"] = map[string]any{
-					pathArgKey: path,
-					"before":   before,
-					"after":    after,
-				}
-			}
-			return result, nil
-		}
-
-		if regexpArg != "" {
-			if err := ensureBackup(); err != nil {
-				return nil, err
-			}
-			cmd := sprintf("sed -i '/%s/d' %q", regexpArg, path)
-			_, stderr, rc, _ := client.Run(context.Background(), cmd)
-			if rc != 0 {
-				return &TaskResult{Failed: true, Msg: stderr, RC: rc}, nil
-			}
-		}
-	} else {
-		// state == present
-		if searchString != "" {
-			if before != "" && fileContainsExactLine(before, line) {
-				return &TaskResult{Changed: false, Msg: sprintf("already up to date: %s", path)}, nil
-			}
-
-			if before != "" {
-				updated, changed := replaceFirstLineContaining(before, searchString, line)
-				if changed {
-					if err := ensureBackup(); err != nil {
-						return nil, err
-					}
-					if err := client.Upload(context.Background(), newReader(updated), path, 0600); err != nil {
-						return nil, err
-					}
-					result := &TaskResult{Changed: true}
-					if backupPath != "" {
-						result.Data = map[string]any{"backup_file": backupPath}
-					}
-					if after, ok := mockRemoteFileText(client, path); ok && before != after {
-						if result.Data == nil {
-							result.Data = make(map[string]any)
-						}
-						result.Data["diff"] = map[string]any{
-							pathArgKey: path,
-							"before":   before,
-							"after":    after,
-						}
-					}
-					return result, nil
-				}
-			}
-
-			if err := ensureBackup(); err != nil {
-				return nil, err
-			}
-			if inserted, err := mockInsertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
-				return nil, err
-			} else if inserted {
-				return &TaskResult{Changed: true}, nil
-			}
-
-			updated := line
-			if before != "" {
-				updated = before
-				if updated != "" && !hasSuffix(updated, "\n") {
-					updated += "\n"
-				}
-				updated += line
-			}
-			if before == "" && line != "" {
-				updated = line + "\n"
-			}
-			if err := client.Upload(context.Background(), newReader(updated), path, 0600); err != nil {
-				return nil, err
-			}
-			result := &TaskResult{Changed: true}
-			if backupPath != "" {
-				result.Data = map[string]any{"backup_file": backupPath}
-			}
-			if after, ok := mockRemoteFileText(client, path); ok && before != after {
-				if result.Data == nil {
-					result.Data = make(map[string]any)
-				}
-				result.Data["diff"] = map[string]any{
-					pathArgKey: path,
-					"before":   before,
-					"after":    after,
-				}
-			}
-			return result, nil
-		}
-
-		if regexpArg != "" {
-			// Replace line matching regexp.
-			escapedLine := replaceAll(line, "/", "\\/")
-			sedFlags := "-i"
-			if backrefs {
-				matchCmd := sprintf("grep -Eq %q %q", regexpArg, path)
-				_, _, matchRC, _ := client.Run(context.Background(), matchCmd)
-				if matchRC != 0 {
-					return &TaskResult{Changed: false}, nil
-				}
-				sedFlags = "-E -i"
-			}
-			if err := ensureBackup(); err != nil {
-				return nil, err
-			}
-			cmd := sprintf("sed %s 's/%s/%s/' %q", sedFlags, regexpArg, escapedLine, path)
-			_, _, rc, _ := client.Run(context.Background(), cmd)
-			if rc != 0 {
-				if backrefs {
-					return &TaskResult{Changed: false}, nil
-				}
-				if err := ensureBackup(); err != nil {
-					return nil, err
-				}
-				if inserted, err := mockInsertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
-					return nil, err
-				} else if inserted {
-					return &TaskResult{Changed: true}, nil
-				}
-				// Line not found, append.
-				if err := ensureBackup(); err != nil {
-					return nil, err
-				}
-				cmd = sprintf("echo %q >> %q", line, path)
-				_, _, _, _ = client.Run(context.Background(), cmd)
-			}
-		} else if line != "" {
-			if err := ensureBackup(); err != nil {
-				return nil, err
-			}
-			if inserted, err := mockInsertLineRelativeToMatch(context.Background(), client, path, line, insertBefore, insertAfter, firstMatch); err != nil {
-				return nil, err
-			} else if inserted {
-				return &TaskResult{Changed: true}, nil
-			}
-
-			// Ensure line is present
-			cmd := sprintf("grep -qxF %q %q || echo %q >> %q", line, path, line, path)
-			_, _, _, _ = client.Run(context.Background(), cmd)
-		}
-	}
-
-	result := &TaskResult{Changed: true}
-	if backupPath != "" {
-		result.Data = map[string]any{"backup_file": backupPath}
-	}
-	if after, ok := mockRemoteFileText(client, path); ok && before != after {
-		if result.Data == nil {
-			result.Data = make(map[string]any)
-		}
-		result.Data["diff"] = map[string]any{
-			pathArgKey: path,
-			"before":   before,
-			"after":    after,
-		}
-	}
-
-	return result, nil
+func moduleShellWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleShell(context.Background(), client, args))
 }
 
-func moduleBlockinfileWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, pathArgKey, "")
-	if path == "" {
-		path = getStringArg(args, "dest", "")
-	}
-	if path == "" {
-		return nil, mockError("moduleBlockinfileWithClient", "blockinfile: path required")
-	}
-
-	before, _ := mockRemoteFileText(client, path)
-
-	block := getStringArg(args, "block", "")
-	marker := getStringArg(args, "marker", "# {mark} ANSIBLE MANAGED BLOCK")
-	state := getStringArg(args, "state", "present")
-	create := getBoolArg(args, "create", false)
-	backup := getBoolArg(args, "backup", false)
-	prependNewline := getBoolArg(args, "prepend_newline", false)
-	appendNewline := getBoolArg(args, "append_newline", false)
-
-	beginMarker := replaceN(marker, "{mark}", "BEGIN", 1)
-	endMarker := replaceN(marker, "{mark}", "END", 1)
-
-	var backupPath string
-	if backup {
-		before, hasBefore := mockRemoteFileText(client, path)
-		if hasBefore {
-			backupPath = sprintf("%s.%s.bak", path, time.Now().UTC().Format("20060102T150405Z"))
-			if err := client.Upload(context.Background(), newReader(before), backupPath, 0600); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	if state == "absent" {
-		// Remove block
-		cmd := sprintf("sed -i '/%s/,/%s/d' %q",
-			replaceAll(beginMarker, "/", "\\/"),
-			replaceAll(endMarker, "/", "\\/"),
-			path)
-		_, _, _, _ = client.Run(context.Background(), cmd)
-		result := &TaskResult{Changed: true}
-		if backupPath != "" {
-			result.Data = map[string]any{"backup_file": backupPath}
-		}
-		return result, nil
-	}
-
-	// Create file if needed (best-effort)
-	if create {
-		_, _, _, _ = client.Run(context.Background(), sprintf("touch %q", path))
-	}
-
-	// Remove existing block and add new one
-	escapedBlock := replaceAll(block, "'", "'\\''")
-	blockContent := beginMarker + "\n" + escapedBlock + "\n" + endMarker
-	if prependNewline {
-		blockContent = "\n" + blockContent
-	}
-	if appendNewline {
-		blockContent += "\n"
-	}
-	cmd := sprintf(`
-sed -i '/%s/,/%s/d' %q 2>/dev/null || true
-cat >> %q << 'BLOCK_EOF'
-%s
-BLOCK_EOF
-`, replaceAll(beginMarker, "/", "\\/"),
-		replaceAll(endMarker, "/", "\\/"),
-		path, path, blockContent)
-
-	stdout, stderr, rc, err := client.RunScript(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	result := &TaskResult{Changed: true}
-	if backupPath != "" {
-		result.Data = map[string]any{"backup_file": backupPath}
-	}
-	if after, ok := mockRemoteFileText(client, path); ok && before != after {
-		if result.Data == nil {
-			result.Data = make(map[string]any)
-		}
-		result.Data["diff"] = map[string]any{
-			pathArgKey: path,
-			"before":   before,
-			"after":    after,
-		}
-	}
-
-	return result, nil
+func moduleCommandWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleCommand(context.Background(), client, args))
 }
 
-func mockInsertLineRelativeToMatch(ctx context.Context, client commandRunner, path, line, insertBefore, insertAfter string, firstMatch bool) (bool, error) {
-	if line == "" {
-		return false, nil
-	}
-
-	if insertBefore == "BOF" {
-		cmd := sprintf("tmp=$(mktemp) && { printf %%s %s; cat %q; } > \"$tmp\" && mv \"$tmp\" %q", shellSingleQuote(line+"\n"), path, path)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return false, mockWrap("mockInsertLineRelativeToMatch", "insertbefore line", err)
-		}
-		_ = stdout
-		_ = stderr
-		return true, nil
-	}
-
-	if insertAfter == "EOF" {
-		cmd := sprintf("echo %q >> %q", line, path)
-		stdout, stderr, rc, err := client.Run(ctx, cmd)
-		if err != nil || rc != 0 {
-			return false, mockWrap("mockInsertLineRelativeToMatch", "insertafter line", err)
-		}
-		_ = stdout
-		_ = stderr
-		return true, nil
-	}
-
-	if insertBefore != "" {
-		matchCmd := sprintf("grep -Eq %q %q", insertBefore, path)
-		_, _, matchRC, _ := client.Run(ctx, matchCmd)
-		if matchRC == 0 {
-			cmd := mockBuildLineinfileInsertCommand(path, line, insertBefore, false, firstMatch)
-			stdout, stderr, rc, err := client.Run(ctx, cmd)
-			if err != nil || rc != 0 {
-				return false, mockWrap("mockInsertLineRelativeToMatch", "insertbefore line", err)
-			}
-			_ = stdout
-			_ = stderr
-			return true, nil
-		}
-	}
-
-	if insertAfter != "" {
-		matchCmd := sprintf("grep -Eq %q %q", insertAfter, path)
-		_, _, matchRC, _ := client.Run(ctx, matchCmd)
-		if matchRC == 0 {
-			cmd := mockBuildLineinfileInsertCommand(path, line, insertAfter, true, firstMatch)
-			stdout, stderr, rc, err := client.Run(ctx, cmd)
-			if err != nil || rc != 0 {
-				return false, mockWrap("mockInsertLineRelativeToMatch", "insertafter line", err)
-			}
-			_ = stdout
-			_ = stderr
-			return true, nil
-		}
-	}
-
-	return false, nil
+func moduleRawWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleRaw(context.Background(), client, args))
 }
 
-func mockBuildLineinfileInsertCommand(path, line, anchor string, after, firstMatch bool) string {
-	quotedLine := shellSingleQuote(line)
-	quotedAnchor := shellSingleQuote(anchor)
-	if firstMatch {
-		if after {
-			return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{done=0} { print; if (!done && $0 ~ re) { print line; done=1 } }' %q > \"$tmp\" && mv \"$tmp\" %q",
-				quotedLine, quotedAnchor, path, path)
-		}
-
-		return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{done=0} { if (!done && $0 ~ re) { print line; done=1 } print }' %q > \"$tmp\" && mv \"$tmp\" %q",
-			quotedLine, quotedAnchor, path, path)
-	}
-
-	if after {
-		return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{pos=0} { lines[NR]=$0; if ($0 ~ re) { pos=NR } } END { for (i=1; i<=NR; i++) { print lines[i]; if (i==pos) { print line } } }' %q > \"$tmp\" && mv \"$tmp\" %q",
-			quotedLine, quotedAnchor, path, path)
-	}
-
-	return sprintf("tmp=$(mktemp) && awk -v line=%s -v re=%s 'BEGIN{pos=0} { lines[NR]=$0; if ($0 ~ re) { pos=NR } } END { for (i=1; i<=NR; i++) { if (i==pos) { print line } print lines[i] } }' %q > \"$tmp\" && mv \"$tmp\" %q",
-		quotedLine, quotedAnchor, path, path)
+func moduleScriptWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleScript(context.Background(), client, args))
 }
 
-func moduleStatWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	path := getStringArg(args, pathArgKey, "")
-	if path == "" {
-		return nil, mockError("moduleStatWithClient", "stat: path required")
-	}
-
-	stat, err := client.Stat(context.Background(), path)
-	if err != nil {
-		return nil, err
-	}
-
-	return &TaskResult{
-		Changed: false,
-		Data:    map[string]any{"stat": stat},
-	}, nil
+func moduleCopyWithClient(e *Executor, client sshExecutorClient, args map[string]any, host string, task *Task) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleCopy(context.Background(), client, args, host, task))
 }
 
-// --- Service module shims ---
-
-func moduleServiceWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
-	state := getStringArg(args, "state", "")
-	enabled := args["enabled"]
-
-	if name == "" {
-		return nil, mockError("moduleServiceWithClient", "service: name required")
-	}
-
-	var cmds []string
-
-	if state != "" {
-		switch state {
-		case "started":
-			cmds = append(cmds, sprintf("systemctl start %s", name))
-		case "stopped":
-			cmds = append(cmds, sprintf("systemctl stop %s", name))
-		case "restarted":
-			cmds = append(cmds, sprintf("systemctl restart %s", name))
-		case "reloaded":
-			cmds = append(cmds, sprintf("systemctl reload %s", name))
-		}
-	}
-
-	if enabled != nil {
-		if getBoolArg(args, "enabled", false) {
-			cmds = append(cmds, sprintf("systemctl enable %s", name))
-		} else {
-			cmds = append(cmds, sprintf("systemctl disable %s", name))
-		}
-	}
-
-	for _, cmd := range cmds {
-		stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-		}
-	}
-
-	return &TaskResult{Changed: len(cmds) > 0}, nil
+func moduleTemplateWithClient(e *Executor, client sshExecutorClient, args map[string]any, host string, task *Task) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleTemplate(context.Background(), client, args, host, task))
 }
 
-func moduleSystemdWithClient(e *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	if getBoolArg(args, "daemon_reload", false) {
-		_, _, _, _ = client.Run(context.Background(), "systemctl daemon-reload")
-	}
-
-	return moduleServiceWithClient(e, client, args)
+func moduleFileWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleFile(context.Background(), client, args))
 }
 
-// --- Package module shims ---
-
-func moduleAptWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	names := normalizeStringArgs(args["name"])
-	state := getStringArg(args, "state", "present")
-	updateCache := getBoolArg(args, "update_cache", false)
-
-	var cmd string
-
-	if updateCache {
-		_, _, _, _ = client.Run(context.Background(), "apt-get update -qq")
-	}
-
-	switch state {
-	case "present", "installed":
-		if len(names) > 0 {
-			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq %s", join(" ", names))
-		}
-	case "absent", "removed":
-		if len(names) > 0 {
-			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq %s", join(" ", names))
-		}
-	case "latest":
-		if len(names) > 0 {
-			cmd = sprintf("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade %s", join(" ", names))
-		}
-	}
-
-	if cmd == "" {
-		return &TaskResult{Changed: false}, nil
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleLineinfileWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleLineinfile(context.Background(), client, args))
 }
 
-func moduleAptKeyWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	url := getStringArg(args, "url", "")
-	keyring := getStringArg(args, "keyring", "")
-	state := getStringArg(args, "state", "present")
-
-	if state == "absent" {
-		if keyring != "" {
-			_, _, _, _ = client.Run(context.Background(), sprintf("rm -f %q", keyring))
-		}
-		return &TaskResult{Changed: true}, nil
-	}
-
-	if url == "" {
-		return nil, mockError("moduleAptKeyWithClient", "apt_key: url required")
-	}
-
-	var cmd string
-	if keyring != "" {
-		cmd = sprintf("curl -fsSL %q | gpg --dearmor -o %q", url, keyring)
-	} else {
-		cmd = sprintf("curl -fsSL %q | apt-key add -", url)
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleBlockinfileWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleBlockinfile(context.Background(), client, args))
 }
 
-func moduleAptRepositoryWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	repo := getStringArg(args, "repo", "")
-	filename := getStringArg(args, "filename", "")
-	state := getStringArg(args, "state", "present")
-
-	if repo == "" {
-		return nil, mockError("moduleAptRepositoryWithClient", "apt_repository: repo required")
-	}
-
-	if filename == "" {
-		filename = replaceAll(repo, " ", "-")
-		filename = replaceAll(filename, "/", "-")
-		filename = replaceAll(filename, ":", "")
-	}
-
-	path := sprintf("/etc/apt/sources.list.d/%s.list", filename)
-
-	if state == "absent" {
-		_, _, _, _ = client.Run(context.Background(), sprintf("rm -f %q", path))
-		return &TaskResult{Changed: true}, nil
-	}
-
-	cmd := sprintf("echo %q > %q", repo, path)
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	if getBoolArg(args, "update_cache", true) {
-		_, _, _, _ = client.Run(context.Background(), "apt-get update -qq")
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleStatWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleStat(context.Background(), client, args))
 }
 
-func modulePackageWithClient(e *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	stdout, _, _, _ := client.Run(context.Background(), "which apt-get yum dnf 2>/dev/null | head -1")
-	stdout = trimSpace(stdout)
-
-	switch {
-	case contains(stdout, "dnf"):
-		return moduleDnfWithClient(e, client, args)
-	case contains(stdout, "yum"):
-		return moduleYumWithClient(e, client, args)
-	default:
-		return moduleAptWithClient(e, client, args)
-	}
+func moduleServiceWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleService(context.Background(), client, args))
 }
 
-func moduleYumWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	return moduleRPMWithClient(client, args, "yum")
+func moduleSystemdWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleSystemd(context.Background(), client, args))
 }
 
-func moduleDnfWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	return moduleRPMWithClient(client, args, "dnf")
+func moduleAptWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleApt(context.Background(), client, args))
 }
 
-func moduleRPMWithClient(client sshRunner, args map[string]any, manager string) (*TaskResult, error) {
-	names := normalizeStringArgs(args["name"])
-	state := getStringArg(args, "state", "present")
-	updateCache := getBoolArg(args, "update_cache", false)
-
-	if updateCache && manager != "rpm" {
-		_, _, _, _ = client.Run(context.Background(), sprintf("%s makecache -y", manager))
-	}
-
-	var cmd string
-	switch state {
-	case "present", "installed":
-		if len(names) > 0 {
-			if manager == "rpm" {
-				cmd = sprintf("rpm -ivh %s", join(" ", names))
-			} else {
-				cmd = sprintf("%s install -y -q %s", manager, join(" ", names))
-			}
-		}
-	case "absent", "removed":
-		if len(names) > 0 {
-			if manager == "rpm" {
-				cmd = sprintf("rpm -e %s", join(" ", names))
-			} else {
-				cmd = sprintf("%s remove -y -q %s", manager, join(" ", names))
-			}
-		}
-	case "latest":
-		if len(names) > 0 {
-			if manager == "rpm" {
-				cmd = sprintf("rpm -Uvh %s", join(" ", names))
-			} else if manager == "dnf" {
-				cmd = sprintf("%s upgrade -y -q %s", manager, join(" ", names))
-			} else {
-				cmd = sprintf("%s update -y -q %s", manager, join(" ", names))
-			}
-		}
-	}
-
-	if cmd == "" {
-		return &TaskResult{Changed: false}, nil
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleAptKeyWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleAptKey(context.Background(), client, args))
 }
 
-func modulePipWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	names := normalizeStringArgs(args["name"])
-	state := getStringArg(args, "state", "present")
-	executable := getStringArg(args, "executable", "pip3")
-	virtualenv := getStringArg(args, "virtualenv", "")
-	requirements := getStringArg(args, "requirements", "")
-	extraArgs := getStringArg(args, "extra_args", "")
-
-	if virtualenv != "" && executable == "pip3" {
-		executable = joinPath(virtualenv, "bin", "pip")
-	}
-
-	var cmd string
-	switch state {
-	case "present", "installed":
-		parts := []string{executable, "install"}
-		if extraArgs != "" {
-			parts = append(parts, extraArgs)
-		}
-		switch {
-		case requirements != "":
-			parts = append(parts, sprintf("-r %q", requirements))
-		case len(names) > 0:
-			parts = append(parts, join(" ", names))
-		}
-		cmd = join(" ", parts)
-	case "absent", "removed":
-		if len(names) > 0 {
-			parts := []string{executable, "uninstall", "-y"}
-			if extraArgs != "" {
-				parts = append(parts, extraArgs)
-			}
-			parts = append(parts, join(" ", names))
-			cmd = join(" ", parts)
-		}
-	case "latest":
-		if len(names) > 0 {
-			parts := []string{executable, "install", "--upgrade"}
-			if extraArgs != "" {
-				parts = append(parts, extraArgs)
-			}
-			parts = append(parts, join(" ", names))
-			cmd = join(" ", parts)
-		}
-	}
-
-	if cmd == "" {
-		return &TaskResult{Changed: false}, nil
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleAptRepositoryWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleAptRepository(context.Background(), client, args))
 }
 
-// --- User/Group module shims ---
-
-func moduleUserWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
-	state := getStringArg(args, "state", "present")
-	appendGroups := getBoolArg(args, "append", false)
-	local := getBoolArg(args, "local", false)
-
-	if name == "" {
-		return nil, mockError("moduleUserWithClient", "user: name required")
-	}
-
-	if state == "absent" {
-		delCmd := "userdel"
-		if local {
-			delCmd = "luserdel"
-		}
-		cmd := sprintf("%s -r %s 2>/dev/null || true", delCmd, name)
-		_, _, _, _ = client.Run(context.Background(), cmd)
-		return &TaskResult{Changed: true}, nil
-	}
-
-	// Build useradd/usermod command
-	var addOpts []string
-	var modOpts []string
-
-	if uid := getStringArg(args, "uid", ""); uid != "" {
-		addOpts = append(addOpts, "-u", uid)
-		modOpts = append(modOpts, "-u", uid)
-	}
-	if group := getStringArg(args, "group", ""); group != "" {
-		addOpts = append(addOpts, "-g", group)
-		modOpts = append(modOpts, "-g", group)
-	}
-	if groups := normalizeStringArgs(args["groups"]); len(groups) > 0 {
-		addOpts = append(addOpts, "-G", join(",", groups))
-		if appendGroups {
-			modOpts = append(modOpts, "-a")
-		}
-		modOpts = append(modOpts, "-G", join(",", groups))
-	}
-	if home := getStringArg(args, "home", ""); home != "" {
-		addOpts = append(addOpts, "-d", home)
-		modOpts = append(modOpts, "-d", home)
-	}
-	if shell := getStringArg(args, "shell", ""); shell != "" {
-		addOpts = append(addOpts, "-s", shell)
-		modOpts = append(modOpts, "-s", shell)
-	}
-	if getBoolArg(args, "system", false) {
-		addOpts = append(addOpts, "-r")
-		modOpts = append(modOpts, "-r")
-	}
-	if getBoolArg(args, "create_home", true) {
-		addOpts = append(addOpts, "-m")
-		modOpts = append(modOpts, "-m")
-	}
-
-	// Try usermod first, then useradd
-	addOptsStr := joinStrings(addOpts, " ")
-	modOptsStr := joinStrings(modOpts, " ")
-	addCmd := "useradd"
-	modCmd := "usermod"
-	if local {
-		addCmd = "luseradd"
-		modCmd = "lusermod"
-	}
-	var cmd string
-	if addOptsStr == "" {
-		cmd = sprintf("id %s >/dev/null 2>&1 || %s %s", name, addCmd, name)
-	} else {
-		cmd = sprintf("id %s >/dev/null 2>&1 && %s %s %s || %s %s %s",
-			name, modCmd, modOptsStr, name, addCmd, addOptsStr, name)
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	return &TaskResult{Changed: true}, nil
+func modulePackageWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).modulePackage(context.Background(), client, args))
 }
 
-func moduleGroupWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
-	state := getStringArg(args, "state", "present")
-	local := getBoolArg(args, "local", false)
-	nonUnique := getBoolArg(args, "non_unique", false)
-
-	if name == "" {
-		return nil, mockError("moduleGroupWithClient", "group: name required")
-	}
-
-	if state == "absent" {
-		delCmd := "groupdel"
-		if local {
-			delCmd = "lgroupdel"
-		}
-		cmd := sprintf("%s %s 2>/dev/null || true", delCmd, name)
-		_, _, _, _ = client.Run(context.Background(), cmd)
-		return &TaskResult{Changed: true}, nil
-	}
-
-	var opts []string
-	if gid := getStringArg(args, "gid", ""); gid != "" {
-		opts = append(opts, "-g", gid)
-	}
-	if getBoolArg(args, "system", false) {
-		opts = append(opts, "-r")
-	}
-	if nonUnique {
-		opts = append(opts, "-o")
-	}
-
-	addCmd := "groupadd"
-	if local {
-		addCmd = "lgroupadd"
-	}
-
-	cmd := sprintf("getent group %s >/dev/null 2>&1 || %s %s %s",
-		name, addCmd, joinStrings(opts, " "), name)
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleYumWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleYum(context.Background(), client, args))
 }
 
-// --- Cron module shim ---
-
-func moduleCronWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	name := getStringArg(args, "name", "")
-	job := getStringArg(args, "job", "")
-	state := getStringArg(args, "state", "present")
-	user := getStringArg(args, "user", "root")
-	disabled := getBoolArg(args, "disabled", false)
-	specialTime := getStringArg(args, "special_time", "")
-	backup := getBoolArg(args, "backup", false)
-
-	minute := getStringArg(args, "minute", "*")
-	hour := getStringArg(args, "hour", "*")
-	day := getStringArg(args, "day", "*")
-	month := getStringArg(args, "month", "*")
-	weekday := getStringArg(args, "weekday", "*")
-
-	var backupPath string
-	if backup {
-		stdout, _, rc, err := client.Run(context.Background(), sprintf("crontab -u %s -l 2>/dev/null", user))
-		if err != nil {
-			return nil, err
-		}
-		if rc == 0 && trimSpace(stdout) != "" {
-			backupName := user
-			if backupName == "" {
-				backupName = "root"
-			}
-			if name != "" {
-				backupName += "-" + name
-			}
-			backupName = sanitizeBackupToken(backupName)
-			backupPath = joinPath("/tmp", sprintf("ansible-cron-%s.%s.bak", backupName, time.Now().UTC().Format("20060102T150405Z")))
-			if err := client.Upload(context.Background(), newReader(stdout), backupPath, 0600); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	if state == "absent" {
-		if name != "" {
-			// Remove by name (comment marker)
-			cmd := sprintf("crontab -u %s -l 2>/dev/null | grep -v '# %s' | grep -v '%s' | crontab -u %s -",
-				user, name, job, user)
-			_, _, _, _ = client.Run(context.Background(), cmd)
-		}
-		result := &TaskResult{Changed: true}
-		if backupPath != "" {
-			result.Data = map[string]any{"backup_file": backupPath}
-		}
-		return result, nil
-	}
-
-	// Build cron entry
-	schedule := sprintf("%s %s %s %s %s", minute, hour, day, month, weekday)
-	if specialTime != "" {
-		schedule = "@" + specialTime
-	}
-	entry := sprintf("%s %s # %s", schedule, job, name)
-	if disabled {
-		entry = "# " + entry
-	}
-
-	// Add to crontab
-	cmd := sprintf("(crontab -u %s -l 2>/dev/null | grep -v '# %s' ; echo %q) | crontab -u %s -",
-		user, name, entry, user)
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	result := &TaskResult{Changed: true}
-	if backupPath != "" {
-		result.Data = map[string]any{"backup_file": backupPath}
-	}
-	return result, nil
+func moduleDnfWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleDnf(context.Background(), client, args))
 }
 
-// --- Authorized key module shim ---
-
-func moduleAuthorizedKeyWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	user := getStringArg(args, "user", "")
-	key := getStringArg(args, "key", "")
-	state := getStringArg(args, "state", "present")
-	exclusive := getBoolArg(args, "exclusive", false)
-	manageDir := getBoolArg(args, "manage_dir", true)
-	pathArg := getStringArg(args, pathArgKey, "")
-
-	if user == "" || key == "" {
-		return nil, mockError("moduleAuthorizedKeyWithClient", "authorized_key: user and key required")
-	}
-
-	// Get user's home directory
-	stdout, _, _, err := client.Run(context.Background(), sprintf("getent passwd %s | cut -d: -f6", user))
-	if err != nil {
-		return nil, mockWrap("moduleAuthorizedKeyWithClient", "get home dir", err)
-	}
-	home := trimSpace(stdout)
-	if home == "" {
-		home = "/root"
-		if user != "root" {
-			home = "/home/" + user
-		}
-	}
-
-	authKeysPath := pathArg
-	if authKeysPath == "" {
-		authKeysPath = joinPath(home, ".ssh", "authorized_keys")
-	} else if corexHasPrefix(authKeysPath, "~/") {
-		authKeysPath = joinPath(home, corexTrimPrefix(authKeysPath, "~/"))
-	} else if authKeysPath == "~" {
-		authKeysPath = home
-	}
-	if authKeysPath == "" {
-		authKeysPath = joinPath(home, ".ssh", "authorized_keys")
-	}
-
-	if state == "absent" {
-		// Remove the exact key line when present.
-		cmd := sprintf("if [ -f %q ]; then sed -i '\\|^%s$|d' %q; fi",
-			authKeysPath, sedExactLinePattern(key), authKeysPath)
-		_, _, _, _ = client.Run(context.Background(), cmd)
-		return &TaskResult{Changed: true}, nil
-	}
-
-	if manageDir {
-		// Ensure the parent directory exists (best-effort).
-		_, _, _, _ = client.Run(context.Background(), sprintf("mkdir -p %q && chmod 700 %q && chown %s:%s %q",
-			pathDir(authKeysPath), pathDir(authKeysPath), user, user, pathDir(authKeysPath)))
-	}
-
-	if exclusive {
-		cmd := sprintf("printf '%%s\\n' %q > %q", key, authKeysPath)
-		stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-		}
-
-		_, _, _, _ = client.Run(context.Background(), sprintf("chmod 600 %q && chown %s:%s %q",
-			authKeysPath, user, user, authKeysPath))
-		return &TaskResult{Changed: true}, nil
-	}
-
-	// Add key if not present
-	cmd := sprintf("grep -qF %q %q 2>/dev/null || echo %q >> %q",
-		key, authKeysPath, key, authKeysPath)
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	// Fix permissions (best-effort)
-	_, _, _, _ = client.Run(context.Background(), sprintf("chmod 600 %q && chown %s:%s %q",
-		authKeysPath, user, user, authKeysPath))
-
-	return &TaskResult{Changed: true}, nil
+func moduleRPMWithClient(client sshExecutorClient, args map[string]any, manager string) (*TaskResult, error) {
+	return taskResultFromResult(NewExecutor("/tmp").moduleRPM(context.Background(), client, args, manager))
 }
 
-// --- Git module shim ---
-
-func moduleGitWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	repo := getStringArg(args, "repo", "")
-	dest := getStringArg(args, "dest", "")
-	version := getStringArg(args, "version", "HEAD")
-
-	if repo == "" || dest == "" {
-		return nil, mockError("moduleGitWithClient", "git: repo and dest required")
-	}
-
-	// Check if dest exists
-	exists, _ := client.FileExists(context.Background(), dest+"/.git")
-
-	var cmd string
-	if exists {
-		cmd = sprintf("cd %q && git fetch --all && git checkout --force %q", dest, version)
-	} else {
-		cmd = sprintf("git clone %q %q && cd %q && git checkout %q",
-			repo, dest, dest, version)
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	return &TaskResult{Changed: true}, nil
+func modulePipWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).modulePip(context.Background(), client, args))
 }
 
-// --- Unarchive module shim ---
-
-func moduleUnarchiveWithClient(_ *Executor, client sshFileRunner, args map[string]any) (*TaskResult, error) {
-	src := getStringArg(args, "src", "")
-	dest := getStringArg(args, "dest", "")
-	remote := getBoolArg(args, "remote_src", false)
-
-	if src == "" || dest == "" {
-		return nil, mockError("moduleUnarchiveWithClient", "unarchive: src and dest required")
-	}
-
-	// Create dest directory (best-effort)
-	_, _, _, _ = client.Run(context.Background(), sprintf("mkdir -p %q", dest))
-
-	var cmd string
-	if !remote {
-		// Upload local file first
-		content, err := readTestFile(src)
-		if err != nil {
-			return nil, mockWrap("moduleUnarchiveWithClient", "read src", err)
-		}
-		tmpPath := "/tmp/ansible_unarchive_" + pathBase(src)
-		err = client.Upload(context.Background(), newReader(string(content)), tmpPath, 0644)
-		if err != nil {
-			return nil, err
-		}
-		src = tmpPath
-		defer func() { _, _, _, _ = client.Run(context.Background(), sprintf("rm -f %q", tmpPath)) }()
-	}
-
-	// Detect archive type and extract
-	if hasSuffix(src, ".tar.gz") || hasSuffix(src, ".tgz") {
-		cmd = sprintf("tar -xzf %q -C %q", src, dest)
-	} else if hasSuffix(src, ".tar.xz") {
-		cmd = sprintf("tar -xJf %q -C %q", src, dest)
-	} else if hasSuffix(src, ".tar.bz2") {
-		cmd = sprintf("tar -xjf %q -C %q", src, dest)
-	} else if hasSuffix(src, ".tar") {
-		cmd = sprintf("tar -xf %q -C %q", src, dest)
-	} else if hasSuffix(src, ".zip") {
-		cmd = sprintf("unzip -o %q -d %q", src, dest)
-	} else {
-		cmd = sprintf("tar -xf %q -C %q", src, dest) // Guess tar
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleUserWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleUser(context.Background(), client, args))
 }
 
-func moduleArchiveWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	dest := getStringArg(args, "dest", "")
-	format := lower(getStringArg(args, "format", ""))
-	paths := archivePaths(args)
-
-	if dest == "" || len(paths) == 0 {
-		return nil, mockError("moduleArchiveWithClient", "archive: path and dest required")
-	}
-
-	_, _, _, _ = client.Run(context.Background(), sprintf("mkdir -p %q", pathDir(dest)))
-
-	var cmd string
-	switch {
-	case format == "zip" || hasSuffix(dest, ".zip"):
-		cmd = sprintf("zip -r %q %s", dest, join(" ", quoteArgs(paths)))
-	case format == "gz" || format == "tgz" || hasSuffix(dest, ".tar.gz") || hasSuffix(dest, ".tgz"):
-		cmd = sprintf("tar -czf %q %s", dest, join(" ", quoteArgs(paths)))
-	case format == "bz2" || hasSuffix(dest, ".tar.bz2"):
-		cmd = sprintf("tar -cjf %q %s", dest, join(" ", quoteArgs(paths)))
-	case format == "xz" || hasSuffix(dest, ".tar.xz"):
-		cmd = sprintf("tar -cJf %q %s", dest, join(" ", quoteArgs(paths)))
-	default:
-		cmd = sprintf("tar -cf %q %s", dest, join(" ", quoteArgs(paths)))
-	}
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	if getBoolArg(args, "remove", false) {
-		_, _, _, _ = client.Run(context.Background(), sprintf("rm -rf %s", join(" ", quoteArgs(paths))))
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleGroupWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleGroup(context.Background(), client, args))
 }
 
-// --- URI module shim ---
-
-func moduleURIWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	url := getStringArg(args, "url", "")
-	method := getStringArg(args, "method", "GET")
-	bodyFormat := lower(getStringArg(args, "body_format", ""))
-	returnContent := getBoolArg(args, "return_content", false)
-	dest := getStringArg(args, "dest", "")
-	timeout := getIntArg(args, "timeout", 0)
-	validateCerts := getBoolArg(args, "validate_certs", true)
-	urlUsername := getStringArg(args, "url_username", "")
-	urlPassword := getStringArg(args, "url_password", "")
-	forceBasicAuth := getBoolArg(args, "force_basic_auth", false)
-	useProxy := getBoolArg(args, "use_proxy", true)
-	unixSocket := getStringArg(args, "unix_socket", "")
-	followRedirects := lower(getStringArg(args, "follow_redirects", "safe"))
-	src := getStringArg(args, "src", "")
-
-	if url == "" {
-		return nil, mockError("moduleURIWithClient", "uri: url required")
-	}
-
-	var curlOpts []string
-	curlOpts = append(curlOpts, "-s", "-S")
-	curlOpts = append(curlOpts, "-X", method)
-
-	if urlUsername != "" || urlPassword != "" {
-		curlOpts = append(curlOpts, "-u", shellQuote(urlUsername+":"+urlPassword))
-		if forceBasicAuth {
-			curlOpts = append(curlOpts, "--basic")
-		}
-	} else if forceBasicAuth {
-		curlOpts = append(curlOpts, "--basic")
-	}
-
-	if unixSocket != "" {
-		curlOpts = append(curlOpts, "--unix-socket", shellQuote(unixSocket))
-	}
-	if !useProxy {
-		curlOpts = append(curlOpts, "--noproxy", shellQuote("*"))
-	}
-
-	// Headers
-	if headers, ok := args["headers"].(map[string]any); ok {
-		for k, v := range headers {
-			curlOpts = append(curlOpts, "-H", sprintf("%q", sprintf("%s: %v", k, v)))
-		}
-	}
-
-	if !validateCerts {
-		curlOpts = append(curlOpts, "-k")
-	}
-
-	curlOpts = appendURIFollowRedirects(curlOpts, method, followRedirects)
-
-	// Body
-	if src != "" {
-		bodyBytes, err := client.Download(context.Background(), src)
-		if err != nil {
-			return nil, mockWrap("moduleURIWithClient", "download src", err)
-		}
-		curlOpts = append(curlOpts, "-d", sprintf("%q", string(bodyBytes)))
-	} else if body := args["body"]; body != nil {
-		bodyText, err := renderURIBody(body, bodyFormat)
-		if err != nil {
-			return nil, mockWrap("moduleURIWithClient", "render body", err)
-		}
-		if bodyText != "" {
-			switch bodyFormat {
-			case "form-multipart", "multipart", "multipart-form":
-				multipartFields, err := renderURIBodyMultipart(body)
-				if err != nil {
-					return nil, mockWrap("moduleURIWithClient", "render multipart body", err)
-				}
-				curlOpts = append(curlOpts, multipartFields...)
-			default:
-				curlOpts = append(curlOpts, "-d", sprintf("%q", bodyText))
-				if !hasHeaderIgnoreCase(headersMap(args), "Content-Type") {
-					switch bodyFormat {
-					case "json":
-						curlOpts = append(curlOpts, "-H", "\"Content-Type: application/json\"")
-					case "form-urlencoded", "form_urlencoded", "form":
-						curlOpts = append(curlOpts, "-H", "\"Content-Type: application/x-www-form-urlencoded\"")
-					}
-				}
-			}
-		}
-	}
-
-	if timeout > 0 {
-		curlOpts = append(curlOpts, "--max-time", strconv.Itoa(timeout))
-	}
-
-	// Status code
-	curlOpts = append(curlOpts, "-w", "\\n%{http_code}")
-
-	cmd := sprintf("curl %s %q", joinStrings(curlOpts, " "), url)
-	if !useProxy {
-		cmd = sprintf("curl %s %q || wget --no-proxy -q -O - %q", joinStrings(curlOpts, " "), url, url)
-	}
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil {
-		return &TaskResult{Failed: true, Msg: err.Error()}, nil
-	}
-
-	// Parse status code from last line
-	lines := split(stdout, "\n")
-	statusCode := 0
-	content := ""
-	if len(lines) > 0 {
-		statusText := trimSpace(lines[len(lines)-1])
-		statusCode, _ = strconv.Atoi(statusText)
-		if len(lines) > 1 {
-			content = join("\n", lines[:len(lines)-1])
-		}
-	}
-
-	// Check expected status codes
-	expectedStatuses := normalizeStatusCodes(args["status_code"], 200)
-	failed := rc != 0 || !containsInt(expectedStatuses, statusCode)
-
-	data := map[string]any{"status": statusCode}
-	if returnContent {
-		data["content"] = content
-	}
-
-	if failed {
-		return &TaskResult{
-			Changed: false,
-			Failed:  true,
-			Stdout:  stdout,
-			Stderr:  stderr,
-			RC:      statusCode,
-			Data:    data,
-		}, nil
-	}
-
-	if dest != "" {
-		transferClient, ok := client.(sshFileTransferRunner)
-		if !ok {
-			return nil, mockError("moduleURIWithClient", "uri: file transfer not supported")
-		}
-
-		before, err := transferClient.Download(context.Background(), dest)
-		if err != nil || string(before) != content {
-			if err := transferClient.Upload(context.Background(), newReader(content), dest, 0644); err != nil {
-				return nil, mockWrap("moduleURIWithClient", "upload dest", err)
-			}
-			data["dest"] = dest
-			return &TaskResult{
-				Changed: true,
-				Stdout:  stdout,
-				Stderr:  stderr,
-				RC:      statusCode,
-				Data:    data,
-			}, nil
-		}
-		data["dest"] = dest
-	}
-
-	return &TaskResult{
-		Changed: false,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		RC:      statusCode,
-		Data:    data,
-	}, nil
+func moduleCronWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleCron(context.Background(), client, args))
 }
 
-// --- UFW module shim ---
-
-func moduleUFWWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	rule := getStringArg(args, "rule", "")
-	port := getStringArg(args, "port", "")
-	proto := getStringArg(args, "proto", "tcp")
-	state := getStringArg(args, "state", "")
-	logging := getStringArg(args, "logging", "")
-	deleteRule := getBoolArg(args, "delete", false)
-
-	var cmd string
-
-	// Handle logging configuration.
-	if logging != "" {
-		cmd = sprintf("ufw logging %s", logging)
-		stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-		}
-		return &TaskResult{Changed: true}, nil
-	}
-
-	// Handle state (enable/disable)
-	if state != "" {
-		switch state {
-		case "enabled":
-			cmd = "ufw --force enable"
-		case "disabled":
-			cmd = "ufw disable"
-		case "reloaded":
-			cmd = "ufw reload"
-		case "reset":
-			cmd = "ufw --force reset"
-		}
-		if cmd != "" {
-			stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-			if err != nil || rc != 0 {
-				return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-			}
-			return &TaskResult{Changed: true}, nil
-		}
-	}
-
-	// Handle rule
-	if rule != "" && port != "" {
-		switch rule {
-		case "allow":
-			cmd = sprintf("ufw allow %s/%s", port, proto)
-		case "deny":
-			cmd = sprintf("ufw deny %s/%s", port, proto)
-		case "reject":
-			cmd = sprintf("ufw reject %s/%s", port, proto)
-		case "limit":
-			cmd = sprintf("ufw limit %s/%s", port, proto)
-		}
-		if deleteRule && cmd != "" {
-			cmd = "ufw delete " + corexTrimPrefix(cmd, "ufw ")
-		}
-
-		stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-		if err != nil || rc != 0 {
-			return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-		}
-	}
-
-	return &TaskResult{Changed: true}, nil
+func moduleAuthorizedKeyWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleAuthorizedKey(context.Background(), client, args))
 }
 
-// --- Docker Compose module shim ---
+func moduleGitWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleGit(context.Background(), client, args))
+}
 
-func moduleDockerComposeWithClient(_ *Executor, client sshRunner, args map[string]any) (*TaskResult, error) {
-	projectSrc := getStringArg(args, "project_src", "")
-	state := getStringArg(args, "state", "present")
-	projectName := getStringArg(args, "project_name", "")
-	files := normalizeStringArgs(args["files"])
+func moduleUnarchiveWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleUnarchive(context.Background(), client, args))
+}
 
-	if projectSrc == "" {
-		return nil, mockError("moduleDockerComposeWithClient", "docker_compose: project_src required")
-	}
+func moduleArchiveWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleArchive(context.Background(), client, args))
+}
 
-	var cmdParts []string
-	cmdParts = append(cmdParts, "cd", shellQuote(projectSrc), "&&", "docker", "compose")
-	if projectName != "" {
-		cmdParts = append(cmdParts, "-p", shellQuote(projectName))
-	}
-	for _, file := range files {
-		cmdParts = append(cmdParts, "-f", shellQuote(file))
-	}
+func moduleURIWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleURI(context.Background(), client, args))
+}
 
-	switch state {
-	case "present":
-		cmdParts = append(cmdParts, "up", "-d")
-	case "absent":
-		cmdParts = append(cmdParts, "down")
-	case "stopped":
-		cmdParts = append(cmdParts, "stop")
-	case "restarted":
-		cmdParts = append(cmdParts, "restart")
-	default:
-		cmdParts = append(cmdParts, "up", "-d")
-	}
+func moduleUFWWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleUFW(context.Background(), client, args))
+}
 
-	cmd := join(" ", cmdParts)
-
-	stdout, stderr, rc, err := client.Run(context.Background(), cmd)
-	if err != nil || rc != 0 {
-		return &TaskResult{Failed: true, Msg: stderr, Stdout: stdout, RC: rc}, nil
-	}
-
-	// Heuristic for changed
-	changed := !contains(stdout, "Up to date") && !contains(stderr, "Up to date")
-
-	return &TaskResult{Changed: changed, Stdout: stdout}, nil
+func moduleDockerComposeWithClient(e *Executor, client sshExecutorClient, args map[string]any) (*TaskResult, error) {
+	return taskResultFromResult(executorForModuleHelper(e).moduleDockerCompose(context.Background(), client, args))
 }
 
 // --- String helpers for assertions ---
