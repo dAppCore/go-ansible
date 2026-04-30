@@ -3,6 +3,7 @@ package ansible
 import (
 	"time"
 
+	core "dappco.re/go"
 	coreerr "dappco.re/go/log"
 	"gopkg.in/yaml.v3"
 )
@@ -46,7 +47,9 @@ type Play struct {
 }
 
 // UnmarshalYAML handles play-level aliases such as ansible.builtin.import_playbook.
-func (p *Play) UnmarshalYAML(node *yaml.Node) error {
+func (p *Play) UnmarshalYAML(
+	node *yaml.Node,
+) error {
 	type rawPlay Play
 	var raw rawPlay
 	if err := node.Decode(&raw); err != nil {
@@ -90,8 +93,10 @@ type RoleRef struct {
 // Example:
 //
 //	var ref RoleRef
-//	_ = yaml.Unmarshal([]byte("common"), &ref)
-func (r *RoleRef) UnmarshalYAML(unmarshal func(any) error) error {
+//	result := yaml.Unmarshal([]byte("common"), &ref)
+func (r *RoleRef) UnmarshalYAML(unmarshal func(
+	any) error,
+) error {
 	// Try string first
 	var s string
 	if err := unmarshal(&s); err == nil {
@@ -252,7 +257,9 @@ type Inventory struct {
 
 // UnmarshalYAML supports both the explicit `all:` root and inventories that
 // declare top-level groups directly.
-func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
+func (i *Inventory) UnmarshalYAML(unmarshal func(
+	any) error,
+) error {
 	var raw map[string]any
 	if err := unmarshal(&raw); err != nil {
 		return err
@@ -262,10 +269,11 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
 	rootInput := make(map[string]any)
 	hostVars := make(map[string]map[string]any)
 	if all, ok := raw["all"]; ok {
-		group, err := decodeInventoryGroupValue(all)
-		if err != nil {
-			return coreerr.E("Inventory.UnmarshalYAML", "decode all group", err)
+		groupResult := decodeInventoryGroupValue(all)
+		if !groupResult.OK {
+			return coreerr.E("Inventory.UnmarshalYAML", "decode all group: "+groupResult.Error(), nil)
 		}
+		group := groupResult.Value.(*InventoryGroup)
 		root = group
 	}
 
@@ -274,10 +282,11 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
 			continue
 		}
 		if name == "host_vars" {
-			decoded, err := decodeInventoryHostVarsValue(value)
-			if err != nil {
-				return coreerr.E("Inventory.UnmarshalYAML", "decode host_vars", err)
+			hostVarsResult := decodeInventoryHostVarsValue(value)
+			if !hostVarsResult.OK {
+				return coreerr.E("Inventory.UnmarshalYAML", "decode host_vars: "+hostVarsResult.Error(), nil)
 			}
+			decoded := hostVarsResult.Value.(map[string]map[string]any)
 			for host, vars := range decoded {
 				if hostVars[host] == nil {
 					hostVars[host] = make(map[string]any, len(vars))
@@ -295,10 +304,11 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
 			continue
 		}
 
-		group, err := decodeInventoryGroupValue(value)
-		if err != nil {
-			return coreerr.E("Inventory.UnmarshalYAML", "decode group "+name, err)
+		groupResult := decodeInventoryGroupValue(value)
+		if !groupResult.OK {
+			return coreerr.E("Inventory.UnmarshalYAML", "decode group "+name+": "+groupResult.Error(), nil)
 		}
+		group := groupResult.Value.(*InventoryGroup)
 
 		if root.Children == nil {
 			root.Children = make(map[string]*InventoryGroup)
@@ -307,10 +317,11 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	if len(rootInput) > 0 {
-		extra, err := decodeInventoryGroupValue(rootInput)
-		if err != nil {
-			return coreerr.E("Inventory.UnmarshalYAML", "decode root group", err)
+		extraResult := decodeInventoryGroupValue(rootInput)
+		if !extraResult.OK {
+			return coreerr.E("Inventory.UnmarshalYAML", "decode root group: "+extraResult.Error(), nil)
 		}
+		extra := extraResult.Value.(*InventoryGroup)
 		mergeInventoryGroups(root, extra)
 	}
 
@@ -319,22 +330,22 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-func decodeInventoryGroupValue(value any) (*InventoryGroup, error) {
+func decodeInventoryGroupValue(value any) core.Result {
 	if value == nil {
-		return &InventoryGroup{}, nil
+		return core.Ok(&InventoryGroup{})
 	}
 
 	data, err := yaml.Marshal(value)
 	if err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
 	var group InventoryGroup
 	if err := yaml.Unmarshal(data, &group); err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
-	return &group, nil
+	return core.Ok(&group)
 }
 
 func mergeInventoryGroups(dst, src *InventoryGroup) {
@@ -365,22 +376,22 @@ func mergeInventoryGroups(dst, src *InventoryGroup) {
 }
 
 // decodeInventoryHostVarsValue normalises top-level host_vars into host maps.
-func decodeInventoryHostVarsValue(value any) (map[string]map[string]any, error) {
+func decodeInventoryHostVarsValue(value any) core.Result {
 	if value == nil {
-		return nil, nil
+		return core.Ok(map[string]map[string]any(nil))
 	}
 
 	data, err := yaml.Marshal(value)
 	if err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
 	var hostVars map[string]map[string]any
 	if err := yaml.Unmarshal(data, &hostVars); err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
-	return hostVars, nil
+	return core.Ok(hostVars)
 }
 
 // InventoryGroup represents a group in inventory.

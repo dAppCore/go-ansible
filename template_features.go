@@ -2,11 +2,9 @@ package ansible
 
 import (
 	"encoding/base64"
-	"path"
 	"reflect"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -77,7 +75,7 @@ func (e *Executor) applyFilterValue(value any, filter string) any {
 	}
 
 	if filter == "upper" {
-		return strings.ToUpper(templateStringify(value))
+		return upper(templateStringify(value))
 	}
 	if filter == "lower" {
 		return lower(templateStringify(value))
@@ -86,10 +84,10 @@ func (e *Executor) applyFilterValue(value any, filter string) any {
 		return corexTrimSpace(templateStringify(value))
 	}
 	if corexHasPrefix(filter, "basename") {
-		return path.Base(templateStringify(value))
+		return pathBase(templateStringify(value))
 	}
 	if corexHasPrefix(filter, "dirname") {
-		return path.Dir(templateStringify(value))
+		return pathDir(templateStringify(value))
 	}
 	if corexHasPrefix(filter, "join(") {
 		separator := ""
@@ -106,7 +104,7 @@ func (e *Executor) applyFilterValue(value any, filter string) any {
 		for _, item := range items {
 			parts = append(parts, templateStringify(item))
 		}
-		return strings.Join(parts, separator)
+		return join(separator, parts)
 	}
 	if filter == "split" || corexHasPrefix(filter, "split(") {
 		separator := ""
@@ -116,7 +114,7 @@ func (e *Executor) applyFilterValue(value any, filter string) any {
 
 		text := templateStringify(value)
 		if separator == "" {
-			parts := strings.Fields(text)
+			parts := fields(text)
 			items := make([]any, len(parts))
 			for i, part := range parts {
 				items[i] = part
@@ -124,7 +122,7 @@ func (e *Executor) applyFilterValue(value any, filter string) any {
 			return items
 		}
 
-		parts := strings.Split(text, separator)
+		parts := split(text, separator)
 		items := make([]any, len(parts))
 		for i, part := range parts {
 			items[i] = part
@@ -198,7 +196,7 @@ func parseTemplateFilterLiteral(filter, name string) (any, bool) {
 		return nil, false
 	}
 
-	raw := strings.TrimSpace(filter[len(name)+1 : len(filter)-1])
+	raw := trimSpace(filter[len(name)+1 : len(filter)-1])
 	if raw == "" {
 		return "", true
 	}
@@ -266,7 +264,7 @@ func templateBool(value any) bool {
 	case bool:
 		return v
 	case string:
-		lowered := lower(strings.TrimSpace(v))
+		lowered := lower(trimSpace(v))
 		return lowered == "true" || lowered == "yes" || lowered == "1"
 	case int:
 		return v != 0
@@ -325,7 +323,7 @@ func templateInt(value any) (int, bool) {
 	case float64:
 		return int(v), true
 	case string:
-		n, err := strconv.Atoi(strings.TrimSpace(v))
+		n, err := strconv.Atoi(trimSpace(v))
 		if err == nil {
 			return n, true
 		}
@@ -366,7 +364,7 @@ func templateFloat(value any) (float64, bool) {
 	case float64:
 		return v, true
 	case string:
-		n, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		n, err := strconv.ParseFloat(trimSpace(v), 64)
 		if err == nil {
 			return n, true
 		}

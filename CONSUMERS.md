@@ -1,6 +1,6 @@
 # Consumers of go-ansible
 
-These modules import `dappco.re/go/core/ansible`:
+These modules import `dappco.re/go/ansible`:
 
 - go-infra
 

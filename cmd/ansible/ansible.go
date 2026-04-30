@@ -2,13 +2,10 @@ package ansiblecmd
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"strconv"
-	"strings"
 	"time"
 
-	"dappco.re/go/core"
+	"dappco.re/go"
 	"dappco.re/go/ansible"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
@@ -120,7 +117,7 @@ func joinedStringOption(opts core.Options, keys ...string) string {
 			filtered = append(filtered, trimmed)
 		}
 	}
-	return strings.Join(filtered, ",")
+	return join(",", filtered)
 }
 
 // verbosityLevel resolves the effective verbosity from parsed options and the
@@ -136,13 +133,13 @@ func verbosityLevel(opts core.Options, rawArgs []string) int {
 		switch {
 		case arg == "-v" || arg == "--verbose":
 			level++
-		case strings.HasPrefix(arg, "--verbose="):
-			if n, err := strconv.Atoi(strings.TrimPrefix(arg, "--verbose=")); err == nil && n > level {
+		case hasPrefix(arg, "--verbose="):
+			if n, err := strconv.Atoi(trimPrefix(arg, "--verbose=")); err == nil && n > level {
 				level = n
 			}
-		case strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--"):
-			short := strings.TrimPrefix(arg, "-")
-			if short != "" && strings.Trim(short, "v") == "" {
+		case hasPrefix(arg, "-") && !hasPrefix(arg, "--"):
+			short := trimPrefix(arg, "-")
+			if short != "" && trimCutset(short, "v") == "" {
 				if n := len([]rune(short)); n > level {
 					level = n
 				}
@@ -154,7 +151,7 @@ func verbosityLevel(opts core.Options, rawArgs []string) int {
 }
 
 // extraVars collects all repeated extra-vars values from Options.
-func extraVars(opts core.Options) (map[string]any, error) {
+func extraVars(opts core.Options) core.Result {
 	vars := make(map[string]any)
 
 	for _, o := range opts.Items() {
@@ -177,57 +174,53 @@ func extraVars(opts core.Options) (map[string]any, error) {
 		}
 
 		for _, value := range values {
-			parsed, err := parseExtraVarsValue(value)
-			if err != nil {
-				return nil, err
+			parsedResult := parseExtraVarsValue(value)
+			if !parsedResult.OK {
+				return parsedResult
 			}
+			parsed := parsedResult.Value.(map[string]any)
 			for key, parsedValue := range parsed {
 				vars[key] = parsedValue
 			}
 		}
 	}
 
-	return vars, nil
+	return core.Ok(vars)
 }
 
-func parseExtraVarsValue(value string) (map[string]any, error) {
+func parseExtraVarsValue(value string) core.Result {
 	trimmed := trimSpace(value)
 	if trimmed == "" {
-		return nil, nil
+		return core.Ok(map[string]any{})
 	}
 
-	if strings.HasPrefix(trimmed, "@") {
-		filePath := trimSpace(strings.TrimPrefix(trimmed, "@"))
+	if hasPrefix(trimmed, "@") {
+		filePath := trimSpace(trimPrefix(trimmed, "@"))
 		if filePath == "" {
-			return nil, coreerr.E("parseExtraVarsValue", "extra vars file path required", nil)
+			return core.Fail(coreerr.E("parseExtraVarsValue", "extra vars file path required", nil))
 		}
 
 		data, err := coreio.Local.Read(filePath)
 		if err != nil {
-			return nil, coreerr.E("parseExtraVarsValue", "read extra vars file", err)
+			return core.Fail(coreerr.E("parseExtraVarsValue", "read extra vars file", err))
 		}
 
 		return parseExtraVarsValue(string(data))
 	}
 
 	if structured, ok := parseStructuredExtraVars(trimmed); ok {
-		return structured, nil
+		return core.Ok(structured)
 	}
 
-	if strings.Contains(trimmed, "=") {
-		return parseKeyValueExtraVars(trimmed), nil
+	if contains(trimmed, "=") {
+		return core.Ok(parseKeyValueExtraVars(trimmed))
 	}
 
-	return nil, nil
+	return core.Ok(map[string]any{})
 }
 
 func parseStructuredExtraVars(value string) (map[string]any, bool) {
 	var parsed map[string]any
-	if json.Valid([]byte(value)) {
-		if err := yaml.Unmarshal([]byte(value), &parsed); err == nil && len(parsed) > 0 {
-			return parsed, true
-		}
-	}
 	if err := yaml.Unmarshal([]byte(value), &parsed); err != nil {
 		return nil, false
 	}
@@ -290,10 +283,10 @@ func resolveSSHTestKeyFile(opts core.Options) string {
 	return opts.String("i")
 }
 
-func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbookCommandOptions, error) {
+func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) core.Result {
 	positional := positionalArgs(opts)
 	if len(positional) < 1 {
-		return playbookCommandOptions{}, coreerr.E("buildPlaybookCommandSettings", "usage: ansible <playbook>", nil)
+		return core.Fail(coreerr.E("buildPlaybookCommandSettings", "usage: ansible <playbook>", nil))
 	}
 	playbookPath := positional[0]
 
@@ -302,31 +295,31 @@ func buildPlaybookCommandSettings(opts core.Options, rawArgs []string) (playbook
 	}
 
 	if !coreio.Local.Exists(playbookPath) {
-		return playbookCommandOptions{}, coreerr.E("buildPlaybookCommandSettings", sprintf("playbook not found: %s", playbookPath), nil)
+		return core.Fail(coreerr.E("buildPlaybookCommandSettings", sprintf("playbook not found: %s", playbookPath), nil))
 	}
 
-	vars, err := extraVars(opts)
-	if err != nil {
-		return playbookCommandOptions{}, coreerr.E("buildPlaybookCommandSettings", "parse extra vars", err)
+	varsResult := extraVars(opts)
+	if !varsResult.OK {
+		return core.Fail(coreerr.E("buildPlaybookCommandSettings", "parse extra vars", varsResult.Value.(error)))
 	}
 
-	return playbookCommandOptions{
+	return core.Ok(playbookCommandOptions{
 		playbookPath: playbookPath,
 		basePath:     pathDir(playbookPath),
 		limit:        joinedStringOption(opts, "limit", "l"),
 		tags:         splitCommaSeparatedOption(joinedStringOption(opts, "tags", "t")),
 		skipTags:     splitCommaSeparatedOption(joinedStringOption(opts, "skip-tags")),
-		extraVars:    vars,
+		extraVars:    varsResult.Value.(map[string]any),
 		verbose:      verbosityLevel(opts, rawArgs),
 		checkMode:    opts.Bool("check"),
 		diff:         opts.Bool("diff"),
-	}, nil
+	})
 }
 
 func diffOutputLines(diff map[string]any) []string {
 	lines := []string{"diff:"}
 
-	if path, ok := diff["path"].(string); ok && path != "" {
+	if path, ok := diff[pathArgKey].(string); ok && path != "" {
 		lines = append(lines, sprintf("path: %s", path))
 	}
 	if before, ok := diff["before"].(string); ok && before != "" {
@@ -339,11 +332,35 @@ func diffOutputLines(diff map[string]any) []string {
 	return lines
 }
 
-func runPlaybookCommand(opts core.Options) core.Result {
-	settings, err := buildPlaybookCommandSettings(opts, os.Args[1:])
-	if err != nil {
-		return core.Result{Value: err}
+func commandResultStdout(result core.Result) string {
+	if values, ok := result.Value.(map[string]any); ok {
+		if stdout, ok := values["stdout"].(string); ok {
+			return stdout
+		}
 	}
+	return ""
+}
+
+func commandResultExitCode(result core.Result) int {
+	if values, ok := result.Value.(map[string]any); ok {
+		if exitCode, ok := values["exitCode"].(int); ok {
+			return exitCode
+		}
+	}
+	return -1
+}
+
+func runPlaybookCommand(opts core.Options) core.Result {
+	args := core.Args()
+	rawArgs := []string(nil)
+	if len(args) > 1 {
+		rawArgs = args[1:]
+	}
+	settingsResult := buildPlaybookCommandSettings(opts, rawArgs)
+	if !settingsResult.OK {
+		return settingsResult
+	}
+	settings := settingsResult.Value.(playbookCommandOptions)
 
 	executor := ansible.NewExecutor(settings.basePath)
 	defer executor.Close()
@@ -366,7 +383,7 @@ func runPlaybookCommand(opts core.Options) core.Result {
 		}
 
 		if !coreio.Local.Exists(inventoryPath) {
-			return core.Result{Value: coreerr.E("runPlaybookCommand", sprintf("inventory not found: %s", inventoryPath), nil)}
+			return core.Fail(coreerr.E("runPlaybookCommand", sprintf("inventory not found: %s", inventoryPath), nil))
 		}
 
 		if coreio.Local.IsDir(inventoryPath) {
@@ -380,7 +397,7 @@ func runPlaybookCommand(opts core.Options) core.Result {
 		}
 
 		if err := executor.SetInventory(inventoryPath); err != nil {
-			return core.Result{Value: coreerr.E("runPlaybookCommand", "load inventory", err)}
+			return core.Fail(coreerr.E("runPlaybookCommand", "load inventory", err))
 		}
 	}
 
@@ -452,19 +469,19 @@ func runPlaybookCommand(opts core.Options) core.Result {
 	print("Running playbook: %s", settings.playbookPath)
 
 	if err := executor.Run(ctx, settings.playbookPath); err != nil {
-		return core.Result{Value: coreerr.E("runPlaybookCommand", "playbook failed", err)}
+		return core.Fail(coreerr.E("runPlaybookCommand", "playbook failed", err))
 	}
 
 	print("")
 	print("Playbook completed in %s", time.Since(start).Round(time.Millisecond))
 
-	return core.Result{OK: true}
+	return core.Ok(nil)
 }
 
 func runSSHTestCommand(opts core.Options) core.Result {
 	positional := positionalArgs(opts)
 	if len(positional) < 1 {
-		return core.Result{Value: coreerr.E("runSSHTestCommand", "usage: ansible test <host>", nil)}
+		return core.Fail(coreerr.E("runSSHTestCommand", "usage: ansible test <host>", nil))
 	}
 	host := positional[0]
 
@@ -479,19 +496,24 @@ func runSSHTestCommand(opts core.Options) core.Result {
 		Timeout:  30 * time.Second,
 	}
 
-	client, err := ansible.NewSSHClient(config)
-	if err != nil {
-		return core.Result{Value: coreerr.E("runSSHTestCommand", "create client", err)}
+	clientResult := ansible.NewSSHClient(config)
+	if !clientResult.OK {
+		return core.Fail(coreerr.E("runSSHTestCommand", "create client", clientResult.Value.(error)))
 	}
-	defer func() { _ = client.Close() }()
+	client := clientResult.Value.(*ansible.SSHClient)
+	defer func() {
+		if r := client.Close(); !r.OK {
+			return
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Test connection
 	start := time.Now()
-	if err := client.Connect(ctx); err != nil {
-		return core.Result{Value: coreerr.E("runSSHTestCommand", "connect failed", err)}
+	if connectResult := client.Connect(ctx); !connectResult.OK {
+		return core.Fail(coreerr.E("runSSHTestCommand", "connect failed", connectResult.Value.(error)))
 	}
 	connectTime := time.Since(start)
 
@@ -501,34 +523,35 @@ func runSSHTestCommand(opts core.Options) core.Result {
 	print("")
 	print("Gathering facts...")
 
-	stdout, _, _, _ := client.Run(ctx, "hostname -f 2>/dev/null || hostname")
+	stdout := commandResultStdout(client.Run(ctx, "hostname -f 2>/dev/null || hostname"))
 	print("  Hostname: %s", trimSpace(stdout))
 
-	stdout, _, _, _ = client.Run(ctx, "cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'\"' -f2")
+	stdout = commandResultStdout(client.Run(ctx, "cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'\"' -f2"))
 	if stdout != "" {
 		print("  OS: %s", trimSpace(stdout))
 	}
 
-	stdout, _, _, _ = client.Run(ctx, "uname -r")
+	stdout = commandResultStdout(client.Run(ctx, "uname -r"))
 	print("  Kernel: %s", trimSpace(stdout))
 
-	stdout, _, _, _ = client.Run(ctx, "uname -m")
+	stdout = commandResultStdout(client.Run(ctx, "uname -m"))
 	print("  Architecture: %s", trimSpace(stdout))
 
-	stdout, _, _, _ = client.Run(ctx, "free -h | grep Mem | awk '{print $2}'")
+	stdout = commandResultStdout(client.Run(ctx, "free -h | grep Mem | awk '{print $2}'"))
 	print("  Memory: %s", trimSpace(stdout))
 
-	stdout, _, _, _ = client.Run(ctx, "df -h / | tail -1 | awk '{print $2 \" total, \" $4 \" available\"}'")
+	stdout = commandResultStdout(client.Run(ctx, "df -h / | tail -1 | awk '{print $2 \" total, \" $4 \" available\"}'"))
 	print("  Disk: %s", trimSpace(stdout))
 
-	stdout, _, _, err = client.Run(ctx, "docker --version 2>/dev/null")
-	if err == nil {
+	dockerResult := client.Run(ctx, "docker --version 2>/dev/null")
+	stdout = commandResultStdout(dockerResult)
+	if dockerResult.OK && commandResultExitCode(dockerResult) == 0 {
 		print("  Docker: %s", trimSpace(stdout))
 	} else {
 		print("  Docker: not installed")
 	}
 
-	stdout, _, _, _ = client.Run(ctx, "docker ps 2>/dev/null | grep -q coolify && echo 'running' || echo 'not running'")
+	stdout = commandResultStdout(client.Run(ctx, "docker ps 2>/dev/null | grep -q coolify && echo 'running' || echo 'not running'"))
 	if trimSpace(stdout) == "running" {
 		print("  Coolify: running")
 	} else {
@@ -538,5 +561,5 @@ func runSSHTestCommand(opts core.Options) core.Result {
 	print("")
 	print("SSH test passed")
 
-	return core.Result{OK: true}
+	return core.Ok(nil)
 }

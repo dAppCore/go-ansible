@@ -1,10 +1,7 @@
 package ansible
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	core "dappco.re/go"
 )
 
 // ============================================================
@@ -13,7 +10,7 @@ import (
 
 // --- service module ---
 
-func TestModulesSvc_ModuleService_Good_Start(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Start(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl start nginx`, "Started", "", 0)
 
@@ -22,14 +19,14 @@ func TestModulesSvc_ModuleService_Good_Start(t *testing.T) {
 		"state": "started",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl start nginx`))
-	assert.Equal(t, 1, mock.commandCount())
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl start nginx`))
+	core.AssertEqual(t, 1, mock.commandCount())
 }
 
-func TestModulesSvc_ModuleService_Good_Stop(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Stop(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl stop nginx`, "", "", 0)
 
@@ -38,13 +35,13 @@ func TestModulesSvc_ModuleService_Good_Stop(t *testing.T) {
 		"state": "stopped",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl stop nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl stop nginx`))
 }
 
-func TestModulesSvc_ModuleService_Good_Restart(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Restart(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl restart docker`, "", "", 0)
 
@@ -53,13 +50,13 @@ func TestModulesSvc_ModuleService_Good_Restart(t *testing.T) {
 		"state": "restarted",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl restart docker`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl restart docker`))
 }
 
-func TestModulesSvc_ModuleService_Good_Reload(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Reload(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl reload nginx`, "", "", 0)
 
@@ -68,13 +65,13 @@ func TestModulesSvc_ModuleService_Good_Reload(t *testing.T) {
 		"state": "reloaded",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl reload nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl reload nginx`))
 }
 
-func TestModulesSvc_ModuleService_Good_Enable(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Enable(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl enable nginx`, "", "", 0)
 
@@ -83,13 +80,13 @@ func TestModulesSvc_ModuleService_Good_Enable(t *testing.T) {
 		"enabled": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl enable nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl enable nginx`))
 }
 
-func TestModulesSvc_ModuleService_Good_Disable(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_Disable(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl disable nginx`, "", "", 0)
 
@@ -98,13 +95,13 @@ func TestModulesSvc_ModuleService_Good_Disable(t *testing.T) {
 		"enabled": false,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl disable nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl disable nginx`))
 }
 
-func TestModulesSvc_ModuleService_Good_StartAndEnable(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_StartAndEnable(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl start nginx`, "", "", 0)
 	mock.expectCommand(`systemctl enable nginx`, "", "", 0)
@@ -115,15 +112,15 @@ func TestModulesSvc_ModuleService_Good_StartAndEnable(t *testing.T) {
 		"enabled": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 2, mock.commandCount())
-	assert.True(t, mock.hasExecuted(`systemctl start nginx`))
-	assert.True(t, mock.hasExecuted(`systemctl enable nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 2, mock.commandCount())
+	core.AssertTrue(t, mock.hasExecuted(`systemctl start nginx`))
+	core.AssertTrue(t, mock.hasExecuted(`systemctl enable nginx`))
 }
 
-func TestModulesSvc_ModuleService_Good_RestartAndDisable(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_RestartAndDisable(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl restart sshd`, "", "", 0)
 	mock.expectCommand(`systemctl disable sshd`, "", "", 0)
@@ -134,15 +131,15 @@ func TestModulesSvc_ModuleService_Good_RestartAndDisable(t *testing.T) {
 		"enabled": false,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 2, mock.commandCount())
-	assert.True(t, mock.hasExecuted(`systemctl restart sshd`))
-	assert.True(t, mock.hasExecuted(`systemctl disable sshd`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 2, mock.commandCount())
+	core.AssertTrue(t, mock.hasExecuted(`systemctl restart sshd`))
+	core.AssertTrue(t, mock.hasExecuted(`systemctl disable sshd`))
 }
 
-func TestModulesSvc_ModuleService_Bad_MissingName(t *testing.T) {
+func TestModulesSvc_ModuleService_Bad_MissingName(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -150,11 +147,11 @@ func TestModulesSvc_ModuleService_Bad_MissingName(t *testing.T) {
 		"state": "started",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "name required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "name required")
 }
 
-func TestModulesSvc_ModuleService_Good_NoStateNoEnabled(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_NoStateNoEnabled(t *core.T) {
 	// When neither state nor enabled is provided, no commands run
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -162,13 +159,13 @@ func TestModulesSvc_ModuleService_Good_NoStateNoEnabled(t *testing.T) {
 		"name": "nginx",
 	})
 
-	require.NoError(t, err)
-	assert.False(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Equal(t, 0, mock.commandCount())
+	core.RequireNoError(t, err)
+	core.AssertFalse(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, 0, mock.commandCount())
 }
 
-func TestModulesSvc_ModuleService_Good_CommandFailure(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_CommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl start.*`, "", "Failed to start nginx.service", 1)
 
@@ -177,13 +174,13 @@ func TestModulesSvc_ModuleService_Good_CommandFailure(t *testing.T) {
 		"state": "started",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "Failed to start nginx.service")
-	assert.Equal(t, 1, result.RC)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "Failed to start nginx.service")
+	core.AssertEqual(t, 1, result.RC)
 }
 
-func TestModulesSvc_ModuleService_Good_FirstCommandFailsSkipsRest(t *testing.T) {
+func TestModulesSvc_ModuleService_Good_FirstCommandFailsSkipsRest(t *core.T) {
 	// When state command fails, enable should not run
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl start`, "", "unit not found", 5)
@@ -194,16 +191,16 @@ func TestModulesSvc_ModuleService_Good_FirstCommandFailsSkipsRest(t *testing.T) 
 		"enabled": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
 	// Only the start command should have been attempted
-	assert.Equal(t, 1, mock.commandCount())
-	assert.False(t, mock.hasExecuted(`systemctl enable`))
+	core.AssertEqual(t, 1, mock.commandCount())
+	core.AssertFalse(t, mock.hasExecuted(`systemctl enable`))
 }
 
 // --- systemd module ---
 
-func TestModulesSvc_ModuleSystemd_Good_DaemonReloadThenStart(t *testing.T) {
+func TestModulesSvc_ModuleSystemd_Good_DaemonReloadThenStart(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl daemon-reload`, "", "", 0)
 	mock.expectCommand(`systemctl start nginx`, "", "", 0)
@@ -214,18 +211,18 @@ func TestModulesSvc_ModuleSystemd_Good_DaemonReloadThenStart(t *testing.T) {
 		"daemon_reload": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 
 	// daemon-reload must run first, then start
 	cmds := mock.executedCommands()
-	require.GreaterOrEqual(t, len(cmds), 2)
-	assert.Contains(t, cmds[0].Cmd, "daemon-reload")
-	assert.Contains(t, cmds[1].Cmd, "systemctl start nginx")
+	core.AssertGreaterOrEqual(t, len(cmds), 2)
+	core.AssertContains(t, cmds[0].Cmd, "daemon-reload")
+	core.AssertContains(t, cmds[1].Cmd, "systemctl start nginx")
 }
 
-func TestModulesSvc_ModuleSystemd_Good_DaemonReloadOnly(t *testing.T) {
+func TestModulesSvc_ModuleSystemd_Good_DaemonReloadOnly(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl daemon-reload`, "", "", 0)
 
@@ -234,16 +231,16 @@ func TestModulesSvc_ModuleSystemd_Good_DaemonReloadOnly(t *testing.T) {
 		"daemon_reload": true,
 	})
 
-	require.NoError(t, err)
+	core.RequireNoError(t, err)
 	// daemon-reload runs, but no state/enabled means no further commands
 	// Changed is false because moduleService returns Changed: len(cmds) > 0
 	// and no cmds were built (no state, no enabled)
-	assert.False(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl daemon-reload`))
+	core.AssertFalse(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl daemon-reload`))
 }
 
-func TestModulesSvc_ModuleSystemd_Good_DelegationToService(t *testing.T) {
+func TestModulesSvc_ModuleSystemd_Good_DelegationToService(t *core.T) {
 	// Without daemon_reload, systemd delegates entirely to service
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl restart docker`, "", "", 0)
@@ -253,15 +250,15 @@ func TestModulesSvc_ModuleSystemd_Good_DelegationToService(t *testing.T) {
 		"state": "restarted",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl restart docker`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl restart docker`))
 	// No daemon-reload should have run
-	assert.False(t, mock.hasExecuted(`daemon-reload`))
+	core.AssertFalse(t, mock.hasExecuted(`daemon-reload`))
 }
 
-func TestModulesSvc_ModuleSystemd_Good_DaemonReloadWithEnable(t *testing.T) {
+func TestModulesSvc_ModuleSystemd_Good_DaemonReloadWithEnable(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl daemon-reload`, "", "", 0)
 	mock.expectCommand(`systemctl enable myapp`, "", "", 0)
@@ -272,16 +269,16 @@ func TestModulesSvc_ModuleSystemd_Good_DaemonReloadWithEnable(t *testing.T) {
 		"daemon_reload": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`systemctl daemon-reload`))
-	assert.True(t, mock.hasExecuted(`systemctl enable myapp`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl daemon-reload`))
+	core.AssertTrue(t, mock.hasExecuted(`systemctl enable myapp`))
 }
 
 // --- apt module ---
 
-func TestModulesSvc_ModuleApt_Good_InstallPresent(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_InstallPresent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq nginx`, "installed", "", 0)
 
@@ -290,13 +287,13 @@ func TestModulesSvc_ModuleApt_Good_InstallPresent(t *testing.T) {
 		"state": "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx`))
 }
 
-func TestModulesSvc_ModuleApt_Good_InstallInstalled(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_InstallInstalled(t *core.T) {
 	// state=installed is an alias for present
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq curl`, "", "", 0)
@@ -306,13 +303,13 @@ func TestModulesSvc_ModuleApt_Good_InstallInstalled(t *testing.T) {
 		"state": "installed",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`apt-get install -y -qq curl`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-get install -y -qq curl`))
 }
 
-func TestModulesSvc_ModuleApt_Good_RemoveAbsent(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_RemoveAbsent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get remove -y -qq nginx`, "", "", 0)
 
@@ -321,13 +318,13 @@ func TestModulesSvc_ModuleApt_Good_RemoveAbsent(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq nginx`))
 }
 
-func TestModulesSvc_ModuleApt_Good_RemoveRemoved(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_RemoveRemoved(t *core.T) {
 	// state=removed is an alias for absent
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get remove -y -qq nginx`, "", "", 0)
@@ -337,12 +334,12 @@ func TestModulesSvc_ModuleApt_Good_RemoveRemoved(t *testing.T) {
 		"state": "removed",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`apt-get remove -y -qq nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-get remove -y -qq nginx`))
 }
 
-func TestModulesSvc_ModuleApt_Good_UpgradeLatest(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_UpgradeLatest(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq --only-upgrade nginx`, "", "", 0)
 
@@ -351,13 +348,13 @@ func TestModulesSvc_ModuleApt_Good_UpgradeLatest(t *testing.T) {
 		"state": "latest",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade nginx`))
 }
 
-func TestModulesSvc_ModuleApt_Good_UpdateCacheBeforeInstall(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_UpdateCacheBeforeInstall(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get update`, "", "", 0)
 	mock.expectCommand(`apt-get install -y -qq nginx`, "", "", 0)
@@ -368,18 +365,18 @@ func TestModulesSvc_ModuleApt_Good_UpdateCacheBeforeInstall(t *testing.T) {
 		"update_cache": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 
 	// apt-get update must run before install
 	cmds := mock.executedCommands()
-	require.GreaterOrEqual(t, len(cmds), 2)
-	assert.Contains(t, cmds[0].Cmd, "apt-get update")
-	assert.Contains(t, cmds[1].Cmd, "apt-get install")
+	core.AssertGreaterOrEqual(t, len(cmds), 2)
+	core.AssertContains(t, cmds[0].Cmd, "apt-get update")
+	core.AssertContains(t, cmds[1].Cmd, "apt-get install")
 }
 
-func TestModulesSvc_ModuleApt_Good_UpdateCacheOnly(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_UpdateCacheOnly(t *core.T) {
 	// update_cache with no name means update only, no install
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -388,14 +385,14 @@ func TestModulesSvc_ModuleApt_Good_UpdateCacheOnly(t *testing.T) {
 		"update_cache": true,
 	})
 
-	require.NoError(t, err)
+	core.RequireNoError(t, err)
 	// No package to install → not changed (cmd is empty)
-	assert.False(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`apt-get update`))
+	core.AssertFalse(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-get update`))
 }
 
-func TestModulesSvc_ModuleApt_Good_CommandFailure(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_CommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install`, "", "E: Unable to locate package badpkg", 100)
 
@@ -404,13 +401,13 @@ func TestModulesSvc_ModuleApt_Good_CommandFailure(t *testing.T) {
 		"state": "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "Unable to locate package")
-	assert.Equal(t, 100, result.RC)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "Unable to locate package")
+	core.AssertEqual(t, 100, result.RC)
 }
 
-func TestModulesSvc_ModuleApt_Good_DefaultStateIsPresent(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_DefaultStateIsPresent(t *core.T) {
 	// If no state is given, default is "present" (install)
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq vim`, "", "", 0)
@@ -419,12 +416,12 @@ func TestModulesSvc_ModuleApt_Good_DefaultStateIsPresent(t *testing.T) {
 		"name": "vim",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`apt-get install -y -qq vim`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-get install -y -qq vim`))
 }
 
-func TestModulesSvc_ModuleApt_Good_InstallMultiplePackages(t *testing.T) {
+func TestModulesSvc_ModuleApt_Good_InstallMultiplePackages(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq nginx curl`, "", "", 0)
 
@@ -432,14 +429,14 @@ func TestModulesSvc_ModuleApt_Good_InstallMultiplePackages(t *testing.T) {
 		"name": []any{"nginx", "curl"},
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`apt-get install -y -qq nginx curl`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-get install -y -qq nginx curl`))
 }
 
 // --- apt_key module ---
 
-func TestModulesSvc_ModuleAptKey_Good_AddWithKeyring(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_AddWithKeyring(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl -fsSL.*gpg --dearmor`, "", "", 0)
 
@@ -448,15 +445,15 @@ func TestModulesSvc_ModuleAptKey_Good_AddWithKeyring(t *testing.T) {
 		"keyring": "/etc/apt/keyrings/example.gpg",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`curl -fsSL`))
-	assert.True(t, mock.hasExecuted(`gpg --dearmor -o`))
-	assert.True(t, mock.containsSubstring("/etc/apt/keyrings/example.gpg"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`curl -fsSL`))
+	core.AssertTrue(t, mock.hasExecuted(`gpg --dearmor -o`))
+	core.AssertTrue(t, mock.containsSubstring("/etc/apt/keyrings/example.gpg"))
 }
 
-func TestModulesSvc_ModuleAptKey_Good_AddWithoutKeyring(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_AddWithoutKeyring(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl -fsSL.*apt-key add -`, "", "", 0)
 
@@ -464,13 +461,13 @@ func TestModulesSvc_ModuleAptKey_Good_AddWithoutKeyring(t *testing.T) {
 		"url": "https://packages.example.com/key.gpg",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`apt-key add -`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-key add -`))
 }
 
-func TestModulesSvc_ModuleAptKey_Good_RemoveKey(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_RemoveKey(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleAptKeyWithClient(e, mock, map[string]any{
@@ -478,14 +475,14 @@ func TestModulesSvc_ModuleAptKey_Good_RemoveKey(t *testing.T) {
 		"state":   "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`rm -f`))
-	assert.True(t, mock.containsSubstring("/etc/apt/keyrings/old.gpg"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`rm -f`))
+	core.AssertTrue(t, mock.containsSubstring("/etc/apt/keyrings/old.gpg"))
 }
 
-func TestModulesSvc_ModuleAptKey_Good_RemoveWithoutKeyring(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_RemoveWithoutKeyring(t *core.T) {
 	// Absent with no keyring — still succeeds, just no rm command
 	e, mock := newTestExecutorWithMock("host1")
 
@@ -493,12 +490,12 @@ func TestModulesSvc_ModuleAptKey_Good_RemoveWithoutKeyring(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.Equal(t, 0, mock.commandCount())
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertEqual(t, 0, mock.commandCount())
 }
 
-func TestModulesSvc_ModuleAptKey_Bad_MissingURL(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Bad_MissingURL(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -506,11 +503,11 @@ func TestModulesSvc_ModuleAptKey_Bad_MissingURL(t *testing.T) {
 		"state": "present",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "url required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "url required")
 }
 
-func TestModulesSvc_ModuleAptKey_Good_CommandFailure(t *testing.T) {
+func TestModulesSvc_ModuleAptKey_Good_CommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl`, "", "curl: (22) 404 Not Found", 22)
 
@@ -519,14 +516,14 @@ func TestModulesSvc_ModuleAptKey_Good_CommandFailure(t *testing.T) {
 		"keyring": "/etc/apt/keyrings/bad.gpg",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "404 Not Found")
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "404 Not Found")
 }
 
 // --- apt_repository module ---
 
-func TestModulesSvc_ModuleAptRepository_Good_AddRepository(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_AddRepository(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo.*sources\.list\.d`, "", "", 0)
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -536,13 +533,13 @@ func TestModulesSvc_ModuleAptRepository_Good_AddRepository(t *testing.T) {
 		"filename": "example",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.containsSubstring("/etc/apt/sources.list.d/example.list"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.containsSubstring("/etc/apt/sources.list.d/example.list"))
 }
 
-func TestModulesSvc_ModuleAptRepository_Good_RemoveRepository(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_RemoveRepository(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 
 	result, err := moduleAptRepositoryWithClient(e, mock, map[string]any{
@@ -551,14 +548,14 @@ func TestModulesSvc_ModuleAptRepository_Good_RemoveRepository(t *testing.T) {
 		"state":    "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`rm -f`))
-	assert.True(t, mock.containsSubstring("example.list"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`rm -f`))
+	core.AssertTrue(t, mock.containsSubstring("example.list"))
 }
 
-func TestModulesSvc_ModuleAptRepository_Good_AddWithUpdateCache(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_AddWithUpdateCache(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -569,15 +566,15 @@ func TestModulesSvc_ModuleAptRepository_Good_AddWithUpdateCache(t *testing.T) {
 		"update_cache": true,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 
 	// update_cache defaults to true, so apt-get update should run
-	assert.True(t, mock.hasExecuted(`apt-get update`))
+	core.AssertTrue(t, mock.hasExecuted(`apt-get update`))
 }
 
-func TestModulesSvc_ModuleAptRepository_Good_AddWithoutUpdateCache(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_AddWithoutUpdateCache(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
 
@@ -587,15 +584,15 @@ func TestModulesSvc_ModuleAptRepository_Good_AddWithoutUpdateCache(t *testing.T)
 		"update_cache": false,
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
 
 	// update_cache=false, so no apt-get update
-	assert.False(t, mock.hasExecuted(`apt-get update`))
+	core.AssertFalse(t, mock.hasExecuted(`apt-get update`))
 }
 
-func TestModulesSvc_ModuleAptRepository_Good_CustomFilename(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_CustomFilename(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -605,12 +602,12 @@ func TestModulesSvc_ModuleAptRepository_Good_CustomFilename(t *testing.T) {
 		"filename": "custom-ppa",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.containsSubstring("/etc/apt/sources.list.d/custom-ppa.list"))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.containsSubstring("/etc/apt/sources.list.d/custom-ppa.list"))
 }
 
-func TestModulesSvc_ModuleAptRepository_Good_AutoGeneratedFilename(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_AutoGeneratedFilename(t *core.T) {
 	// When no filename is given, it auto-generates from the repo string
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
@@ -620,13 +617,13 @@ func TestModulesSvc_ModuleAptRepository_Good_AutoGeneratedFilename(t *testing.T)
 		"repo": "deb https://example.com/repo main",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 	// Filename should be derived from repo: spaces→dashes, slashes→dashes, colons removed
-	assert.True(t, mock.containsSubstring("/etc/apt/sources.list.d/"))
+	core.AssertTrue(t, mock.containsSubstring("/etc/apt/sources.list.d/"))
 }
 
-func TestModulesSvc_ModuleAptRepository_Bad_MissingRepo(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Bad_MissingRepo(t *core.T) {
 	e, _ := newTestExecutorWithMock("host1")
 	mock := NewMockSSHClient()
 
@@ -634,11 +631,11 @@ func TestModulesSvc_ModuleAptRepository_Bad_MissingRepo(t *testing.T) {
 		"filename": "test",
 	})
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "repo required")
+	core.AssertError(t, err)
+	core.AssertContains(t, err.Error(), "repo required")
 }
 
-func TestModulesSvc_ModuleAptRepository_Good_WriteFailure(t *testing.T) {
+func TestModulesSvc_ModuleAptRepository_Good_WriteFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "permission denied", 1)
 
@@ -647,14 +644,14 @@ func TestModulesSvc_ModuleAptRepository_Good_WriteFailure(t *testing.T) {
 		"filename": "test",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "permission denied")
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "permission denied")
 }
 
 // --- package module ---
 
-func TestModulesSvc_ModulePackage_Good_DetectAptAndDelegate(t *testing.T) {
+func TestModulesSvc_ModulePackage_Good_DetectAptAndDelegate(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	// First command: which apt-get returns the path
 	mock.expectCommand(`which apt-get`, "/usr/bin/apt-get", "", 0)
@@ -666,14 +663,14 @@ func TestModulesSvc_ModulePackage_Good_DetectAptAndDelegate(t *testing.T) {
 		"state": "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`which apt-get`))
-	assert.True(t, mock.hasExecuted(`apt-get install -y -qq htop`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`which apt-get`))
+	core.AssertTrue(t, mock.hasExecuted(`apt-get install -y -qq htop`))
 }
 
-func TestModulesSvc_ModulePackage_Good_FallbackToApt(t *testing.T) {
+func TestModulesSvc_ModulePackage_Good_FallbackToApt(t *core.T) {
 	// When which returns nothing (no package manager found), still falls back to apt
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`which apt-get`, "", "", 1)
@@ -684,13 +681,13 @@ func TestModulesSvc_ModulePackage_Good_FallbackToApt(t *testing.T) {
 		"state": "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`apt-get install -y -qq vim`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-get install -y -qq vim`))
 }
 
-func TestModulesSvc_ModulePackage_Good_RemovePackage(t *testing.T) {
+func TestModulesSvc_ModulePackage_Good_RemovePackage(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`which apt-get`, "/usr/bin/apt-get", "", 0)
 	mock.expectCommand(`apt-get remove -y -qq nano`, "", "", 0)
@@ -700,12 +697,12 @@ func TestModulesSvc_ModulePackage_Good_RemovePackage(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`apt-get remove -y -qq nano`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-get remove -y -qq nano`))
 }
 
-func TestModulesSvc_ModulePackage_Good_DetectYumAndDelegate(t *testing.T) {
+func TestModulesSvc_ModulePackage_Good_DetectYumAndDelegate(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`which apt-get yum dnf`, "/usr/bin/yum", "", 0)
 	mock.expectCommand(`yum install -y -q htop`, "", "", 0)
@@ -715,13 +712,13 @@ func TestModulesSvc_ModulePackage_Good_DetectYumAndDelegate(t *testing.T) {
 		"state": "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`yum install -y -q htop`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`yum install -y -q htop`))
 }
 
-func TestModulesSvc_ModulePackage_Good_DetectDnfAndDelegate(t *testing.T) {
+func TestModulesSvc_ModulePackage_Good_DetectDnfAndDelegate(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`which apt-get yum dnf`, "/usr/bin/dnf", "", 0)
 	mock.expectCommand(`dnf upgrade -y -q vim`, "", "", 0)
@@ -731,13 +728,13 @@ func TestModulesSvc_ModulePackage_Good_DetectDnfAndDelegate(t *testing.T) {
 		"state": "latest",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`dnf upgrade -y -q vim`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`dnf upgrade -y -q vim`))
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchYum(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchYum(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`yum install -y -q htop`, "", "", 0)
 
@@ -751,12 +748,12 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchYum(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`yum install -y -q htop`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`yum install -y -q htop`))
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchDnf(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchDnf(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`dnf remove -y -q nano`, "", "", 0)
 
@@ -770,12 +767,12 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchDnf(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`dnf remove -y -q nano`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`dnf remove -y -q nano`))
 }
 
-func TestModulesSvc_ModuleRpm_Good_InstallPackage(t *testing.T) {
+func TestModulesSvc_ModuleRpm_Good_InstallPackage(t *core.T) {
 	mock := NewMockSSHClient()
 	mock.expectCommand(`rpm -ivh /tmp/nginx.rpm`, "", "", 0)
 
@@ -784,13 +781,13 @@ func TestModulesSvc_ModuleRpm_Good_InstallPackage(t *testing.T) {
 		"state": "present",
 	}, "rpm")
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`rpm -ivh /tmp/nginx.rpm`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`rpm -ivh /tmp/nginx.rpm`))
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchRpm(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchRpm(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`rpm -e nginx`, "", "", 0)
 
@@ -804,14 +801,14 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchRpm(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`rpm -e nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`rpm -e nginx`))
 }
 
 // --- pip module ---
 
-func TestModulesSvc_ModulePip_Good_InstallPresent(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_InstallPresent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install flask`, "Successfully installed", "", 0)
 
@@ -820,13 +817,13 @@ func TestModulesSvc_ModulePip_Good_InstallPresent(t *testing.T) {
 		"state": "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`pip3 install flask`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 install flask`))
 }
 
-func TestModulesSvc_ModulePip_Good_UninstallAbsent(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_UninstallAbsent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 uninstall -y flask`, "Successfully uninstalled", "", 0)
 
@@ -835,13 +832,13 @@ func TestModulesSvc_ModulePip_Good_UninstallAbsent(t *testing.T) {
 		"state": "absent",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`pip3 uninstall -y flask`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 uninstall -y flask`))
 }
 
-func TestModulesSvc_ModulePip_Good_UpgradeLatest(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_UpgradeLatest(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install --upgrade flask`, "Successfully installed", "", 0)
 
@@ -850,13 +847,13 @@ func TestModulesSvc_ModulePip_Good_UpgradeLatest(t *testing.T) {
 		"state": "latest",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`pip3 install --upgrade flask`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 install --upgrade flask`))
 }
 
-func TestModulesSvc_ModulePip_Good_CustomExecutable(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_CustomExecutable(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`/opt/venv/bin/pip install requests`, "", "", 0)
 
@@ -866,13 +863,13 @@ func TestModulesSvc_ModulePip_Good_CustomExecutable(t *testing.T) {
 		"executable": "/opt/venv/bin/pip",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`/opt/venv/bin/pip install requests`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`/opt/venv/bin/pip install requests`))
 }
 
-func TestModulesSvc_ModulePip_Good_RequirementsFile(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_RequirementsFile(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install -r "/tmp/requirements.txt"`, "", "", 0)
 
@@ -880,13 +877,13 @@ func TestModulesSvc_ModulePip_Good_RequirementsFile(t *testing.T) {
 		"requirements": "/tmp/requirements.txt",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`pip3 install -r "/tmp/requirements.txt"`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 install -r "/tmp/requirements.txt"`))
 }
 
-func TestModulesSvc_ModulePip_Good_VirtualenvUsesVenvPip(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_VirtualenvUsesVenvPip(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`/opt/venv/bin/pip install requests`, "", "", 0)
 
@@ -896,13 +893,13 @@ func TestModulesSvc_ModulePip_Good_VirtualenvUsesVenvPip(t *testing.T) {
 		"virtualenv": "/opt/venv",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.True(t, mock.hasExecuted(`/opt/venv/bin/pip install requests`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertTrue(t, mock.hasExecuted(`/opt/venv/bin/pip install requests`))
 }
 
-func TestModulesSvc_ModulePip_Good_DefaultStateIsPresent(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_DefaultStateIsPresent(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install django`, "", "", 0)
 
@@ -910,12 +907,12 @@ func TestModulesSvc_ModulePip_Good_DefaultStateIsPresent(t *testing.T) {
 		"name": "django",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`pip3 install django`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 install django`))
 }
 
-func TestModulesSvc_ModulePip_Good_InstallMultiplePackages(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_InstallMultiplePackages(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install requests flask`, "", "", 0)
 
@@ -923,12 +920,12 @@ func TestModulesSvc_ModulePip_Good_InstallMultiplePackages(t *testing.T) {
 		"name": []any{"requests", "flask"},
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`pip3 install requests flask`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 install requests flask`))
 }
 
-func TestModulesSvc_ModulePip_Good_CommandFailure(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_CommandFailure(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install`, "", "ERROR: No matching distribution found", 1)
 
@@ -937,12 +934,12 @@ func TestModulesSvc_ModulePip_Good_CommandFailure(t *testing.T) {
 		"state": "present",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Failed)
-	assert.Contains(t, result.Msg, "No matching distribution found")
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Failed)
+	core.AssertContains(t, result.Msg, "No matching distribution found")
 }
 
-func TestModulesSvc_ModulePip_Good_InstalledAlias(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_InstalledAlias(t *core.T) {
 	// state=installed is an alias for present
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install boto3`, "", "", 0)
@@ -952,12 +949,12 @@ func TestModulesSvc_ModulePip_Good_InstalledAlias(t *testing.T) {
 		"state": "installed",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`pip3 install boto3`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 install boto3`))
 }
 
-func TestModulesSvc_ModulePip_Good_RemovedAlias(t *testing.T) {
+func TestModulesSvc_ModulePip_Good_RemovedAlias(t *core.T) {
 	// state=removed is an alias for absent
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 uninstall -y boto3`, "", "", 0)
@@ -967,14 +964,14 @@ func TestModulesSvc_ModulePip_Good_RemovedAlias(t *testing.T) {
 		"state": "removed",
 	})
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`pip3 uninstall -y boto3`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 uninstall -y boto3`))
 }
 
 // --- Cross-module dispatch tests ---
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchService(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchService(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl restart nginx`, "", "", 0)
 
@@ -988,12 +985,12 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchService(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`systemctl restart nginx`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl restart nginx`))
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchSystemd(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchSystemd(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`systemctl daemon-reload`, "", "", 0)
 	mock.expectCommand(`systemctl start myapp`, "", "", 0)
@@ -1009,13 +1006,13 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchSystemd(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`systemctl daemon-reload`))
-	assert.True(t, mock.hasExecuted(`systemctl start myapp`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`systemctl daemon-reload`))
+	core.AssertTrue(t, mock.hasExecuted(`systemctl start myapp`))
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchApt(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchApt(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`apt-get install -y -qq nginx`, "", "", 0)
 
@@ -1029,12 +1026,12 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchApt(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`apt-get install`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`apt-get install`))
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchAptKey(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchAptKey(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`curl.*gpg`, "", "", 0)
 
@@ -1048,11 +1045,11 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchAptKey(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchAptRepository(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchAptRepository(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`echo`, "", "", 0)
 	mock.expectCommand(`apt-get update`, "", "", 0)
@@ -1067,11 +1064,11 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchAptRepository(t *testing.
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchPackage(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchPackage(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`which apt-get`, "/usr/bin/apt-get", "", 0)
 	mock.expectCommand(`apt-get install -y -qq git`, "", "", 0)
@@ -1086,11 +1083,11 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchPackage(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
 }
 
-func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchPip(t *testing.T) {
+func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchPip(t *core.T) {
 	e, mock := newTestExecutorWithMock("host1")
 	mock.expectCommand(`pip3 install ansible`, "", "", 0)
 
@@ -1104,7 +1101,7 @@ func TestModulesSvc_ExecuteModuleWithMock_Good_DispatchPip(t *testing.T) {
 
 	result, err := executeModuleWithMock(e, mock, "host1", task)
 
-	require.NoError(t, err)
-	assert.True(t, result.Changed)
-	assert.True(t, mock.hasExecuted(`pip3 install ansible`))
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, result.Changed)
+	core.AssertTrue(t, mock.hasExecuted(`pip3 install ansible`))
 }

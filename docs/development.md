@@ -155,7 +155,7 @@ func TestModuleHostname_Bad_MissingName(t *testing.T) {
 
 ```
 go-ansible/
-  go.mod              Module definition (dappco.re/go/core/ansible)
+  go.mod              Module definition (dappco.re/go/ansible)
   go.sum              Dependency checksums
   CLAUDE.md           AI assistant context file
   types.go            Core data types and KnownModules registry
@@ -166,7 +166,7 @@ go-ansible/
   *_test.go           Test files (see table above)
   cmd/
     ansible/
-      cmd.go          CLI command registration via core/cli
+      cmd.go          CLI command registration via dappco.re/go command registry
       ansible.go      CLI implementation (flags, runner, test subcommand)
 ```
 

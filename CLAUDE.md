@@ -34,7 +34,7 @@ Inventory YAML ──► Parser ──► Inventory        Callbacks (OnPlayStar
 - **`executor.go`** — Orchestration engine: host resolution from inventory, play execution order (gather facts → pre_tasks → roles → tasks → post_tasks → notified handlers), `when:` condition evaluation, `{{ }}` Jinja2-style templating with filter support, loop execution, block/rescue/always, handler notification.
 - **`modules.go`** — 50 module handler implementations dispatched via a `switch` on the normalised module name. Each handler extracts args via `getStringArg`/`getBoolArg`, constructs shell commands, runs them via SSH, and returns a `TaskResult`.
 - **`ssh.go`** — SSH client with lazy connection, auth chain (key file → default keys → password), `known_hosts` verification, become/sudo wrapping, file transfer via `cat >` piped through stdin.
-- **`cmd/ansible/`** — CLI command registration via `core/cli`. Provides `ansible <playbook>` and `ansible test <host>` subcommands with flags for inventory, limit, tags, extra-vars, verbosity, and check mode.
+- **`cmd/ansible/`** — CLI command registration via `dappco.re/go command registry`. Provides `ansible <playbook>` and `ansible test <host>` subcommands with flags for inventory, limit, tags, extra-vars, verbosity, and check mode.
 
 ## Adding a New Module
 

@@ -40,7 +40,9 @@ func (e *Executor) launchDetachedAsyncTask(ctx context.Context, host string, hos
 			defer cancel()
 		}
 
-		_ = clone.runTaskOnHost(asyncCtx, host, cloneHosts, &cloneTask, clonePlay)
+		if err := clone.runTaskOnHost(asyncCtx, host, cloneHosts, &cloneTask, clonePlay); err != nil {
+			return
+		}
 	}()
 }
 
@@ -108,10 +110,11 @@ func cloneExecutorClient(client sshExecutorClient) sshExecutorClient {
 		}
 		cached.mu.Unlock()
 
-		clone, err := NewSSHClient(cfg)
-		if err != nil {
+		cloneResult := NewSSHClient(cfg)
+		if !cloneResult.OK {
 			return nil
 		}
+		clone, _ := cloneResult.Value.(*SSHClient)
 		return clone
 	case *environmentSSHClient:
 		inner := cloneExecutorClient(cached.sshExecutorClient)

@@ -4,13 +4,12 @@ import (
 	"io/fs"
 	"iter"
 	"maps"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 	"gopkg.in/yaml.v3"
@@ -58,8 +57,8 @@ func (p *Parser) SetMedium(medium coreio.Medium) {
 //
 // Example:
 //
-//	plays, err := parser.ParsePlaybook("/workspace/playbooks/site.yml")
-func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
+//	result := parser.ParsePlaybook("/workspace/playbooks/site.yml")
+func (p *Parser) ParsePlaybook(path string) core.Result {
 	path = p.resolvePath(path)
 
 	if p.vars == nil {
@@ -79,22 +78,23 @@ func (p *Parser) ParsePlaybook(path string) ([]Play, error) {
 	return p.parsePlaybook(path, make(map[string]bool))
 }
 
-func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error) {
+func (p *Parser) parsePlaybook(path string, seen map[string]bool) core.Result {
 	cleanedPath := cleanPath(path)
 	if seen[cleanedPath] {
-		return nil, coreerr.E("Parser.parsePlaybook", "circular import_playbook detected: "+cleanedPath, nil)
+		return core.Fail(coreerr.E("Parser.parsePlaybook", "circular import_playbook detected: "+cleanedPath, nil))
 	}
 	seen[cleanedPath] = true
 	defer delete(seen, cleanedPath)
 
-	data, err := p.readFile(path)
-	if err != nil {
-		return nil, coreerr.E("Parser.ParsePlaybook", "read playbook", err)
+	dataResult := p.readFile(path)
+	if !dataResult.OK {
+		return wrapFailure(dataResult, "Parser.ParsePlaybook", "read playbook")
 	}
+	data := dataResult.Value.(string)
 
 	var plays []Play
 	if err := yaml.Unmarshal([]byte(data), &plays); err != nil {
-		return nil, coreerr.E("Parser.ParsePlaybook", "parse playbook", err)
+		return core.Fail(coreerr.E("Parser.ParsePlaybook", "parse playbook", err))
 	}
 
 	var expanded []Play
@@ -109,7 +109,7 @@ func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error
 			}
 			savedPlaybookDir, hadPlaybookDir := p.vars["playbook_dir"]
 			p.vars["playbook_dir"] = pathDir(importPath)
-			imported, err := func() ([]Play, error) {
+			importedResult := func() core.Result {
 				defer func() {
 					if hadPlaybookDir {
 						p.vars["playbook_dir"] = savedPlaybookDir
@@ -119,9 +119,10 @@ func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error
 				}()
 				return p.parsePlaybook(importPath, seen)
 			}()
-			if err != nil {
-				return nil, coreerr.E("Parser.ParsePlaybook", sprintf("expand import_playbook %d", i), err)
+			if !importedResult.OK {
+				return wrapFailure(importedResult, "Parser.ParsePlaybook", sprintf("expand import_playbook %d", i))
 			}
+			imported := importedResult.Value.([]Play)
 			for i := range imported {
 				if imported[i].Vars == nil {
 					imported[i].Vars = make(map[string]any)
@@ -139,53 +140,56 @@ func (p *Parser) parsePlaybook(path string, seen map[string]bool) ([]Play, error
 			plays[i].Vars["playbook_dir"] = p.vars["playbook_dir"]
 		}
 
-		if err := p.processPlay(&plays[i]); err != nil {
-			return nil, coreerr.E("Parser.ParsePlaybook", sprintf("process play %d", i), err)
+		if r := p.processPlay(&plays[i]); !r.OK {
+			return wrapFailure(r, "Parser.ParsePlaybook", sprintf("process play %d", i))
 		}
 		expanded = append(expanded, plays[i])
 	}
 
-	return expanded, nil
+	return core.Ok(expanded)
 }
 
 // ParsePlaybookIter returns an iterator for plays in an Ansible playbook file.
 //
 // Example:
 //
-//	playsSeq, err := parser.ParsePlaybookIter("/workspace/playbooks/site.yml")
-func (p *Parser) ParsePlaybookIter(path string) (iter.Seq[Play], error) {
-	plays, err := p.ParsePlaybook(path)
-	if err != nil {
-		return nil, err
+//	result := parser.ParsePlaybookIter("/workspace/playbooks/site.yml")
+func (p *Parser) ParsePlaybookIter(path string) core.Result {
+	playsResult := p.ParsePlaybook(path)
+	if !playsResult.OK {
+		return playsResult
 	}
-	return func(yield func(Play) bool) {
+	plays := playsResult.Value.([]Play)
+	seq := func(yield func(Play) bool) {
 		for _, play := range plays {
 			if !yield(play) {
 				return
 			}
 		}
-	}, nil
+	}
+	return core.Ok(iter.Seq[Play](seq))
 }
 
 // ParseInventory parses an Ansible inventory file.
 //
 // Example:
 //
-//	inventory, err := parser.ParseInventory("/workspace/inventory.yml")
-func (p *Parser) ParseInventory(path string) (*Inventory, error) {
+//	result := parser.ParseInventory("/workspace/inventory.yml")
+func (p *Parser) ParseInventory(path string) core.Result {
 	path = p.resolveInventoryPath(path)
 
-	data, err := p.readFile(path)
-	if err != nil {
-		return nil, coreerr.E("Parser.ParseInventory", "read inventory", err)
+	dataResult := p.readFile(path)
+	if !dataResult.OK {
+		return wrapFailure(dataResult, "Parser.ParseInventory", "read inventory")
 	}
+	data := dataResult.Value.(string)
 
 	var inv Inventory
 	if err := yaml.Unmarshal([]byte(data), &inv); err != nil {
-		return nil, coreerr.E("Parser.ParseInventory", "parse inventory", err)
+		return core.Fail(coreerr.E("Parser.ParseInventory", "parse inventory", err))
 	}
 
-	return &inv, nil
+	return core.Ok(&inv)
 }
 
 // resolveInventoryPath resolves inventory directories to a concrete file.
@@ -209,42 +213,43 @@ func (p *Parser) resolveInventoryPath(path string) string {
 //
 // Example:
 //
-//	tasks, err := parser.ParseTasks("/workspace/roles/web/tasks/main.yml")
-func (p *Parser) ParseTasks(path string) ([]Task, error) {
+//	result := parser.ParseTasks("/workspace/roles/web/tasks/main.yml")
+func (p *Parser) ParseTasks(path string) core.Result {
 	path = p.resolvePath(path)
 
-	data, err := p.readFile(path)
-	if err != nil {
-		return nil, coreerr.E("Parser.ParseTasks", "read tasks", err)
+	dataResult := p.readFile(path)
+	if !dataResult.OK {
+		return wrapFailure(dataResult, "Parser.ParseTasks", "read tasks")
 	}
+	data := dataResult.Value.(string)
 
 	var tasks []Task
 	if err := yaml.Unmarshal([]byte(data), &tasks); err != nil {
-		return nil, coreerr.E("Parser.ParseTasks", "parse tasks", err)
+		return core.Fail(coreerr.E("Parser.ParseTasks", "parse tasks", err))
 	}
 
 	for i := range tasks {
-		if err := p.extractModule(&tasks[i]); err != nil {
-			return nil, coreerr.E("Parser.ParseTasks", sprintf("task %d", i), err)
+		if r := p.extractModule(&tasks[i]); !r.OK {
+			return wrapFailure(r, "Parser.ParseTasks", sprintf("task %d", i))
 		}
 	}
 
-	return tasks, nil
+	return core.Ok(tasks)
 }
 
 // ParseTasksFromDir loads tasks from a directory, falling back to main.yml.
 //
 // Example:
 //
-//	tasks, err := parser.ParseTasksFromDir("/workspace/roles/web/tasks")
-func (p *Parser) ParseTasksFromDir(dir string) ([]Task, error) {
+//	result := parser.ParseTasksFromDir("/workspace/roles/web/tasks")
+func (p *Parser) ParseTasksFromDir(dir string) core.Result {
 	dir = p.resolvePath(dir)
 	if dir == "" {
-		return nil, coreerr.E("Parser.ParseTasksFromDir", "directory required", nil)
+		return core.Fail(coreerr.E("Parser.ParseTasksFromDir", "directory required", nil))
 	}
 
 	if !p.exists(dir) {
-		return nil, coreerr.E("Parser.ParseTasksFromDir", "tasks directory not found", nil)
+		return core.Fail(coreerr.E("Parser.ParseTasksFromDir", "tasks directory not found", nil))
 	}
 
 	if !p.isDir(dir) {
@@ -258,64 +263,67 @@ func (p *Parser) ParseTasksFromDir(dir string) ([]Task, error) {
 		}
 	}
 
-	return nil, coreerr.E("Parser.ParseTasksFromDir", "no task file found in directory", nil)
+	return core.Fail(coreerr.E("Parser.ParseTasksFromDir", "no task file found in directory", nil))
 }
 
 // ParseVarsFiles loads and merges vars from one or more files.
 //
 // Example:
 //
-//	vars, err := parser.ParseVarsFiles("/workspace/group_vars/*.yml")
-func (p *Parser) ParseVarsFiles(pattern string) (map[string]any, error) {
+//	result := parser.ParseVarsFiles("/workspace/group_vars/*.yml")
+func (p *Parser) ParseVarsFiles(pattern string) core.Result {
 	pattern = p.resolvePath(pattern)
 	if pattern == "" {
-		return nil, nil
+		return core.Ok(map[string]any(nil))
 	}
 
-	matches, err := p.expandFilePattern(pattern)
-	if err != nil {
-		return nil, err
+	matchesResult := p.expandFilePattern(pattern)
+	if !matchesResult.OK {
+		return matchesResult
 	}
+	matches := matchesResult.Value.([]string)
 	if len(matches) == 0 {
-		if !strings.ContainsAny(pattern, "*?[") {
+		if !containsAny(pattern, "*?[") {
 			matches = []string{pattern}
 		} else {
-			return nil, coreerr.E("Parser.ParseVarsFiles", "no vars files matched pattern", nil)
+			return core.Fail(coreerr.E("Parser.ParseVarsFiles", "no vars files matched pattern", nil))
 		}
 	}
 
 	merged := make(map[string]any)
 	for _, file := range matches {
-		data, err := p.readFile(file)
-		if err != nil {
-			return nil, coreerr.E("Parser.ParseVarsFiles", "read vars file", err)
+		dataResult := p.readFile(file)
+		if !dataResult.OK {
+			return wrapFailure(dataResult, "Parser.ParseVarsFiles", "read vars file")
 		}
+		data := dataResult.Value.(string)
 
 		var vars map[string]any
 		if err := yaml.Unmarshal([]byte(data), &vars); err != nil {
-			return nil, coreerr.E("Parser.ParseVarsFiles", "parse vars file", err)
+			return core.Fail(coreerr.E("Parser.ParseVarsFiles", "parse vars file", err))
 		}
 		mergeVars(merged, vars, false)
 	}
 
-	return merged, nil
+	return core.Ok(merged)
 }
 
 // ParseRoles loads role definitions from a roles directory.
 //
 // Example:
 //
-//	roles, err := parser.ParseRoles("/workspace/roles")
-func (p *Parser) ParseRoles(roleDir string) (map[string]*Role, error) {
+//	result := parser.ParseRoles("/workspace/roles")
+func (p *Parser) ParseRoles(roleDir string) core.Result {
 	roleDir = p.resolvePath(roleDir)
 	if roleDir == "" || !p.exists(roleDir) || !p.isDir(roleDir) {
-		return nil, coreerr.E("Parser.ParseRoles", "role directory not found", nil)
+		return core.Fail(coreerr.E("Parser.ParseRoles", "role directory not found", nil))
 	}
 
-	entries, err := p.listDir(roleDir)
-	if err != nil {
-		return nil, coreerr.E("Parser.ParseRoles", "list role directory", err)
+	entriesResult := p.listDir(roleDir)
+	if !entriesResult.OK {
+		return wrapFailure(entriesResult, "Parser.ParseRoles", "list role directory")
 	}
+	entries := entriesResult.Value.([]fs.DirEntry)
 
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -327,16 +335,17 @@ func (p *Parser) ParseRoles(roleDir string) (map[string]*Role, error) {
 
 	roles := make(map[string]*Role, len(names))
 	for _, name := range names {
-		role, err := p.parseRoleAtPath(joinPath(roleDir, name), name)
-		if err != nil {
-			return nil, err
+		roleResult := p.parseRoleAtPath(joinPath(roleDir, name), name)
+		if !roleResult.OK {
+			return roleResult
 		}
+		role, _ := roleResult.Value.(*Role)
 		if role != nil {
 			roles[name] = role
 		}
 	}
 
-	return roles, nil
+	return core.Ok(roles)
 }
 
 // resolvePath resolves a possibly relative path against the parser base path.
@@ -377,12 +386,16 @@ func (p *Parser) configuredMedium() coreio.Medium {
 }
 
 // readFile reads a file through the configured medium.
-func (p *Parser) readFile(path string) (string, error) {
+func (p *Parser) readFile(path string) core.Result {
 	medium := p.mediumOrLocal()
 	if medium == nil {
-		return "", coreerr.E("Parser.readFile", "no storage medium configured", nil)
+		return core.Fail(coreerr.E("Parser.readFile", "no storage medium configured", nil))
 	}
-	return coreio.Read(medium, path)
+	data, err := coreio.Read(medium, path)
+	if err != nil {
+		return core.Fail(err)
+	}
+	return core.Ok(data)
 }
 
 // exists checks for a path through the configured medium.
@@ -404,36 +417,33 @@ func (p *Parser) isDir(path string) bool {
 }
 
 // listDir lists directory entries through the configured medium.
-func (p *Parser) listDir(path string) ([]fs.DirEntry, error) {
+func (p *Parser) listDir(path string) core.Result {
 	medium := p.mediumOrLocal()
 	if medium == nil {
-		return nil, coreerr.E("Parser.listDir", "no storage medium configured", nil)
+		return core.Fail(coreerr.E("Parser.listDir", "no storage medium configured", nil))
 	}
 
 	entries, err := medium.List(path)
 	if err != nil {
-		return nil, err
+		return core.Fail(err)
 	}
 
-	return entries, nil
+	return core.Ok(entries)
 }
 
 // expandFilePattern expands wildcard paths that can be safely resolved locally.
-func (p *Parser) expandFilePattern(pattern string) ([]string, error) {
-	if !strings.ContainsAny(pattern, "*?[") {
-		return []string{pattern}, nil
+func (p *Parser) expandFilePattern(pattern string) core.Result {
+	if !containsAny(pattern, "*?[") {
+		return core.Ok([]string{pattern})
 	}
 
 	if medium := p.configuredMedium(); medium != nil && !isDefaultLocalMedium(medium) {
-		return nil, coreerr.E("Parser.expandFilePattern", "wildcard patterns require the local filesystem medium", nil)
+		return core.Fail(coreerr.E("Parser.expandFilePattern", "wildcard patterns require the local filesystem medium", nil))
 	}
 
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, coreerr.E("Parser.expandFilePattern", "expand pattern", err)
-	}
+	matches := pathGlob(pattern)
 	sort.Strings(matches)
-	return matches, nil
+	return core.Ok(matches)
 }
 
 // isDefaultLocalMedium reports whether a medium is the package-level local medium.
@@ -457,20 +467,21 @@ func isDefaultLocalMedium(medium coreio.Medium) bool {
 }
 
 // parseRoleAtPath loads a role from a concrete role directory.
-func (p *Parser) parseRoleAtPath(rolePath, roleName string) (*Role, error) {
-	tasks, defaults, roleVars, handlers, err := p.loadRoleDataFromPath(rolePath, "main.yml", "main.yml", "main.yml", "main.yml")
-	if err != nil {
-		return nil, err
+func (p *Parser) parseRoleAtPath(rolePath, roleName string) core.Result {
+	roleDataResult := p.loadRoleDataFromPath(rolePath, "main.yml", "main.yml", "main.yml", "main.yml")
+	if !roleDataResult.OK {
+		return roleDataResult
 	}
+	roleData := roleDataResult.Value.(parserRoleDataResult)
 
-	return &Role{
+	return core.Ok(&Role{
 		Name:     roleName,
 		Path:     rolePath,
-		Tasks:    tasks,
-		Defaults: defaults,
-		Vars:     roleVars,
-		Handlers: handlers,
-	}, nil
+		Tasks:    roleData.Tasks,
+		Defaults: roleData.Defaults,
+		Vars:     roleData.Vars,
+		Handlers: roleData.Handlers,
+	})
 }
 
 // templatePath renders a path-like string against the parser's variable scope.
@@ -487,48 +498,51 @@ func (p *Parser) templatePath(value string) string {
 //
 // Example:
 //
-//	tasksSeq, err := parser.ParseTasksIter("/workspace/roles/web/tasks/main.yml")
-func (p *Parser) ParseTasksIter(path string) (iter.Seq[Task], error) {
-	tasks, err := p.ParseTasks(path)
-	if err != nil {
-		return nil, err
+//	result := parser.ParseTasksIter("/workspace/roles/web/tasks/main.yml")
+func (p *Parser) ParseTasksIter(path string) core.Result {
+	tasksResult := p.ParseTasks(path)
+	if !tasksResult.OK {
+		return tasksResult
 	}
-	return func(yield func(Task) bool) {
+	tasks := tasksResult.Value.([]Task)
+	seq := func(yield func(Task) bool) {
 		for _, task := range tasks {
 			if !yield(task) {
 				return
 			}
 		}
-	}, nil
+	}
+	return core.Ok(iter.Seq[Task](seq))
 }
 
 // ParseRole parses a role and returns its tasks.
 //
 // Example:
 //
-//	tasks, err := parser.ParseRole("nginx", "main.yml")
-func (p *Parser) ParseRole(name string, tasksFrom string) ([]Task, error) {
-	tasks, defaults, roleVars, _, err := p.loadRoleData(name, tasksFrom, "", "")
-	if err != nil {
-		return nil, err
+//	result := parser.ParseRole("nginx", "main.yml")
+func (p *Parser) ParseRole(name string, tasksFrom string) core.Result {
+	roleDataResult := p.loadRoleData(name, tasksFrom, "", "")
+	if !roleDataResult.OK {
+		return roleDataResult
 	}
+	roleData := roleDataResult.Value.(parserRoleDataResult)
 
 	if p.vars == nil {
 		p.vars = make(map[string]any)
 	}
-	for k, v := range defaults {
+	for k, v := range roleData.Defaults {
 		if _, exists := p.vars[k]; !exists {
 			p.vars[k] = v
 		}
 	}
-	for k, v := range roleVars {
+	for k, v := range roleData.Vars {
 		p.vars[k] = v
 	}
 
-	return tasks, err
+	return core.Ok(roleData.Tasks)
 }
 
-func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string, varsFrom string) ([]Task, map[string]any, map[string]any, string, error) {
+func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string, varsFrom string) core.Result {
 	if tasksFrom == "" {
 		tasksFrom = "main.yml"
 	}
@@ -542,13 +556,14 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 	tasksPath := p.findRoleFilePath(name, "tasks", tasksFrom)
 
 	if tasksPath == "" {
-		return nil, nil, nil, "", coreerr.E("Parser.ParseRole", sprintf("role %s not found", name), nil)
+		return core.Fail(coreerr.E("Parser.ParseRole", sprintf("role %s not found", name), nil))
 	}
 
 	defaults := make(map[string]any)
 	// Load role defaults
 	defaultsPath := joinPath(pathDir(pathDir(tasksPath)), "defaults", defaultsFrom)
-	if data, err := p.readFile(defaultsPath); err == nil {
+	if dataResult := p.readFile(defaultsPath); dataResult.OK {
+		data := dataResult.Value.(string)
 		if yaml.Unmarshal([]byte(data), &defaults) != nil {
 			defaults = make(map[string]any)
 		}
@@ -557,24 +572,26 @@ func (p *Parser) loadRoleData(name string, tasksFrom string, defaultsFrom string
 	roleVars := make(map[string]any)
 	// Load role vars
 	varsPath := joinPath(pathDir(pathDir(tasksPath)), "vars", varsFrom)
-	if data, err := p.readFile(varsPath); err == nil {
+	if dataResult := p.readFile(varsPath); dataResult.OK {
+		data := dataResult.Value.(string)
 		if yaml.Unmarshal([]byte(data), &roleVars) != nil {
 			roleVars = make(map[string]any)
 		}
 	}
 
-	tasks, err := p.ParseTasks(tasksPath)
-	if err != nil {
-		return nil, nil, nil, "", err
+	tasksResult := p.ParseTasks(tasksPath)
+	if !tasksResult.OK {
+		return tasksResult
 	}
+	tasks := tasksResult.Value.([]Task)
 
-	return tasks, defaults, roleVars, tasksPath, nil
+	return core.Ok(parserRoleDataResult{Tasks: tasks, Defaults: defaults, Vars: roleVars, Path: tasksPath})
 }
 
 // loadRoleDataFromPath loads role files from a concrete directory path.
-func (p *Parser) loadRoleDataFromPath(rolePath string, tasksFrom string, defaultsFrom string, varsFrom string, handlersFrom string) ([]Task, map[string]any, map[string]any, []Task, error) {
+func (p *Parser) loadRoleDataFromPath(rolePath string, tasksFrom string, defaultsFrom string, varsFrom string, handlersFrom string) core.Result {
 	if rolePath == "" {
-		return nil, nil, nil, nil, coreerr.E("Parser.ParseRoles", "role path required", nil)
+		return core.Fail(coreerr.E("Parser.ParseRoles", "role path required", nil))
 	}
 
 	if tasksFrom == "" {
@@ -588,92 +605,102 @@ func (p *Parser) loadRoleDataFromPath(rolePath string, tasksFrom string, default
 	}
 
 	tasks := make([]Task, 0)
-	var err error
 	taskPath := joinPath(rolePath, "tasks", tasksFrom)
 	if !p.exists(taskPath) {
 		taskPath = joinPath(rolePath, "tasks")
 	}
 	if p.exists(taskPath) {
+		var tasksResult core.Result
 		if p.isDir(taskPath) {
-			tasks, err = p.ParseTasksFromDir(taskPath)
+			tasksResult = p.ParseTasksFromDir(taskPath)
 		} else {
-			tasks, err = p.ParseTasks(taskPath)
+			tasksResult = p.ParseTasks(taskPath)
 		}
-		if err != nil {
-			return nil, nil, nil, nil, err
+		if !tasksResult.OK {
+			return tasksResult
 		}
+		tasks = tasksResult.Value.([]Task)
 	}
 
 	defaults := make(map[string]any)
-	if data, err := p.readFile(joinPath(rolePath, "defaults", defaultsFrom)); err == nil {
-		_ = yaml.Unmarshal([]byte(data), &defaults)
+	if dataResult := p.readFile(joinPath(rolePath, "defaults", defaultsFrom)); dataResult.OK {
+		data := dataResult.Value.(string)
+		if err := yaml.Unmarshal([]byte(data), &defaults); err != nil {
+			defaults = make(map[string]any)
+		}
 	}
 
 	roleVars := make(map[string]any)
-	if data, err := p.readFile(joinPath(rolePath, "vars", varsFrom)); err == nil {
-		_ = yaml.Unmarshal([]byte(data), &roleVars)
+	if dataResult := p.readFile(joinPath(rolePath, "vars", varsFrom)); dataResult.OK {
+		data := dataResult.Value.(string)
+		if err := yaml.Unmarshal([]byte(data), &roleVars); err != nil {
+			roleVars = make(map[string]any)
+		}
 	}
 
-	handlers, err := p.loadRoleHandlersFromPath(rolePath, handlersFrom)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	handlersResult := p.loadRoleHandlersFromPath(rolePath, handlersFrom)
+	if !handlersResult.OK {
+		return handlersResult
 	}
+	handlers := handlersResult.Value.([]Task)
 
-	return tasks, defaults, roleVars, handlers, nil
+	return core.Ok(parserRoleDataResult{Tasks: tasks, Defaults: defaults, Vars: roleVars, Handlers: handlers})
 }
 
-func (p *Parser) loadRoleHandlers(name string, handlersFrom string) ([]Task, error) {
+func (p *Parser) loadRoleHandlers(name string, handlersFrom string) core.Result {
 	if handlersFrom == "" {
 		handlersFrom = "main.yml"
 	}
 
 	handlersPath := p.findRoleFilePath(name, "handlers", handlersFrom)
 	if handlersPath == "" {
-		return nil, nil
+		return core.Ok([]Task(nil))
 	}
 
-	data, err := p.readFile(handlersPath)
-	if err != nil {
-		return nil, coreerr.E("Parser.loadRoleHandlers", "read role handlers", err)
+	dataResult := p.readFile(handlersPath)
+	if !dataResult.OK {
+		return wrapFailure(dataResult, "Parser.loadRoleHandlers", "read role handlers")
 	}
+	data := dataResult.Value.(string)
 
 	var handlers []Task
 	if err := yaml.Unmarshal([]byte(data), &handlers); err != nil {
-		return nil, coreerr.E("Parser.loadRoleHandlers", "parse role handlers", err)
+		return core.Fail(coreerr.E("Parser.loadRoleHandlers", "parse role handlers", err))
 	}
 
 	for i := range handlers {
-		if err := p.extractModule(&handlers[i]); err != nil {
-			return nil, coreerr.E("Parser.loadRoleHandlers", sprintf("handler %d", i), err)
+		if r := p.extractModule(&handlers[i]); !r.OK {
+			return wrapFailure(r, "Parser.loadRoleHandlers", sprintf("handler %d", i))
 		}
 	}
 
-	return handlers, nil
+	return core.Ok(handlers)
 }
 
 // loadRoleHandlersFromPath loads handler tasks from a concrete role directory.
-func (p *Parser) loadRoleHandlersFromPath(rolePath string, handlersFrom string) ([]Task, error) {
+func (p *Parser) loadRoleHandlersFromPath(rolePath string, handlersFrom string) core.Result {
 	if handlersFrom == "" {
 		handlersFrom = "main.yml"
 	}
 	handlersPath := joinPath(rolePath, "handlers", handlersFrom)
 	if !p.exists(handlersPath) {
-		return nil, nil
+		return core.Ok([]Task(nil))
 	}
-	data, err := p.readFile(handlersPath)
-	if err != nil {
-		return nil, coreerr.E("Parser.loadRoleHandlersFromPath", "read role handlers", err)
+	dataResult := p.readFile(handlersPath)
+	if !dataResult.OK {
+		return wrapFailure(dataResult, "Parser.loadRoleHandlersFromPath", "read role handlers")
 	}
+	data := dataResult.Value.(string)
 	var handlers []Task
 	if err := yaml.Unmarshal([]byte(data), &handlers); err != nil {
-		return nil, coreerr.E("Parser.loadRoleHandlersFromPath", "parse role handlers", err)
+		return core.Fail(coreerr.E("Parser.loadRoleHandlersFromPath", "parse role handlers", err))
 	}
 	for i := range handlers {
-		if err := p.extractModule(&handlers[i]); err != nil {
-			return nil, coreerr.E("Parser.loadRoleHandlersFromPath", sprintf("handler %d", i), err)
+		if r := p.extractModule(&handlers[i]); !r.OK {
+			return wrapFailure(r, "Parser.loadRoleHandlersFromPath", sprintf("handler %d", i))
 		}
 	}
-	return handlers, nil
+	return core.Ok(handlers)
 }
 
 func (p *Parser) findRoleFilePath(name string, subdir string, filename string) string {
@@ -696,62 +723,66 @@ func (p *Parser) findRoleFilePath(name string, subdir string, filename string) s
 }
 
 // processPlay processes a play and extracts modules from tasks.
-func (p *Parser) processPlay(play *Play) error {
+func (p *Parser) processPlay(
+	play *Play,
+) core.Result {
 	// Merge play vars
 	for k, v := range play.Vars {
 		p.vars[k] = v
 	}
 
 	for i := range play.PreTasks {
-		if err := p.extractModule(&play.PreTasks[i]); err != nil {
-			return coreerr.E("Parser.processPlay", sprintf("pre_task %d", i), err)
+		if r := p.extractModule(&play.PreTasks[i]); !r.OK {
+			return wrapFailure(r, "Parser.processPlay", sprintf("pre_task %d", i))
 		}
 	}
 
 	for i := range play.Tasks {
-		if err := p.extractModule(&play.Tasks[i]); err != nil {
-			return coreerr.E("Parser.processPlay", sprintf("task %d", i), err)
+		if r := p.extractModule(&play.Tasks[i]); !r.OK {
+			return wrapFailure(r, "Parser.processPlay", sprintf("task %d", i))
 		}
 	}
 
 	for i := range play.PostTasks {
-		if err := p.extractModule(&play.PostTasks[i]); err != nil {
-			return coreerr.E("Parser.processPlay", sprintf("post_task %d", i), err)
+		if r := p.extractModule(&play.PostTasks[i]); !r.OK {
+			return wrapFailure(r, "Parser.processPlay", sprintf("post_task %d", i))
 		}
 	}
 
 	for i := range play.Handlers {
-		if err := p.extractModule(&play.Handlers[i]); err != nil {
-			return coreerr.E("Parser.processPlay", sprintf("handler %d", i), err)
+		if r := p.extractModule(&play.Handlers[i]); !r.OK {
+			return wrapFailure(r, "Parser.processPlay", sprintf("handler %d", i))
 		}
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // extractModule extracts the module name and args from a task.
-func (p *Parser) extractModule(task *Task) error {
+func (p *Parser) extractModule(
+	task *Task,
+) core.Result {
 	// First, unmarshal the raw YAML to get all keys
 	// This is a workaround since we need to find the module key dynamically
 
 	// Handle block tasks
 	for i := range task.Block {
-		if err := p.extractModule(&task.Block[i]); err != nil {
-			return err
+		if r := p.extractModule(&task.Block[i]); !r.OK {
+			return r
 		}
 	}
 	for i := range task.Rescue {
-		if err := p.extractModule(&task.Rescue[i]); err != nil {
-			return err
+		if r := p.extractModule(&task.Rescue[i]); !r.OK {
+			return r
 		}
 	}
 	for i := range task.Always {
-		if err := p.extractModule(&task.Always[i]); err != nil {
-			return err
+		if r := p.extractModule(&task.Always[i]); !r.OK {
+			return r
 		}
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for Task.
@@ -759,8 +790,10 @@ func (p *Parser) extractModule(task *Task) error {
 // Example:
 //
 //	var task Task
-//	_ = yaml.Unmarshal([]byte("shell: echo ok"), &task)
-func (t *Task) UnmarshalYAML(node *yaml.Node) error {
+//	result := yaml.Unmarshal([]byte("shell: echo ok"), &task)
+func (t *Task) UnmarshalYAML(
+	node *yaml.Node,
+) error {
 	// First decode known fields
 	type rawTask Task
 	var raw rawTask
@@ -963,7 +996,9 @@ func (t *Task) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func decodeYAMLValue(value any, out any) error {
+func decodeYAMLValue(
+	value any, out any,
+) error {
 	data, err := yaml.Marshal(value)
 	if err != nil {
 		return err
@@ -1008,7 +1043,7 @@ func parseActionSpec(value any) (string, map[string]any) {
 }
 
 func parseActionSpecString(raw string) (string, map[string]any) {
-	raw = strings.TrimSpace(raw)
+	raw = trimSpace(raw)
 	if raw == "" {
 		return "", nil
 	}
@@ -1020,7 +1055,7 @@ func parseActionSpecString(raw string) (string, map[string]any) {
 
 	module := ""
 	start := 0
-	if kv := strings.SplitN(parts[0], "=", 2); len(kv) == 2 && kv[0] == "module" && kv[1] != "" {
+	if kv := splitN(parts[0], "=", 2); len(kv) == 2 && kv[0] == "module" && kv[1] != "" {
 		module = kv[1]
 		start = 1
 	} else {
@@ -1038,7 +1073,7 @@ func parseActionSpecString(raw string) (string, map[string]any) {
 	args := make(map[string]any)
 	freeFormStart := len(parts)
 	for i, part := range parts[start:] {
-		key, value, ok := strings.Cut(part, "=")
+		key, value, ok := cut(part, "=")
 		if !ok || key == "" {
 			freeFormStart = start + i
 			break
@@ -1054,7 +1089,7 @@ func parseActionSpecString(raw string) (string, map[string]any) {
 	}
 
 	if freeFormStart < len(parts) {
-		rawParams := strings.Join(parts[freeFormStart:], " ")
+		rawParams := join(" ", parts[freeFormStart:])
 		if rawParams != "" {
 			if len(args) == 0 {
 				return module, map[string]any{"_raw_params": rawParams}
@@ -1250,10 +1285,10 @@ func NormalizeModule(name string) string {
 	if canonical, ok := ModuleAliases[name]; ok {
 		return canonical
 	}
-	if strings.HasPrefix(name, "ansible.legacy.") {
+	if hasPrefix(name, "ansible.legacy.") {
 		// Legacy module names should resolve through the existing short-form
 		// and alias logic so we keep compatibility with older playbooks.
-		return NormalizeModule(strings.TrimPrefix(name, "ansible.legacy."))
+		return NormalizeModule(trimPrefix(name, "ansible.legacy."))
 	}
 	// Add ansible.builtin. prefix if missing
 	if !contains(name, ".") {
