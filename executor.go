@@ -5,44 +5,40 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"io"
 	"io/fs"
 	"maps"
 	mathrand "math/rand"
-	"os"
-	"path"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 	"gopkg.in/yaml.v3"
 )
 
-var errEndPlay = errors.New("end play")
-var errEndHost = errors.New("end host")
-var errEndBatch = errors.New("end batch")
-var errEndRole = errors.New("end role")
-var errTaskFailed = errors.New("task failed")
+var errEndPlay = core.NewError("end play")
+var errEndHost = core.NewError("end host")
+var errEndBatch = core.NewError("end batch")
+var errEndRole = core.NewError("end role")
+var errTaskFailed = core.NewError("task failed")
 
 // sshExecutorClient is the client contract used by the executor.
 type sshExecutorClient interface {
-	Run(ctx context.Context, cmd string) (stdout, stderr string, exitCode int, err error)
-	RunScript(ctx context.Context, script string) (stdout, stderr string, exitCode int, err error)
-	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error
-	Download(ctx context.Context, remote string) ([]byte, error)
-	FileExists(ctx context.Context, path string) (bool, error)
-	Stat(ctx context.Context, path string) (map[string]any, error)
+	Run(ctx context.Context, cmd string) core.Result
+	RunScript(ctx context.Context, script string) core.Result
+	Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) core.Result
+	Download(ctx context.Context, remote string) core.Result
+	FileExists(ctx context.Context, path string) core.Result
+	Stat(ctx context.Context, path string) core.Result
 	BecomeState() (become bool, user, password string)
 	SetBecome(become bool, user, password string)
-	Close() error
+	Close() core.Result
 }
 
 // environmentSSHClient wraps another SSH client and prefixes commands with
@@ -53,18 +49,18 @@ type environmentSSHClient struct {
 }
 
 // Run executes cmd over the wrapped SSH client with the configured
-// environment prefix prepended. Returns stdout, stderr, exit code, error.
+// environment prefix prepended.
 //
-//	stdout, stderr, code, err := c.Run(ctx, "uname -a")
-func (c *environmentSSHClient) Run(ctx context.Context, cmd string) (string, string, int, error) {
+//	result := c.Run(ctx, "uname -a")
+func (c *environmentSSHClient) Run(ctx context.Context, cmd string) core.Result {
 	return c.sshExecutorClient.Run(ctx, c.prefix+cmd)
 }
 
 // RunScript executes script over the wrapped SSH client with the configured
-// environment prefix prepended. Returns stdout, stderr, exit code, error.
+// environment prefix prepended.
 //
-//	stdout, stderr, code, err := c.RunScript(ctx, "#!/bin/bash\necho hi")
-func (c *environmentSSHClient) RunScript(ctx context.Context, script string) (string, string, int, error) {
+//	result := c.RunScript(ctx, "#!/bin/bash\necho hi")
+func (c *environmentSSHClient) RunScript(ctx context.Context, script string) core.Result {
 	return c.sshExecutorClient.RunScript(ctx, c.prefix+script)
 }
 
@@ -131,11 +127,14 @@ func NewExecutor(basePath string) *Executor {
 // Example:
 //
 //	err := executor.SetInventory("/workspace/inventory.yml")
-func (e *Executor) SetInventory(path string) error {
-	inv, err := e.parser.ParseInventory(path)
-	if err != nil {
-		return err
+func (e *Executor) SetInventory(
+	path string,
+) error {
+	invResult := e.parser.ParseInventory(path)
+	if !invResult.OK {
+		return coreerr.E("Executor.SetInventory", "parse inventory: "+resultErrorMessage(invResult), nil)
 	}
+	inv := invResult.Value.(*Inventory)
 	e.mu.Lock()
 	e.inventoryPath = path
 	e.inventory = inv
@@ -281,7 +280,7 @@ func inventoryHostnameShort(host string) string {
 		return ""
 	}
 
-	short, _, ok := strings.Cut(host, ".")
+	short, _, ok := cut(host, ".")
 	if ok && short != "" {
 		return short
 	}
@@ -423,11 +422,14 @@ func collectHostGroupNames(group *InventoryGroup, host, name string, names map[s
 // Example:
 //
 //	err := executor.Run(context.Background(), "/workspace/playbooks/site.yml")
-func (e *Executor) Run(ctx context.Context, playbookPath string) error {
-	plays, err := e.parser.ParsePlaybook(playbookPath)
-	if err != nil {
-		return coreerr.E("Executor.Run", "parse playbook", err)
+func (e *Executor) Run(
+	ctx context.Context, playbookPath string,
+) error {
+	playsResult := e.parser.ParsePlaybook(playbookPath)
+	if !playsResult.OK {
+		return coreerr.E("Executor.Run", "parse playbook: "+resultErrorMessage(playsResult), nil)
 	}
+	plays := playsResult.Value.([]Play)
 
 	for i := range plays {
 		if err := e.runPlay(ctx, &plays[i]); err != nil {
@@ -439,7 +441,9 @@ func (e *Executor) Run(ctx context.Context, playbookPath string) error {
 }
 
 // runPlay executes a single play.
-func (e *Executor) runPlay(ctx context.Context, play *Play) error {
+func (e *Executor) runPlay(
+	ctx context.Context, play *Play,
+) error {
 	if e.OnPlayStart != nil {
 		e.OnPlayStart(play)
 	}
@@ -490,7 +494,7 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 		e.batchFailedHosts = make(map[string]bool)
 		runSection := func(fn func() error) error {
 			if err := fn(); err != nil {
-				if errors.Is(err, errEndPlay) || errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndPlay) || core.Is(err, errEndBatch) {
 					return err
 				}
 				if play.ForceHandlers {
@@ -521,10 +525,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := runSection(func() error {
 				return e.runTaskOnHosts(ctx, batch, &task, play)
 			}); err != nil {
-				if errors.Is(err, errEndPlay) {
+				if core.Is(err, errEndPlay) {
 					return nil
 				}
-				if errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndBatch) {
 					goto nextBatch
 				}
 				return err
@@ -536,10 +540,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := runSection(func() error {
 				return e.runRole(ctx, batch, &roleRef, play, nil)
 			}); err != nil {
-				if errors.Is(err, errEndPlay) {
+				if core.Is(err, errEndPlay) {
 					return nil
 				}
-				if errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndBatch) {
 					goto nextBatch
 				}
 				return err
@@ -551,10 +555,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := runSection(func() error {
 				return e.runTaskOnHosts(ctx, batch, &task, play)
 			}); err != nil {
-				if errors.Is(err, errEndPlay) {
+				if core.Is(err, errEndPlay) {
 					return nil
 				}
-				if errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndBatch) {
 					goto nextBatch
 				}
 				return err
@@ -566,10 +570,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 			if err := runSection(func() error {
 				return e.runTaskOnHosts(ctx, batch, &task, play)
 			}); err != nil {
-				if errors.Is(err, errEndPlay) {
+				if core.Is(err, errEndPlay) {
 					return nil
 				}
-				if errors.Is(err, errEndBatch) {
+				if core.Is(err, errEndBatch) {
 					goto nextBatch
 				}
 				return err
@@ -578,10 +582,10 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 		// Run notified handlers for this batch.
 		if err := e.runNotifiedHandlers(ctx, batch, play); err != nil {
-			if errors.Is(err, errEndPlay) {
+			if core.Is(err, errEndPlay) {
 				return nil
 			}
-			if errors.Is(err, errEndBatch) {
+			if core.Is(err, errEndBatch) {
 				goto nextBatch
 			}
 			return err
@@ -595,7 +599,9 @@ func (e *Executor) runPlay(ctx context.Context, play *Play) error {
 
 // loadPlayVarsFiles loads any play-level vars_files entries and merges them
 // into the play's Vars map before execution begins.
-func (e *Executor) loadPlayVarsFiles(play *Play) error {
+func (e *Executor) loadPlayVarsFiles(
+	play *Play,
+) error {
 	if play == nil {
 		return nil
 	}
@@ -623,10 +629,11 @@ func (e *Executor) loadPlayVarsFiles(play *Play) error {
 	merged := make(map[string]any)
 	for _, file := range files {
 		resolved := e.resolveLocalPath(e.templateString(file, "", nil))
-		data, err := e.parser.readFile(resolved)
-		if err != nil {
-			return coreerr.E("Executor.loadPlayVarsFiles", "read vars file", err)
+		dataResult := e.parser.readFile(resolved)
+		if !dataResult.OK {
+			return coreerr.E("Executor.loadPlayVarsFiles", "read vars file: "+resultErrorMessage(dataResult), nil)
 		}
+		data := dataResult.Value.(string)
 
 		var vars map[string]any
 		if err := yaml.Unmarshal([]byte(data), &vars); err != nil {
@@ -744,7 +751,7 @@ func resolveSerialBatchSizes(serial any, total int) []int {
 			return []int{total}
 		}
 		if corexHasSuffix(s, "%") {
-			percent, err := strconv.Atoi(strings.TrimSuffix(s, "%"))
+			percent, err := strconv.Atoi(trimSuffix(s, "%"))
 			if err == nil && percent > 0 {
 				size := (total*percent + 99) / 100
 				if size < 1 {
@@ -795,17 +802,24 @@ func resolveSerialBatchSizes(serial any, total int) []int {
 }
 
 // runRole executes a role on hosts.
-func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef, play *Play, inheritedWhen any) error {
+func (e *Executor) runRole(
+	ctx context.Context, hosts []string, roleRef *RoleRef, play *Play, inheritedWhen any,
+) error {
 	oldVars := make(map[string]any, len(e.vars))
 	for k, v := range e.vars {
 		oldVars[k] = v
 	}
 
-	tasks, defaults, roleVars, tasksPath, err := e.parser.loadRoleData(roleRef.Role, roleRef.TasksFrom, roleRef.DefaultsFrom, roleRef.VarsFrom)
-	if err != nil {
+	roleDataResult := e.parser.loadRoleData(roleRef.Role, roleRef.TasksFrom, roleRef.DefaultsFrom, roleRef.VarsFrom)
+	if !roleDataResult.OK {
 		e.vars = oldVars
-		return coreerr.E("executor.runRole", sprintf("parse role %s", roleRef.Role), err)
+		return coreerr.E("executor.runRole", sprintf("parse role %s: %s", roleRef.Role, resultErrorMessage(roleDataResult)), nil)
 	}
+	roleData := roleDataResult.Value.(parserRoleDataResult)
+	tasks := roleData.Tasks
+	defaults := roleData.Defaults
+	roleVars := roleData.Vars
+	tasksPath := roleData.Path
 	if err := e.attachRoleHandlers(roleRef.Role, roleRef.HandlersFrom, play); err != nil {
 		e.vars = oldVars
 		return coreerr.E("executor.runRole", sprintf("load handlers for role %s", roleRef.Role), err)
@@ -856,7 +870,7 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 			effectiveTask.When = mergeConditions(inheritedWhen, effectiveTask.When)
 		}
 		if err := e.runTaskOnHosts(ctx, eligibleHosts, &effectiveTask, play); err != nil {
-			if errors.Is(err, errEndRole) {
+			if core.Is(err, errEndRole) {
 				e.vars = oldVars
 				return nil
 			}
@@ -873,7 +887,9 @@ func (e *Executor) runRole(ctx context.Context, hosts []string, roleRef *RoleRef
 	return nil
 }
 
-func (e *Executor) attachRoleHandlers(roleName, handlersFrom string, play *Play) error {
+func (e *Executor) attachRoleHandlers(
+	roleName, handlersFrom string, play *Play,
+) error {
 	if play == nil || roleName == "" {
 		return nil
 	}
@@ -890,10 +906,11 @@ func (e *Executor) attachRoleHandlers(roleName, handlersFrom string, play *Play)
 		return nil
 	}
 
-	handlers, err := e.parser.loadRoleHandlers(roleName, handlersFrom)
-	if err != nil {
-		return err
+	handlersResult := e.parser.loadRoleHandlers(roleName, handlersFrom)
+	if !handlersResult.OK {
+		return handlersResult.Value.(error)
 	}
+	handlers := handlersResult.Value.([]Task)
 	if len(handlers) > 0 {
 		play.Handlers = append(play.Handlers, handlers...)
 	}
@@ -902,7 +919,9 @@ func (e *Executor) attachRoleHandlers(roleName, handlersFrom string, play *Play)
 }
 
 // runTaskOnHosts runs a task on all hosts.
-func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runTaskOnHosts(
+	ctx context.Context, hosts []string, task *Task, play *Play,
+) error {
 	// Check tags
 	if !e.matchesTags(effectiveTaskTags(task, play)) {
 		return nil
@@ -940,10 +959,10 @@ func (e *Executor) runTaskOnHosts(ctx context.Context, hosts []string, task *Tas
 			continue
 		}
 		if err := e.runTaskOnHost(ctx, host, hosts, task, play); err != nil {
-			if errors.Is(err, errEndHost) {
+			if core.Is(err, errEndHost) {
 				continue
 			}
-			if errors.Is(err, errTaskFailed) {
+			if core.Is(err, errTaskFailed) {
 				if play != nil && play.AnyErrorsFatal {
 					return err
 				}
@@ -1042,7 +1061,9 @@ func (e *Executor) copyRegisteredResultToHosts(hosts []string, sourceHost, regis
 }
 
 // runTaskOnHost runs a task on a single host.
-func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runTaskOnHost(
+	ctx context.Context, host string, hosts []string, task *Task, play *Play,
+) error {
 	if e.isHostEnded(host) {
 		return nil
 	}
@@ -1152,10 +1173,11 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	// Get SSH client
 	executionHost := e.resolveDelegateHost(host, task)
 
-	client, err := e.getClient(executionHost, play)
-	if err != nil {
-		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s", executionHost), err)
+	clientResult := e.getClient(executionHost, play)
+	if !clientResult.OK {
+		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s: %s", executionHost, resultErrorMessage(clientResult)), nil)
 	}
+	client := clientResult.Value.(sshExecutorClient)
 
 	// Handle loops, including legacy with_file, with_fileglob, with_sequence,
 	// with_together, and with_subelements syntax.
@@ -1179,11 +1201,14 @@ func (e *Executor) runTaskOnHost(ctx context.Context, host string, hosts []strin
 	}
 
 	// Execute the task, honouring retries/until when configured.
-	result, err := e.runTaskWithRetries(execCtx, host, task, play, func() (*TaskResult, error) {
+	retryResult := e.runTaskWithRetries(execCtx, host, task, play, func() core.Result {
 		return e.executeModule(execCtx, host, client, task, play)
 	})
-	if err != nil {
-		result = &TaskResult{Failed: true, Msg: err.Error()}
+	result := &TaskResult{}
+	if !retryResult.OK {
+		result = &TaskResult{Failed: true, Msg: resultErrorMessage(retryResult)}
+	} else if retryTaskResult, ok := retryResult.Value.(*TaskResult); ok && retryTaskResult != nil {
+		result = retryTaskResult
 	}
 	result.Duration = time.Since(start)
 
@@ -1233,7 +1258,9 @@ func (e *Executor) markBatchHostFailed(host string) {
 	e.batchFailedHosts[host] = true
 }
 
-func (e *Executor) checkMaxFailPercentage(play *Play, hosts []string) error {
+func (e *Executor) checkMaxFailPercentage(
+	play *Play, hosts []string,
+) error {
 	if play == nil || play.MaxFailPercent <= 0 || len(hosts) == 0 {
 		return nil
 	}
@@ -1278,7 +1305,9 @@ func redactTaskResult(result *TaskResult) *TaskResult {
 	return &redacted
 }
 
-func taskFailureError(task *Task, result *TaskResult) error {
+func taskFailureError(
+	task *Task, result *TaskResult,
+) error {
 	if task != nil && task.NoLog {
 		return coreerr.E("Executor.runTaskOnHost", "task failed", errTaskFailed)
 	}
@@ -1293,7 +1322,7 @@ func taskFailureError(task *Task, result *TaskResult) error {
 
 // runTaskWithRetries executes a task once or multiple times when retries,
 // delay, or until are configured.
-func (e *Executor) runTaskWithRetries(ctx context.Context, host string, task *Task, play *Play, execute func() (*TaskResult, error)) (*TaskResult, error) {
+func (e *Executor) runTaskWithRetries(ctx context.Context, host string, task *Task, play *Play, execute func() core.Result) core.Result {
 	attempts := 1
 	if task != nil {
 		if task.Until != "" {
@@ -1308,11 +1337,12 @@ func (e *Executor) runTaskWithRetries(ctx context.Context, host string, task *Ta
 	}
 
 	var result *TaskResult
-	var err error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		result, err = execute()
-		if err != nil {
-			result = &TaskResult{Failed: true, Msg: err.Error()}
+		executeResult := execute()
+		if !executeResult.OK {
+			result = &TaskResult{Failed: true, Msg: resultErrorMessage(executeResult)}
+		} else if taskResult, ok := executeResult.Value.(*TaskResult); ok {
+			result = taskResult
 		}
 		if result == nil {
 			result = &TaskResult{}
@@ -1329,13 +1359,13 @@ func (e *Executor) runTaskWithRetries(ctx context.Context, host string, task *Ta
 			select {
 			case <-ctx.Done():
 				timer.Stop()
-				return result, ctx.Err()
+				return core.Fail(ctx.Err())
 			case <-timer.C:
 			}
 		}
 	}
 
-	return result, nil
+	return core.Ok(result)
 }
 
 func shouldRetryTask(task *Task, host string, e *Executor, result *TaskResult) bool {
@@ -1365,26 +1395,29 @@ func shouldRetryTask(task *Task, host string, e *Executor, result *TaskResult) b
 }
 
 // runLoop handles task loops.
-func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play, start time.Time) error {
-	var (
-		items []any
-		err   error
-	)
+func (e *Executor) runLoop(
+	ctx context.Context, host string, client sshExecutorClient, task *Task, play *Play, start time.Time,
+) error {
+	items := []any(nil)
+	itemsResult := core.Ok(nil)
 	if task.WithFile != nil {
-		items, err = e.resolveWithFileLoop(task.WithFile, host, task)
+		itemsResult = e.resolveWithFileLoop(task.WithFile, host, task)
 	} else if task.WithFileGlob != nil {
-		items, err = e.resolveWithFileGlobLoop(task.WithFileGlob, host, task)
+		itemsResult = e.resolveWithFileGlobLoop(task.WithFileGlob, host, task)
 	} else if task.WithSequence != nil {
-		items, err = e.resolveWithSequenceLoop(task.WithSequence, host, task)
+		itemsResult = e.resolveWithSequenceLoop(task.WithSequence, host, task)
 	} else if task.WithTogether != nil {
-		items, err = e.resolveWithTogetherLoop(task.WithTogether, host, task)
+		itemsResult = e.resolveWithTogetherLoop(task.WithTogether, host, task)
 	} else if task.WithSubelements != nil {
-		items, err = e.resolveWithSubelementsLoop(task.WithSubelements, host, task)
+		itemsResult = e.resolveWithSubelementsLoop(task.WithSubelements, host, task)
 	} else {
 		items = e.resolveLoopWithTask(task.Loop, host, task)
 	}
-	if err != nil {
-		return err
+	if !itemsResult.OK {
+		return coreerr.E("Executor.runLoop", "resolve loop: "+resultErrorMessage(itemsResult), nil)
+	}
+	if itemsResult.Value != nil {
+		items = itemsResult.Value.([]any)
 	}
 
 	loopVar := "item"
@@ -1465,11 +1498,14 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 			continue
 		}
 
-		result, err := e.runTaskWithRetries(ctx, host, task, play, func() (*TaskResult, error) {
+		retryResult := e.runTaskWithRetries(ctx, host, task, play, func() core.Result {
 			return e.executeModule(ctx, host, client, task, play)
 		})
-		if err != nil {
-			result = &TaskResult{Failed: true, Msg: err.Error()}
+		result := &TaskResult{}
+		if !retryResult.OK {
+			result = &TaskResult{Failed: true, Msg: resultErrorMessage(retryResult)}
+		} else if retryTaskResult, ok := retryResult.Value.(*TaskResult); ok && retryTaskResult != nil {
+			result = retryTaskResult
 		}
 		results = append(results, *result)
 
@@ -1580,7 +1616,7 @@ func (e *Executor) runLoop(ctx context.Context, host string, client sshExecutorC
 }
 
 // resolveWithFileLoop resolves legacy with_file loop items into file contents.
-func (e *Executor) resolveWithFileLoop(loop any, host string, task *Task) ([]any, error) {
+func (e *Executor) resolveWithFileLoop(loop any, host string, task *Task) core.Result {
 	var paths []string
 
 	switch v := loop.(type) {
@@ -1604,23 +1640,23 @@ func (e *Executor) resolveWithFileLoop(loop any, host string, task *Task) ([]any
 			paths = []string{s}
 		}
 	default:
-		return nil, nil
+		return core.Ok([]any(nil))
 	}
 
 	items := make([]any, 0, len(paths))
 	for _, filePath := range paths {
-		content, err := e.readLoopFile(filePath)
-		if err != nil {
-			return nil, err
+		contentResult := e.readLoopFile(filePath)
+		if !contentResult.OK {
+			return contentResult
 		}
-		items = append(items, content)
+		items = append(items, contentResult.Value.(string))
 	}
 
-	return items, nil
+	return core.Ok(items)
 }
 
 // resolveWithFileGlobLoop resolves legacy with_fileglob loop items into matching file paths.
-func (e *Executor) resolveWithFileGlobLoop(loop any, host string, task *Task) ([]any, error) {
+func (e *Executor) resolveWithFileGlobLoop(loop any, host string, task *Task) core.Result {
 	var patterns []string
 
 	switch v := loop.(type) {
@@ -1644,21 +1680,22 @@ func (e *Executor) resolveWithFileGlobLoop(loop any, host string, task *Task) ([
 			patterns = []string{s}
 		}
 	default:
-		return nil, nil
+		return core.Ok([]any(nil))
 	}
 
 	items := make([]any, 0)
 	for _, pattern := range patterns {
-		matches, err := e.resolveFileGlob(pattern)
-		if err != nil {
-			return nil, err
+		matchesResult := e.resolveFileGlob(pattern)
+		if !matchesResult.OK {
+			return matchesResult
 		}
+		matches := matchesResult.Value.([]any)
 		for _, match := range matches {
 			items = append(items, match)
 		}
 	}
 
-	return items, nil
+	return core.Ok(items)
 }
 
 type sequenceSpec struct {
@@ -1670,40 +1707,42 @@ type sequenceSpec struct {
 	hasEnd bool
 }
 
-func (e *Executor) resolveWithSequenceLoop(loop any, host string, task *Task) ([]any, error) {
-	spec, err := parseSequenceSpec(loop)
-	if err != nil {
-		return nil, err
+func (e *Executor) resolveWithSequenceLoop(loop any, host string, task *Task) core.Result {
+	specResult := parseSequenceSpec(loop)
+	if !specResult.OK {
+		return specResult
 	}
+	spec := specResult.Value.(*sequenceSpec)
 
-	values, err := buildSequenceValues(spec)
-	if err != nil {
-		return nil, err
+	valuesResult := buildSequenceValues(spec)
+	if !valuesResult.OK {
+		return valuesResult
 	}
+	values := valuesResult.Value.([]string)
 
 	items := make([]any, len(values))
 	for i, value := range values {
 		items[i] = value
 	}
-	return items, nil
+	return core.Ok(items)
 }
 
-func (e *Executor) resolveWithTogetherLoop(loop any, host string, task *Task) ([]any, error) {
+func (e *Executor) resolveWithTogetherLoop(loop any, host string, task *Task) core.Result {
 	items := expandTogetherLoop(loop)
 	if len(items) == 0 {
-		return nil, nil
+		return core.Ok([]any(nil))
 	}
 
-	return items, nil
+	return core.Ok(items)
 }
 
-func (e *Executor) resolveWithSubelementsLoop(loop any, host string, task *Task) ([]any, error) {
+func (e *Executor) resolveWithSubelementsLoop(loop any, host string, task *Task) core.Result {
 	source, subelement, skipMissing, ok := parseSubelementsSpec(loop)
 	if !ok {
-		return nil, nil
+		return core.Ok([]any(nil))
 	}
 	if subelement == "" {
-		return nil, coreerr.E("Executor.resolveWithSubelementsLoop", "with_subelements requires a subelement name", nil)
+		return core.Fail(coreerr.E("Executor.resolveWithSubelementsLoop", "with_subelements requires a subelement name", nil))
 	}
 
 	parents := e.resolveSubelementsParents(source, host, task)
@@ -1714,14 +1753,14 @@ func (e *Executor) resolveWithSubelementsLoop(loop any, host string, task *Task)
 			if skipMissing {
 				continue
 			}
-			return nil, coreerr.E("Executor.resolveWithSubelementsLoop", sprintf("with_subelements missing subelement %q", subelement), nil)
+			return core.Fail(coreerr.E("Executor.resolveWithSubelementsLoop", sprintf("with_subelements missing subelement %q", subelement), nil))
 		}
 		for _, subitem := range subelementValues {
 			items = append(items, []any{parent, subitem})
 		}
 	}
 
-	return items, nil
+	return core.Ok(items)
 }
 
 func parseSubelementsSpec(loop any) (any, string, bool, bool) {
@@ -1737,7 +1776,7 @@ func parseSubelementsSpec(loop any) (any, string, bool, bool) {
 		}
 		return v[0], v[1], parseSubelementsSkipMissingStrings(v[2:]), true
 	case string:
-		parts := strings.Fields(v)
+		parts := fields(v)
 		if len(parts) < 2 {
 			return nil, "", false, false
 		}
@@ -1770,15 +1809,15 @@ func parseSkipMissingValue(value any) bool {
 	case bool:
 		return v
 	case string:
-		trimmed := strings.TrimSpace(v)
+		trimmed := trimSpace(v)
 		if trimmed == "" {
 			return false
 		}
 		if trimmed == "skip_missing" {
 			return true
 		}
-		if strings.HasPrefix(trimmed, "skip_missing=") {
-			return getBoolArg(map[string]any{"skip_missing": strings.TrimPrefix(trimmed, "skip_missing=")}, "skip_missing", false)
+		if hasPrefix(trimmed, "skip_missing=") {
+			return getBoolArg(map[string]any{"skip_missing": trimPrefix(trimmed, "skip_missing=")}, "skip_missing", false)
 		}
 		return getBoolArg(map[string]any{"skip_missing": trimmed}, "skip_missing", false)
 	case map[string]any:
@@ -1832,7 +1871,7 @@ func subelementItems(parent any, path string) ([]any, bool) {
 	return []any{value}, true
 }
 
-func parseSequenceSpec(loop any) (*sequenceSpec, error) {
+func parseSequenceSpec(loop any) core.Result {
 	spec := &sequenceSpec{
 		step:   1,
 		format: "%d",
@@ -1840,12 +1879,12 @@ func parseSequenceSpec(loop any) (*sequenceSpec, error) {
 
 	switch v := loop.(type) {
 	case string:
-		if err := parseSequenceSpecString(spec, v); err != nil {
-			return nil, err
+		if r := parseSequenceSpecString(spec, v); !r.OK {
+			return r
 		}
 	case map[string]any:
-		if err := parseSequenceSpecMap(spec, v); err != nil {
-			return nil, err
+		if r := parseSequenceSpecMap(spec, v); !r.OK {
+			return r
 		}
 	case map[any]any:
 		converted := make(map[string]any, len(v))
@@ -1854,11 +1893,11 @@ func parseSequenceSpec(loop any) (*sequenceSpec, error) {
 				converted[s] = value
 			}
 		}
-		if err := parseSequenceSpecMap(spec, converted); err != nil {
-			return nil, err
+		if r := parseSequenceSpecMap(spec, converted); !r.OK {
+			return r
 		}
 	default:
-		return nil, coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence requires a string or mapping", nil)
+		return core.Fail(coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence requires a string or mapping", nil))
 	}
 
 	if spec.count > 0 && !spec.hasEnd {
@@ -1866,10 +1905,10 @@ func parseSequenceSpec(loop any) (*sequenceSpec, error) {
 		spec.hasEnd = true
 	}
 	if !spec.hasEnd {
-		return nil, coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence requires end or count", nil)
+		return core.Fail(coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence requires end or count", nil))
 	}
 	if spec.step == 0 {
-		return nil, coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence stride must not be zero", nil)
+		return core.Fail(coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence stride must not be zero", nil))
 	}
 
 	if spec.end < spec.start && spec.step > 0 {
@@ -1879,65 +1918,71 @@ func parseSequenceSpec(loop any) (*sequenceSpec, error) {
 		spec.step = -spec.step
 	}
 
-	return spec, nil
+	return core.Ok(spec)
 }
 
-func parseSequenceSpecString(spec *sequenceSpec, raw string) error {
-	fields := strings.Fields(strings.ReplaceAll(raw, ",", " "))
+func parseSequenceSpecString(
+	spec *sequenceSpec, raw string,
+) core.Result {
+	fields := fields(replaceAll(raw, ",", " "))
 	for _, field := range fields {
-		parts := strings.SplitN(field, "=", 2)
+		parts := splitN(field, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
 
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		if err := applySequenceSpecValue(spec, key, value); err != nil {
-			return err
+		key := trimSpace(parts[0])
+		value := trimSpace(parts[1])
+		if r := applySequenceSpecValue(spec, key, value); !r.OK {
+			return r
 		}
 	}
 
-	if spec.start == 0 && !strings.Contains(raw, "start=") {
+	if spec.start == 0 && !contains(raw, "start=") {
 		spec.start = 0
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
-func parseSequenceSpecMap(spec *sequenceSpec, values map[string]any) error {
+func parseSequenceSpecMap(
+	spec *sequenceSpec, values map[string]any,
+) core.Result {
 	for key, value := range values {
-		if err := applySequenceSpecValue(spec, key, value); err != nil {
-			return err
+		if r := applySequenceSpecValue(spec, key, value); !r.OK {
+			return r
 		}
 	}
-	return nil
+	return core.Ok(nil)
 }
 
-func applySequenceSpecValue(spec *sequenceSpec, key string, value any) error {
-	switch lower(strings.TrimSpace(key)) {
+func applySequenceSpecValue(
+	spec *sequenceSpec, key string, value any,
+) core.Result {
+	switch lower(trimSpace(key)) {
 	case "start":
 		n, ok := sequenceSpecInt(value)
 		if !ok {
-			return coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence start must be numeric", nil)
+			return core.Fail(coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence start must be numeric", nil))
 		}
 		spec.start = n
 	case "end":
 		n, ok := sequenceSpecInt(value)
 		if !ok {
-			return coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence end must be numeric", nil)
+			return core.Fail(coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence end must be numeric", nil))
 		}
 		spec.end = n
 		spec.hasEnd = true
 	case "count":
 		n, ok := sequenceSpecInt(value)
 		if !ok {
-			return coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence count must be numeric", nil)
+			return core.Fail(coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence count must be numeric", nil))
 		}
 		spec.count = n
 	case "stride":
 		n, ok := sequenceSpecInt(value)
 		if !ok {
-			return coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence stride must be numeric", nil)
+			return core.Fail(coreerr.E("Executor.resolveWithSequenceLoop", "with_sequence stride must be numeric", nil))
 		}
 		spec.step = n
 	case "format":
@@ -1946,7 +1991,7 @@ func applySequenceSpecValue(spec *sequenceSpec, key string, value any) error {
 		// Ignore unrecognised keys so the parser stays tolerant of extra
 		// Ansible sequence options we do not currently model.
 	}
-	return nil
+	return core.Ok(nil)
 }
 
 func sequenceSpecInt(value any) (int, bool) {
@@ -1972,7 +2017,7 @@ func sequenceSpecInt(value any) (int, bool) {
 	case uint64:
 		return int(v), true
 	case string:
-		n, err := strconv.Atoi(strings.TrimSpace(v))
+		n, err := strconv.Atoi(trimSpace(v))
 		if err == nil {
 			return n, true
 		}
@@ -1980,7 +2025,7 @@ func sequenceSpecInt(value any) (int, bool) {
 	return 0, false
 }
 
-func buildSequenceValues(spec *sequenceSpec) ([]string, error) {
+func buildSequenceValues(spec *sequenceSpec) core.Result {
 	if spec.count > 0 && !spec.hasEnd {
 		spec.end = spec.start + (spec.count-1)*spec.step
 		spec.hasEnd = true
@@ -1991,13 +2036,13 @@ func buildSequenceValues(spec *sequenceSpec) ([]string, error) {
 		for value := spec.start; value <= spec.end; value += spec.step {
 			values = append(values, formatSequenceValue(spec.format, value))
 		}
-		return values, nil
+		return core.Ok(values)
 	}
 
 	for value := spec.start; value >= spec.end; value += spec.step {
 		values = append(values, formatSequenceValue(spec.format, value))
 	}
-	return values, nil
+	return core.Ok(values)
 }
 
 func formatSequenceValue(format string, value int) string {
@@ -2012,18 +2057,15 @@ func formatSequenceValue(format string, value int) string {
 	return formatted
 }
 
-func (e *Executor) resolveFileGlob(pattern string) ([]any, error) {
+func (e *Executor) resolveFileGlob(pattern string) core.Result {
 	candidates := []string{pattern}
-	if e.parser != nil && e.parser.basePath != "" && !path.IsAbs(pattern) {
+	if e.parser != nil && e.parser.basePath != "" && !pathIsAbs(pattern) {
 		candidates = append([]string{joinPath(e.parser.basePath, pattern)}, candidates...)
 	}
 
 	var matches []string
 	for _, candidate := range candidates {
-		globMatches, err := filepath.Glob(candidate)
-		if err != nil {
-			return nil, coreerr.E("Executor.resolveFileGlob", "glob pattern "+pattern, err)
-		}
+		globMatches := pathGlob(candidate)
 		if len(globMatches) > 0 {
 			matches = append(matches, globMatches...)
 			break
@@ -2035,10 +2077,10 @@ func (e *Executor) resolveFileGlob(pattern string) ([]any, error) {
 	for i, match := range matches {
 		result[i] = match
 	}
-	return result, nil
+	return core.Ok(result)
 }
 
-func (e *Executor) readLoopFile(filePath string) (string, error) {
+func (e *Executor) readLoopFile(filePath string) core.Result {
 	candidates := []string{filePath}
 	if e.parser != nil && e.parser.basePath != "" {
 		candidates = append([]string{joinPath(e.parser.basePath, filePath)}, candidates...)
@@ -2046,11 +2088,11 @@ func (e *Executor) readLoopFile(filePath string) (string, error) {
 
 	for _, candidate := range candidates {
 		if data, err := coreio.Local.Read(candidate); err == nil {
-			return data, nil
+			return core.Ok(data)
 		}
 	}
 
-	return "", coreerr.E("Executor.readLoopFile", "read file "+filePath, nil)
+	return core.Fail(coreerr.E("Executor.readLoopFile", "read file "+filePath, nil))
 }
 
 // isCheckModeSafeTask reports whether a task can run without changing state
@@ -2092,7 +2134,9 @@ func isCheckModeSafeTask(task *Task) bool {
 }
 
 // runBlock handles block/rescue/always.
-func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runBlock(
+	ctx context.Context, hosts []string, task *Task, play *Play,
+) error {
 	var blockErr error
 	var rescueErr error
 
@@ -2177,7 +2221,9 @@ func (e *Executor) runBlock(ctx context.Context, hosts []string, task *Task, pla
 }
 
 // runIncludeTasks handles include_tasks/import_tasks.
-func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runIncludeTasks(
+	ctx context.Context, hosts []string, task *Task, play *Play,
+) error {
 	path := task.IncludeTasks
 	if path == "" {
 		path = task.ImportTasks
@@ -2219,10 +2265,11 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 	}
 
 	for _, resolvedPath := range pathOrder {
-		tasks, err := e.parser.ParseTasks(resolvedPath)
-		if err != nil {
-			return coreerr.E("Executor.runIncludeTasks", "include_tasks "+resolvedPath, err)
+		tasksResult := e.parser.ParseTasks(resolvedPath)
+		if !tasksResult.OK {
+			return coreerr.E("Executor.runIncludeTasks", "include_tasks "+resolvedPath+": "+resultErrorMessage(tasksResult), nil)
 		}
+		tasks := tasksResult.Value.([]Task)
 
 		for _, targetHost := range hostsByPath[resolvedPath] {
 			for _, t := range tasks {
@@ -2249,7 +2296,9 @@ func (e *Executor) runIncludeTasks(ctx context.Context, hosts []string, task *Ta
 }
 
 // runIncludeRole handles include_role/import_role.
-func (e *Executor) runIncludeRole(ctx context.Context, hosts []string, task *Task, play *Play) error {
+func (e *Executor) runIncludeRole(
+	ctx context.Context, hosts []string, task *Task, play *Play,
+) error {
 	if len(hosts) == 0 {
 		return nil
 	}
@@ -2431,7 +2480,7 @@ func (e *Executor) getHosts(pattern string) []string {
 }
 
 // getClient returns or creates an SSH client for a host.
-func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error) {
+func (e *Executor) getClient(host string, play *Play) core.Result {
 	// Get host vars
 	vars := make(map[string]any)
 	if e.inventory != nil {
@@ -2489,9 +2538,9 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 		case *localClient:
 			if desiredLocal {
 				cached.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
-				return cached, nil
+				return core.Ok(sshExecutorClient(cached))
 			}
-			_ = cached.Close()
+			closeExecutorClient(cached)
 			delete(e.clients, host)
 		case *SSHClient:
 			if !desiredLocal &&
@@ -2501,13 +2550,13 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 				cached.password == cfg.Password &&
 				cached.keyFile == cfg.KeyFile {
 				cached.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
-				return cached, nil
+				return core.Ok(sshExecutorClient(cached))
 			}
-			_ = cached.Close()
+			closeExecutorClient(cached)
 			delete(e.clients, host)
 		default:
 			client.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
-			return client, nil
+			return core.Ok(client)
 		}
 	}
 
@@ -2515,7 +2564,7 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 		client := newLocalClient()
 		client.SetBecome(desiredBecome, desiredBecomeUser, desiredBecomePass)
 		e.clients[host] = client
-		return client, nil
+		return core.Ok(sshExecutorClient(client))
 	}
 
 	// Apply play become settings
@@ -2525,13 +2574,14 @@ func (e *Executor) getClient(host string, play *Play) (sshExecutorClient, error)
 		cfg.BecomePass = desiredBecomePass
 	}
 
-	client, err := NewSSHClient(cfg)
-	if err != nil {
-		return nil, err
+	clientResult := NewSSHClient(cfg)
+	if !clientResult.OK {
+		return clientResult
 	}
+	client := clientResult.Value.(*SSHClient)
 
 	e.clients[host] = client
-	return client, nil
+	return core.Ok(sshExecutorClient(client))
 }
 
 // resolveLocalPath resolves a local file path relative to the executor's base
@@ -2545,16 +2595,20 @@ func (e *Executor) resolveLocalPath(path string) string {
 }
 
 // gatherFacts collects facts from a host.
-func (e *Executor) gatherFacts(ctx context.Context, host string, play *Play) error {
-	client, err := e.getClient(host, play)
-	if err != nil {
-		return err
+func (e *Executor) gatherFacts(
+	ctx context.Context, host string, play *Play,
+) error {
+	clientResult := e.getClient(host, play)
+	if !clientResult.OK {
+		return coreerr.E("Executor.gatherFacts", "get client: "+resultErrorMessage(clientResult), nil)
 	}
+	client := clientResult.Value.(sshExecutorClient)
 
-	facts, err := e.collectFacts(ctx, client, false)
-	if err != nil {
-		return err
+	factsResult := e.collectFacts(ctx, client, false)
+	if !factsResult.OK {
+		return coreerr.E("Executor.gatherFacts", "collect facts: "+resultErrorMessage(factsResult), nil)
 	}
+	facts := factsResult.Value.(*Facts)
 
 	e.mu.Lock()
 	e.facts[host] = facts
@@ -2835,7 +2889,7 @@ func splitLogicalCondition(cond, op string) (string, string, bool) {
 			continue
 		}
 
-		if depth != 0 || !strings.HasPrefix(cond[i:], op) {
+		if depth != 0 || !hasPrefix(cond[i:], op) {
 			continue
 		}
 
@@ -2951,7 +3005,7 @@ func splitBinaryCondition(cond, op string) (string, string, bool) {
 			continue
 		}
 
-		if depth != 0 || !strings.HasPrefix(cond[i:], op) {
+		if depth != 0 || !hasPrefix(cond[i:], op) {
 			continue
 		}
 
@@ -3066,7 +3120,7 @@ func templateConditionContains(container, item any) bool {
 	}
 
 	if containerStr, ok := container.(string); ok {
-		return strings.Contains(containerStr, templateStringify(item))
+		return contains(containerStr, templateStringify(item))
 	}
 
 	if items, ok := anySliceFromValue(container); ok {
@@ -3094,7 +3148,7 @@ func templateConditionContains(container, item any) bool {
 		return false
 	}
 
-	return strings.Contains(templateStringify(container), templateStringify(item))
+	return contains(templateStringify(container), templateStringify(item))
 }
 
 func (e *Executor) lookupConditionValue(name string, host string, task *Task, locals map[string]any) (any, bool) {
@@ -3383,8 +3437,8 @@ func splitTemplatePipeline(expr string) []string {
 	}
 
 	parts := make([]string, 0, 4)
+	current := newBuilder()
 	var (
-		current  strings.Builder
 		depth    int
 		inSingle bool
 		inDouble bool
@@ -3666,7 +3720,7 @@ func parseRegexReplaceFilter(filter string) (string, string, bool) {
 		return "", "", false
 	}
 
-	args := strings.TrimSpace(filter[len("regex_replace(") : len(filter)-1])
+	args := trimSpace(filter[len("regex_replace(") : len(filter)-1])
 	parts := splitFilterArgs(args)
 	if len(parts) < 2 {
 		return "", "", false
@@ -3680,9 +3734,9 @@ func splitFilterArgs(args string) []string {
 		return nil
 	}
 
+	current := newBuilder()
 	var (
 		parts    []string
-		current  strings.Builder
 		inSingle bool
 		inDouble bool
 		escaped  bool
@@ -3703,7 +3757,7 @@ func splitFilterArgs(args string) []string {
 			current.WriteRune(r)
 			inDouble = !inDouble
 		case r == ',' && !inSingle && !inDouble:
-			part := strings.TrimSpace(current.String())
+			part := trimSpace(current.String())
 			if part != "" {
 				parts = append(parts, part)
 			}
@@ -3713,7 +3767,7 @@ func splitFilterArgs(args string) []string {
 		}
 	}
 
-	if tail := strings.TrimSpace(current.String()); tail != "" {
+	if tail := trimSpace(current.String()); tail != "" {
 		parts = append(parts, tail)
 	}
 
@@ -3754,7 +3808,7 @@ func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool)
 	}
 
 	lookupType := normalizeLookupName(match[1])
-	arg := strings.TrimSpace(match[2])
+	arg := trimSpace(match[2])
 	arg, quoted := unquoteLookupArg(arg)
 
 	switch lookupType {
@@ -3765,18 +3819,23 @@ func (e *Executor) lookupValue(expr string, host string, task *Task) (any, bool)
 			return data, true
 		}
 	case "template":
-		if data, err := e.TemplateFile(arg, host, task); err == nil {
-			return data, true
+		if dataResult := e.TemplateFile(arg, host, task); dataResult.OK {
+			return dataResult.Value.(string), true
 		}
 	case "fileglob":
-		if matches, err := e.resolveFileGlob(arg); err == nil && len(matches) > 0 {
-			return matches, true
+		matchesResult := e.resolveFileGlob(arg)
+		if matchesResult.OK {
+			matches := matchesResult.Value.([]any)
+			if len(matches) > 0 {
+				return matches, true
+			}
 		}
 		return []any{}, true
 	case "pipe":
-		stdout, _, rc, err := runLocalShell(context.Background(), arg, "")
-		if err == nil && rc == 0 {
-			return strings.TrimRight(stdout, "\r\n"), true
+		runResult := runLocalShell(context.Background(), arg, "")
+		run := commandRunValue(runResult)
+		if runResult.OK && run.ExitCode == 0 {
+			return trimRightCutset(run.Stdout, "\r\n"), true
 		}
 	case "vars":
 		if value, ok := e.lookupConditionValue(arg, host, task, nil); ok {
@@ -3801,7 +3860,7 @@ func normalizeLookupName(name string) string {
 		return ""
 	}
 
-	if idx := strings.LastIndex(name, "."); idx >= 0 {
+	if idx := stringLastIndex(name, "."); idx >= 0 {
 		return name[idx+1:]
 	}
 
@@ -3853,8 +3912,11 @@ func (e *Executor) lookupFirstFound(arg string, quoted bool, host string, task *
 
 	for _, candidate := range candidates {
 		resolvedPath := e.resolveLocalPath(candidate)
-		if info, err := os.Stat(resolvedPath); err == nil && !info.IsDir() {
-			return resolvedPath, true
+		if stat := core.Stat(resolvedPath); stat.OK {
+			info := stat.Value.(core.FsFileInfo)
+			if !info.IsDir() {
+				return resolvedPath, true
+			}
 		}
 	}
 
@@ -3912,14 +3974,15 @@ func (e *Executor) lookupPassword(arg string, host string, task *Task) (string, 
 	resolvedPath := e.resolveLocalPath(spec.path)
 	if resolvedPath != "/dev/null" {
 		if data, err := coreio.Local.Read(resolvedPath); err == nil {
-			return strings.TrimRight(data, "\r\n"), true
+			return trimRightCutset(data, "\r\n"), true
 		}
 	}
 
-	password, err := generatePassword(spec.length, spec.chars, spec.seed)
-	if err != nil {
+	passwordResult := generatePassword(spec.length, spec.chars, spec.seed)
+	if !passwordResult.OK {
 		return "", false
 	}
+	password := passwordResult.Value.(string)
 
 	if resolvedPath != "/dev/null" {
 		if err := coreio.Local.EnsureDir(pathDir(resolvedPath)); err != nil {
@@ -3943,7 +4006,7 @@ func (e *Executor) resolveLookupPasswordValue(value string, host string, task *T
 		return sprintf("%v", resolved)
 	}
 
-	if strings.Contains(value, "{{") {
+	if contains(value, "{{") {
 		return e.templateString(value, host, task)
 	}
 
@@ -3963,13 +4026,13 @@ func parsePasswordLookupSpec(arg string) passwordLookupSpec {
 		chars:  passwordLookupCharset("ascii_letters,digits"),
 	}
 
-	fields := strings.Fields(arg)
+	fields := fields(arg)
 	for _, field := range fields {
-		key, value, ok := strings.Cut(field, "=")
+		key, value, ok := cut(field, "=")
 		if ok {
-			switch lower(strings.TrimSpace(key)) {
+			switch lower(trimSpace(key)) {
 			case "length":
-				if n, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && n > 0 {
+				if n, err := strconv.Atoi(trimSpace(value)); err == nil && n > 0 {
 					spec.length = n
 				}
 			case "chars":
@@ -3995,7 +4058,7 @@ func passwordLookupCharset(value string) string {
 		return ""
 	}
 
-	var chars strings.Builder
+	chars := newBuilder()
 	seen := make(map[rune]bool)
 	appendChars := func(set string) {
 		for _, r := range set {
@@ -4007,8 +4070,8 @@ func passwordLookupCharset(value string) string {
 		}
 	}
 
-	for _, token := range strings.Split(value, ",") {
-		switch lower(strings.TrimSpace(token)) {
+	for _, token := range split(value, ",") {
+		switch lower(trimSpace(token)) {
 		case "ascii_letters":
 			appendChars("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 		case "ascii_lowercase":
@@ -4027,7 +4090,7 @@ func passwordLookupCharset(value string) string {
 	return chars.String()
 }
 
-func generatePassword(length int, chars, seed string) (string, error) {
+func generatePassword(length int, chars, seed string) core.Result {
 	if length <= 0 {
 		length = 20
 	}
@@ -4043,12 +4106,12 @@ func generatePassword(length int, chars, seed string) (string, error) {
 		for i := range buf {
 			buf[i] = chars[r.Intn(len(chars))]
 		}
-		return string(buf), nil
+		return core.Ok(string(buf))
 	}
 
 	buf := make([]byte, length)
 	if _, err := rand.Read(buf); err != nil {
-		return "", coreerr.E("Executor.lookupPassword", "generate password", err)
+		return core.Fail(coreerr.E("Executor.lookupPassword", "generate password", err))
 	}
 
 	output := make([]byte, length)
@@ -4056,7 +4119,7 @@ func generatePassword(length int, chars, seed string) (string, error) {
 		output[i] = chars[int(b)%len(chars)]
 	}
 
-	return string(output), nil
+	return core.Ok(string(output))
 }
 
 // resolveLoop resolves loop items.
@@ -4206,7 +4269,7 @@ func resolveDefaultLoopValue(filters []string) (any, bool) {
 			continue
 		}
 
-		raw := strings.TrimSpace(filter[len("default(") : len(filter)-1])
+		raw := trimSpace(filter[len("default(") : len(filter)-1])
 		if raw == "" {
 			return []any{}, true
 		}
@@ -4228,7 +4291,7 @@ func extractSingleTemplateExpression(value string) (string, bool) {
 		return "", false
 	}
 
-	inner := strings.TrimSpace(match[1])
+	inner := trimSpace(match[1])
 	if inner == "" {
 		return "", false
 	}
@@ -4323,7 +4386,9 @@ func (e *Executor) handleNotify(notify any) {
 
 // runNotifiedHandlers executes any handlers that have been notified and then
 // clears the notification state for those handlers.
-func (e *Executor) runNotifiedHandlers(ctx context.Context, hosts []string, play *Play) error {
+func (e *Executor) runNotifiedHandlers(
+	ctx context.Context, hosts []string, play *Play,
+) error {
 	if play == nil || len(play.Handlers) == 0 {
 		return nil
 	}
@@ -4378,7 +4443,9 @@ func handlerMatchesNotifications(handler *Task, pending map[string]bool) bool {
 
 // handleMetaAction applies module meta side effects after the task result has
 // been recorded and callbacks have fired.
-func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []string, play *Play, result *TaskResult) error {
+func (e *Executor) handleMetaAction(
+	ctx context.Context, host string, hosts []string, play *Play, result *TaskResult,
+) error {
 	if result == nil || result.Data == nil {
 		return nil
 	}
@@ -4394,7 +4461,10 @@ func (e *Executor) handleMetaAction(ctx context.Context, host string, hosts []st
 		e.clearHostErrors()
 		return nil
 	case "refresh_inventory":
-		return e.refreshInventory()
+		if r := e.refreshInventory(); !r.OK {
+			return coreerr.E("Executor.handleMetaAction", "refresh inventory: "+resultErrorMessage(r), nil)
+		}
+		return nil
 	case "end_play":
 		return errEndPlay
 	case "end_batch":
@@ -4433,25 +4503,26 @@ func (e *Executor) clearHostErrors() {
 }
 
 // refreshInventory reloads inventory from the last configured source.
-func (e *Executor) refreshInventory() error {
+func (e *Executor) refreshInventory() core.Result {
 	e.mu.RLock()
 	path := e.inventoryPath
 	e.mu.RUnlock()
 
 	if path == "" {
-		return nil
+		return core.Ok(nil)
 	}
 
-	inv, err := e.parser.ParseInventory(path)
-	if err != nil {
-		return coreerr.E("Executor.refreshInventory", "reload inventory", err)
+	invResult := e.parser.ParseInventory(path)
+	if !invResult.OK {
+		return core.Fail(coreerr.E("Executor.refreshInventory", "reload inventory: "+resultErrorMessage(invResult), nil))
 	}
+	inv := invResult.Value.(*Inventory)
 
 	e.mu.Lock()
 	e.inventory = inv
 	e.clients = make(map[string]sshExecutorClient)
 	e.mu.Unlock()
-	return nil
+	return core.Ok(nil)
 }
 
 // markHostEnded records that a host should be skipped for the rest of the play.
@@ -4511,7 +4582,7 @@ func (e *Executor) resetConnection(host string) {
 	e.mu.Unlock()
 
 	if ok {
-		_ = client.Close()
+		closeExecutorClient(client)
 	}
 }
 
@@ -4525,9 +4596,18 @@ func (e *Executor) Close() {
 	defer e.mu.Unlock()
 
 	for _, client := range e.clients {
-		_ = client.Close()
+		closeExecutorClient(client)
 	}
 	e.clients = make(map[string]sshExecutorClient)
+}
+
+func closeExecutorClient(client sshExecutorClient) {
+	if client == nil {
+		return
+	}
+	if r := client.Close(); !r.OK {
+		return
+	}
 }
 
 // TemplateFile processes a template file.
@@ -4535,16 +4615,16 @@ func (e *Executor) Close() {
 // Example:
 //
 //	content, err := executor.TemplateFile("/workspace/templates/app.conf.j2", "web1", &Task{})
-func (e *Executor) TemplateFile(src, host string, task *Task) (string, error) {
+func (e *Executor) TemplateFile(src, host string, task *Task) core.Result {
 	src = e.resolveLocalPath(src)
 	if src == "" {
-		return "", coreerr.E("Executor.TemplateFile", "template source path required", nil)
+		return core.Fail(coreerr.E("Executor.TemplateFile", "template source path required", nil))
 	}
 
 	content, err := coreio.Local.Read(src)
 	if err != nil {
-		return "", coreerr.E("Executor.TemplateFile", "read template "+src, err)
+		return core.Fail(coreerr.E("Executor.TemplateFile", "read template "+src, err))
 	}
 
-	return e.templateString(content, host, task), nil
+	return core.Ok(e.templateString(content, host, task))
 }

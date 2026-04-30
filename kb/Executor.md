@@ -1,6 +1,6 @@
 # Executor
 
-Module: `dappco.re/go/core/ansible`
+Module: `dappco.re/go/ansible`
 
 The `Executor` is the main playbook runner. It manages SSH connections, variable resolution, conditional evaluation, loops, blocks, roles, handlers, and module execution.
 

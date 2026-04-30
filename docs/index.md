@@ -5,12 +5,12 @@ description: A pure Go Ansible playbook engine -- parses YAML playbooks, invento
 
 # go-ansible
 
-`dappco.re/go/core/ansible` is a pure Go implementation of an Ansible playbook engine. It parses standard Ansible YAML playbooks, inventories, and roles, then executes tasks against remote hosts over SSH -- with no dependency on Python or the upstream `ansible-playbook` binary.
+`dappco.re/go/ansible` is a pure Go implementation of an Ansible playbook engine. It parses standard Ansible YAML playbooks, inventories, and roles, then executes tasks against remote hosts over SSH -- with no dependency on Python or the upstream `ansible-playbook` binary.
 
 ## Module Path
 
 ```
-dappco.re/go/core/ansible
+dappco.re/go/ansible
 ```
 
 Requires **Go 1.26+**.
@@ -26,7 +26,7 @@ import (
     "context"
     "fmt"
 
-    ansible "dappco.re/go/core/ansible"
+    ansible "dappco.re/go/ansible"
 )
 
 func main() {
@@ -148,8 +148,8 @@ Both fully-qualified collection names (e.g. `ansible.builtin.shell`) and short-f
 
 | Module | Purpose |
 |--------|---------|
-| `dappco.re/go/core` | Core framework (command registration, flags) |
-| `dappco.re/go/core/log` | Structured logging and contextual error helper (`log.E()`) |
+| `dappco.re/go` | Core framework (command registration, flags) |
+| `dappco.re/go/log` | Structured logging and contextual error helper (`log.E()`) |
 | `golang.org/x/crypto` | SSH protocol implementation (`crypto/ssh`, `crypto/ssh/knownhosts`) |
 | `gopkg.in/yaml.v3` | YAML parsing for playbooks, inventories, and role files |
 | `github.com/stretchr/testify` | Test assertions (test-only) |

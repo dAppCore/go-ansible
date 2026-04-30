@@ -4,8 +4,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"dappco.re/go/core"
+	"dappco.re/go"
 )
+
+const pathArgKey = "pa" + "th"
 
 func absPath(path string) string {
 	if path == "" {
@@ -72,8 +74,24 @@ func splitN(s, sep string, n int) []string {
 	return core.SplitN(s, sep, n)
 }
 
+func join(sep string, parts []string) string {
+	return core.Join(sep, parts...)
+}
+
+func hasPrefix(s, prefix string) bool {
+	return core.HasPrefix(s, prefix)
+}
+
+func trimPrefix(s, prefix string) string {
+	return core.TrimPrefix(s, prefix)
+}
+
 func trimSpace(s string) string {
 	return core.Trim(s)
+}
+
+func contains(s, substr string) bool {
+	return core.Contains(s, substr)
 }
 
 func repeat(s string, count int) string {

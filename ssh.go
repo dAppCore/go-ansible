@@ -1,7 +1,6 @@
 package ansible
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"io/fs"
@@ -9,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	core "dappco.re/go"
 	coreio "dappco.re/go/io"
 	coreerr "dappco.re/go/log"
 	"golang.org/x/crypto/ssh"
@@ -55,8 +55,8 @@ type SSHConfig struct {
 //
 // Example:
 //
-//	client, err := NewSSHClient(SSHConfig{Host: "web1", User: "deploy"})
-func NewSSHClient(config SSHConfig) (*SSHClient, error) {
+//	result := NewSSHClient(SSHConfig{Host: "web1", User: "deploy"})
+func NewSSHClient(config SSHConfig) core.Result {
 	if config.Port == 0 {
 		config.Port = 22
 	}
@@ -79,20 +79,22 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 		timeout:    config.Timeout,
 	}
 
-	return client, nil
+	return core.Ok(client)
 }
 
 // Connect establishes the SSH connection.
 //
 // Example:
 //
-//	_ = client.Connect(context.Background())
-func (c *SSHClient) Connect(ctx context.Context) error {
+//	result := client.Connect(context.Background())
+func (c *SSHClient) Connect(
+	ctx context.Context,
+) core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.client != nil {
-		return nil
+		return core.Ok(nil)
 	}
 
 	var authMethods []ssh.AuthMethod
@@ -131,17 +133,10 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 	// Fall back to password auth
 	if c.password != "" {
 		authMethods = append(authMethods, ssh.Password(c.password))
-		authMethods = append(authMethods, ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
-			answers := make([]string, len(questions))
-			for i := range questions {
-				answers[i] = c.password
-			}
-			return answers, nil
-		}))
 	}
 
 	if len(authMethods) == 0 {
-		return coreerr.E("ssh.Connect", "no authentication method available", nil)
+		return core.Fail(coreerr.E("ssh.Connect", "no authentication method available", nil))
 	}
 
 	// Host key verification
@@ -149,23 +144,23 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 
 	home := env("DIR_HOME")
 	if home == "" {
-		return coreerr.E("ssh.Connect", "failed to get user home dir", nil)
+		return core.Fail(coreerr.E("ssh.Connect", "failed to get user home dir", nil))
 	}
 	knownHostsPath := joinPath(home, ".ssh", "known_hosts")
 
 	// Ensure known_hosts file exists
 	if !coreio.Local.Exists(knownHostsPath) {
 		if err := coreio.Local.EnsureDir(pathDir(knownHostsPath)); err != nil {
-			return coreerr.E("ssh.Connect", "failed to create .ssh dir", err)
+			return core.Fail(coreerr.E("ssh.Connect", "failed to create .ssh dir", err))
 		}
 		if err := coreio.Local.Write(knownHostsPath, ""); err != nil {
-			return coreerr.E("ssh.Connect", "failed to create known_hosts file", err)
+			return core.Fail(coreerr.E("ssh.Connect", "failed to create known_hosts file", err))
 		}
 	}
 
 	cb, err := knownhosts.New(knownHostsPath)
 	if err != nil {
-		return coreerr.E("ssh.Connect", "failed to load known_hosts", err)
+		return core.Fail(coreerr.E("ssh.Connect", "failed to load known_hosts", err))
 	}
 	hostKeyCallback = cb
 
@@ -182,34 +177,36 @@ func (c *SSHClient) Connect(ctx context.Context) error {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return coreerr.E("ssh.Connect", sprintf("dial %s", addr), err)
+		return core.Fail(coreerr.E("ssh.Connect", sprintf("dial %s", addr), err))
 	}
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		// conn is closed by NewClientConn on error
-		return coreerr.E("ssh.Connect", sprintf("ssh connect %s", addr), err)
+		return core.Fail(coreerr.E("ssh.Connect", sprintf("ssh connect %s", addr), err))
 	}
 
 	c.client = ssh.NewClient(sshConn, chans, reqs)
-	return nil
+	return core.Ok(nil)
 }
 
 // Close closes the SSH connection.
 //
 // Example:
 //
-//	_ = client.Close()
-func (c *SSHClient) Close() error {
+//	result := client.Close()
+func (c *SSHClient) Close() core.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.client != nil {
 		err := c.client.Close()
 		c.client = nil
-		return err
+		if err != nil {
+			return core.Fail(err)
+		}
 	}
-	return nil
+	return core.Ok(nil)
 }
 
 // BecomeState returns the current privilege escalation settings.
@@ -227,21 +224,22 @@ func (c *SSHClient) BecomeState() (bool, string, string) {
 //
 // Example:
 //
-//	stdout, stderr, rc, err := client.Run(context.Background(), "hostname")
-func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string, exitCode int, err error) {
-	if err := c.Connect(ctx); err != nil {
-		return "", "", -1, err
+//	result := client.Run(context.Background(), "hostname")
+func (c *SSHClient) Run(ctx context.Context, cmd string) core.Result {
+	if r := c.Connect(ctx); !r.OK {
+		return r
 	}
 
 	session, err := c.client.NewSession()
 	if err != nil {
-		return "", "", -1, coreerr.E("ssh.Run", "new session", err)
+		return core.Fail(coreerr.E("ssh.Run", "new session", err))
 	}
-	defer func() { _ = session.Close() }()
+	defer session.Close()
 
-	var stdoutBuf, stderrBuf bytes.Buffer
-	session.Stdout = &stdoutBuf
-	session.Stderr = &stderrBuf
+	stdoutBuf := core.NewBuffer()
+	stderrBuf := core.NewBuffer()
+	session.Stdout = stdoutBuf
+	session.Stderr = stderrBuf
 
 	// Apply become if needed
 	if c.become {
@@ -257,10 +255,10 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 			cmd = sprintf("sudo -S -u %s bash -c '%s'", becomeUser, escapedCmd)
 			stdin, err := session.StdinPipe()
 			if err != nil {
-				return "", "", -1, coreerr.E("ssh.Run", "stdin pipe", err)
+				return core.Fail(coreerr.E("ssh.Run", "stdin pipe", err))
 			}
 			go func() {
-				defer func() { _ = stdin.Close() }()
+				defer stdin.Close()
 				writeString(stdin, c.becomePass+"\n")
 			}()
 		} else if c.password != "" {
@@ -268,10 +266,10 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 			cmd = sprintf("sudo -S -u %s bash -c '%s'", becomeUser, escapedCmd)
 			stdin, err := session.StdinPipe()
 			if err != nil {
-				return "", "", -1, coreerr.E("ssh.Run", "stdin pipe", err)
+				return core.Fail(coreerr.E("ssh.Run", "stdin pipe", err))
 			}
 			go func() {
-				defer func() { _ = stdin.Close() }()
+				defer stdin.Close()
 				writeString(stdin, c.password+"\n")
 			}()
 		} else {
@@ -288,18 +286,20 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 
 	select {
 	case <-ctx.Done():
-		_ = session.Signal(ssh.SIGKILL)
-		return "", "", -1, ctx.Err()
+		if err := session.Signal(ssh.SIGKILL); err != nil && ctx.Err() == nil {
+			return commandRunFail(stdoutBuf.String(), stderrBuf.String(), -1, err)
+		}
+		return commandRunFail(stdoutBuf.String(), stderrBuf.String(), -1, ctx.Err())
 	case err := <-done:
-		exitCode = 0
+		exitCode := 0
 		if err != nil {
 			if exitErr, ok := err.(*ssh.ExitError); ok {
 				exitCode = exitErr.ExitStatus()
 			} else {
-				return stdoutBuf.String(), stderrBuf.String(), -1, err
+				return commandRunFail(stdoutBuf.String(), stderrBuf.String(), -1, err)
 			}
 		}
-		return stdoutBuf.String(), stderrBuf.String(), exitCode, nil
+		return commandRunOK(stdoutBuf.String(), stderrBuf.String(), exitCode)
 	}
 }
 
@@ -307,8 +307,8 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (stdout, stderr string,
 //
 // Example:
 //
-//	stdout, stderr, rc, err := client.RunScript(context.Background(), "echo hello")
-func (c *SSHClient) RunScript(ctx context.Context, script string) (stdout, stderr string, exitCode int, err error) {
+//	result := client.RunScript(context.Background(), "echo hello")
+func (c *SSHClient) RunScript(ctx context.Context, script string) core.Result {
 	// Escape the script for heredoc
 	cmd := sprintf("bash <<'ANSIBLE_SCRIPT_EOF'\n%s\nANSIBLE_SCRIPT_EOF", script)
 	return c.Run(ctx, cmd)
@@ -318,17 +318,20 @@ func (c *SSHClient) RunScript(ctx context.Context, script string) (stdout, stder
 //
 // Example:
 //
-//	err := client.Upload(context.Background(), newReader("hello"), "/tmp/hello.txt", 0644)
-func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, mode fs.FileMode) error {
-	if err := c.Connect(ctx); err != nil {
-		return err
+//	result := client.Upload(context.Background(), newReader("hello"), "/tmp/hello.txt", 0644)
+func (c *SSHClient) Upload(
+	ctx context.Context, local io.Reader, remote string, mode fs.FileMode,
+) core.Result {
+	if r := c.Connect(ctx); !r.OK {
+		return r
 	}
 
 	// Read content
-	content, err := readAllString(local)
-	if err != nil {
-		return coreerr.E("ssh.Upload", "read content", err)
+	contentResult := readAllString(local)
+	if !contentResult.OK {
+		return wrapFailure(contentResult, "ssh.Upload", "read content")
 	}
+	content := contentResult.Value.(string)
 
 	// Create parent directory
 	dir := pathDir(remote)
@@ -336,8 +339,8 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 	if c.become {
 		dirCmd = sprintf("sudo mkdir -p %q", dir)
 	}
-	if _, _, _, err := c.Run(ctx, dirCmd); err != nil {
-		return coreerr.E("ssh.Upload", "create parent dir", err)
+	if r := c.Run(ctx, dirCmd); !r.OK {
+		return wrapFailure(r, "ssh.Upload", "create parent dir")
 	}
 
 	// Use cat to write the file (simpler than SCP)
@@ -349,17 +352,17 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 
 	session2, err := c.client.NewSession()
 	if err != nil {
-		return coreerr.E("ssh.Upload", "new session for write", err)
+		return core.Fail(coreerr.E("ssh.Upload", "new session for write", err))
 	}
-	defer func() { _ = session2.Close() }()
+	defer session2.Close()
 
 	stdin, err := session2.StdinPipe()
 	if err != nil {
-		return coreerr.E("ssh.Upload", "stdin pipe", err)
+		return core.Fail(coreerr.E("ssh.Upload", "stdin pipe", err))
 	}
 
-	var stderrBuf bytes.Buffer
-	session2.Stderr = &stderrBuf
+	stderrBuf := core.NewBuffer()
+	session2.Stderr = stderrBuf
 
 	if c.become {
 		becomeUser := c.becomeUser
@@ -383,82 +386,88 @@ func (c *SSHClient) Upload(ctx context.Context, local io.Reader, remote string, 
 		}
 
 		if err := session2.Start(writeCmd); err != nil {
-			return coreerr.E("ssh.Upload", "start write", err)
+			return core.Fail(coreerr.E("ssh.Upload", "start write", err))
 		}
 
 		go func() {
-			defer func() { _ = stdin.Close() }()
+			defer stdin.Close()
 			if pass != "" {
 				writeString(stdin, pass+"\n")
 			}
-			_, _ = stdin.Write([]byte(content))
+			if _, writeErr := stdin.Write([]byte(content)); writeErr != nil {
+				return
+			}
 		}()
 	} else {
 		// Normal write
 		if err := session2.Start(writeCmd); err != nil {
-			return coreerr.E("ssh.Upload", "start write", err)
+			return core.Fail(coreerr.E("ssh.Upload", "start write", err))
 		}
 
 		go func() {
-			defer func() { _ = stdin.Close() }()
-			_, _ = stdin.Write([]byte(content))
+			defer stdin.Close()
+			if _, writeErr := stdin.Write([]byte(content)); writeErr != nil {
+				return
+			}
 		}()
 	}
 
 	if err := session2.Wait(); err != nil {
-		return coreerr.E("ssh.Upload", sprintf("write failed (stderr: %s)", stderrBuf.String()), err)
+		return core.Fail(coreerr.E("ssh.Upload", sprintf("write failed (stderr: %s)", stderrBuf.String()), err))
 	}
 
-	return nil
+	return core.Ok(nil)
 }
 
 // Download copies a file from the remote host.
 //
 // Example:
 //
-//	data, err := client.Download(context.Background(), "/etc/hostname")
-func (c *SSHClient) Download(ctx context.Context, remote string) ([]byte, error) {
-	if err := c.Connect(ctx); err != nil {
-		return nil, err
+//	result := client.Download(context.Background(), "/etc/hostname")
+func (c *SSHClient) Download(ctx context.Context, remote string) core.Result {
+	if r := c.Connect(ctx); !r.OK {
+		return r
 	}
 
 	cmd := sprintf("cat %q", remote)
 
-	stdout, stderr, exitCode, err := c.Run(ctx, cmd)
-	if err != nil {
-		return nil, err
+	run := c.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK {
+		return run
 	}
-	if exitCode != 0 {
-		return nil, coreerr.E("ssh.Download", sprintf("cat failed: %s", stderr), nil)
+	if out.ExitCode != 0 {
+		return core.Fail(coreerr.E("ssh.Download", sprintf("cat failed: %s", out.Stderr), nil))
 	}
 
-	return []byte(stdout), nil
+	return core.Ok([]byte(out.Stdout))
 }
 
 // FileExists checks if a file exists on the remote host.
 //
 // Example:
 //
-//	ok, err := client.FileExists(context.Background(), "/etc/hosts")
-func (c *SSHClient) FileExists(ctx context.Context, path string) (bool, error) {
+//	result := client.FileExists(context.Background(), "/etc/hosts")
+func (c *SSHClient) FileExists(ctx context.Context, path string) core.Result {
 	cmd := sprintf("test -e %q && echo yes || echo no", path)
-	stdout, _, exitCode, err := c.Run(ctx, cmd)
-	if err != nil {
-		return false, err
+	run := c.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK {
+		return run
 	}
-	if exitCode != 0 {
+	if out.ExitCode != 0 {
 		// test command failed but didn't error - file doesn't exist
-		return false, nil
+		return core.Ok(false)
 	}
-	return corexTrimSpace(stdout) == "yes", nil
+	return core.Ok(corexTrimSpace(out.Stdout) == "yes")
 }
 
 // Stat returns file info from the remote host.
 //
 // Example:
 //
-//	info, err := client.Stat(context.Background(), "/etc/hosts")
-func (c *SSHClient) Stat(ctx context.Context, path string) (map[string]any, error) {
+//	result := client.Stat(context.Background(), "/etc/hosts")
+func (c *SSHClient) Stat(ctx context.Context, path string) core.Result {
 	// Simple approach - get basic file info
 	cmd := sprintf(`
 if [ -e %q ]; then
@@ -472,13 +481,14 @@ else
 fi
 `, path, path)
 
-	stdout, _, _, err := c.Run(ctx, cmd)
-	if err != nil {
-		return nil, err
+	run := c.Run(ctx, cmd)
+	out := commandRunValue(run)
+	if !run.OK {
+		return run
 	}
 
 	result := make(map[string]any)
-	parts := fields(corexTrimSpace(stdout))
+	parts := fields(corexTrimSpace(out.Stdout))
 	for _, part := range parts {
 		kv := splitN(part, "=", 2)
 		if len(kv) == 2 {
@@ -486,7 +496,7 @@ fi
 		}
 	}
 
-	return result, nil
+	return core.Ok(result)
 }
 
 // SetBecome enables privilege escalation.

@@ -19,9 +19,9 @@ No direct `stdlib`-to-`core.*` wrapper drift was found in the Go implementation.
 - `go.mod:15`, `go.sum:7`, `go.sum:8`
   Legacy `forge.lthn.ai/core/go-log` references still remain in the dependency graph.
 - `CLAUDE.md:37`, `docs/development.md:169`
-  Repository guidance still refers to `core/cli`, while the current command registration lives on the `dappco.re/go/core` API at `cmd/ansible/cmd.go:8`.
+  Repository guidance still refers to `dappco.re/go command registry`, while the current command registration lives on the `dappco.re/go` API at `cmd/ansible/cmd.go:8`.
 - `CLAUDE.md:66`, `docs/development.md:86`
-  Guidance still calls the logging package `go-log`, while production code imports `dappco.re/go/core/log` at `cmd/ansible/ansible.go:13`, `executor.go:15`, `modules.go:13`, `parser.go:12`, `ssh.go:16`.
+  Guidance still calls the logging package `go-log`, while production code imports `dappco.re/go/log` at `cmd/ansible/ansible.go:13`, `executor.go:15`, `modules.go:13`, `parser.go:12`, `ssh.go:16`.
 
 ## UK English
 

@@ -1,25 +1,23 @@
 package ansible
 
 import (
-	"testing"
+	core "dappco.re/go"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
 // --- RoleRef UnmarshalYAML ---
 
-func TestTypes_RoleRef_UnmarshalYAML_Good_StringForm(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_StringForm(t *core.T) {
 	input := `common`
 	var ref RoleRef
 	err := yaml.Unmarshal([]byte(input), &ref)
 
-	require.NoError(t, err)
-	assert.Equal(t, "common", ref.Role)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "common", ref.Role)
 }
 
-func TestTypes_RoleRef_UnmarshalYAML_Good_StructForm(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_StructForm(t *core.T) {
 	input := `
 role: webserver
 vars:
@@ -30,13 +28,13 @@ tags:
 	var ref RoleRef
 	err := yaml.Unmarshal([]byte(input), &ref)
 
-	require.NoError(t, err)
-	assert.Equal(t, "webserver", ref.Role)
-	assert.Equal(t, 80, ref.Vars["http_port"])
-	assert.Equal(t, []string{"web"}, ref.Tags)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "webserver", ref.Role)
+	core.AssertEqual(t, 80, ref.Vars["http_port"])
+	core.AssertEqual(t, []string{"web"}, ref.Tags)
 }
 
-func TestTypes_RoleRef_UnmarshalYAML_Good_NameField(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_NameField(t *core.T) {
 	// Some playbooks use "name:" instead of "role:"
 	input := `
 name: myapp
@@ -45,12 +43,12 @@ tasks_from: install.yml
 	var ref RoleRef
 	err := yaml.Unmarshal([]byte(input), &ref)
 
-	require.NoError(t, err)
-	assert.Equal(t, "myapp", ref.Role) // Name is copied to Role
-	assert.Equal(t, "install.yml", ref.TasksFrom)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "myapp", ref.Role) // Name is copied to Role
+	core.AssertEqual(t, "install.yml", ref.TasksFrom)
 }
 
-func TestTypes_RoleRef_UnmarshalYAML_Good_WithWhen(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_WithWhen(t *core.T) {
 	input := `
 role: conditional_role
 when: ansible_os_family == "Debian"
@@ -58,12 +56,12 @@ when: ansible_os_family == "Debian"
 	var ref RoleRef
 	err := yaml.Unmarshal([]byte(input), &ref)
 
-	require.NoError(t, err)
-	assert.Equal(t, "conditional_role", ref.Role)
-	assert.NotNil(t, ref.When)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "conditional_role", ref.Role)
+	core.AssertNotNil(t, ref.When)
 }
 
-func TestTypes_RoleRef_UnmarshalYAML_Good_CustomRoleFiles(t *testing.T) {
+func TestTypes_RoleRef_UnmarshalYAML_Good_CustomRoleFiles(t *core.T) {
 	input := `
 name: web
 tasks_from: setup.yml
@@ -74,17 +72,17 @@ public: true
 	var ref RoleRef
 	err := yaml.Unmarshal([]byte(input), &ref)
 
-	require.NoError(t, err)
-	assert.Equal(t, "web", ref.Role)
-	assert.Equal(t, "setup.yml", ref.TasksFrom)
-	assert.Equal(t, "custom-defaults.yml", ref.DefaultsFrom)
-	assert.Equal(t, "custom-vars.yml", ref.VarsFrom)
-	assert.True(t, ref.Public)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "web", ref.Role)
+	core.AssertEqual(t, "setup.yml", ref.TasksFrom)
+	core.AssertEqual(t, "custom-defaults.yml", ref.DefaultsFrom)
+	core.AssertEqual(t, "custom-vars.yml", ref.VarsFrom)
+	core.AssertTrue(t, ref.Public)
 }
 
 // --- Task UnmarshalYAML ---
 
-func TestTypes_Task_UnmarshalYAML_Good_ModuleWithArgs(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ModuleWithArgs(t *core.T) {
 	input := `
 name: Install nginx
 apt:
@@ -94,14 +92,14 @@ apt:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "Install nginx", task.Name)
-	assert.Equal(t, "apt", task.Module)
-	assert.Equal(t, "nginx", task.Args["name"])
-	assert.Equal(t, "present", task.Args["state"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "Install nginx", task.Name)
+	core.AssertEqual(t, "apt", task.Module)
+	core.AssertEqual(t, "nginx", task.Args["name"])
+	core.AssertEqual(t, "present", task.Args["state"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_FreeFormModule(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_FreeFormModule(t *core.T) {
 	input := `
 name: Run command
 shell: echo hello world
@@ -109,12 +107,12 @@ shell: echo hello world
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "shell", task.Module)
-	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "shell", task.Module)
+	core.AssertEqual(t, "echo hello world", task.Args["_raw_params"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ModuleNoArgs(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ModuleNoArgs(t *core.T) {
 	input := `
 name: Gather facts
 setup:
@@ -122,12 +120,12 @@ setup:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "setup", task.Module)
-	assert.NotNil(t, task.Args)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "setup", task.Module)
+	core.AssertNotNil(t, task.Args)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithRegister(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithRegister(t *core.T) {
 	input := `
 name: Check file
 stat:
@@ -137,12 +135,12 @@ register: stat_result
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "stat_result", task.Register)
-	assert.Equal(t, "stat", task.Module)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "stat_result", task.Register)
+	core.AssertEqual(t, "stat", task.Module)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithWhen(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithWhen(t *core.T) {
 	input := `
 name: Conditional task
 debug:
@@ -152,11 +150,11 @@ when: some_var is defined
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.NotNil(t, task.When)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.When)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithCheckModeAndDiff(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithCheckModeAndDiff(t *core.T) {
 	input := `
 name: Force a dry run
 shell: echo hello
@@ -166,14 +164,14 @@ diff: true
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.CheckMode)
-	require.NotNil(t, task.Diff)
-	assert.False(t, *task.CheckMode)
-	assert.True(t, *task.Diff)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.CheckMode)
+	core.AssertNotNil(t, task.Diff)
+	core.AssertFalse(t, *task.CheckMode)
+	core.AssertTrue(t, *task.Diff)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithLoop(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithLoop(t *core.T) {
 	input := `
 name: Install packages
 apt:
@@ -186,13 +184,13 @@ loop:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
+	core.RequireNoError(t, err)
 	items, ok := task.Loop.([]any)
-	require.True(t, ok)
-	assert.Len(t, items, 3)
+	core.RequireTrue(t, ok)
+	core.AssertLen(t, items, 3)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithItems(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithItems(t *core.T) {
 	// with_items should be converted to loop
 	input := `
 name: Old-style loop
@@ -205,14 +203,14 @@ with_items:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
+	core.RequireNoError(t, err)
 	// with_items should have been stored in Loop
 	items, ok := task.Loop.([]any)
-	require.True(t, ok)
-	assert.Len(t, items, 2)
+	core.RequireTrue(t, ok)
+	core.AssertLen(t, items, 2)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithDict(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithDict(t *core.T) {
 	input := `
 name: Old-style dict loop
 debug:
@@ -224,23 +222,23 @@ with_dict:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
+	core.RequireNoError(t, err)
 	items, ok := task.Loop.([]any)
-	require.True(t, ok)
-	require.Len(t, items, 2)
+	core.RequireTrue(t, ok)
+	core.AssertLen(t, items, 2)
 
 	first, ok := items[0].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "alpha", first["key"])
-	assert.Equal(t, "one", first["value"])
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, "alpha", first["key"])
+	core.AssertEqual(t, "one", first["value"])
 
 	second, ok := items[1].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "beta", second["key"])
-	assert.Equal(t, "two", second["value"])
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, "beta", second["key"])
+	core.AssertEqual(t, "two", second["value"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithIndexedItems(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithIndexedItems(t *core.T) {
 	input := `
 name: Indexed loop
 debug:
@@ -252,23 +250,23 @@ with_indexed_items:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
+	core.RequireNoError(t, err)
 	items, ok := task.Loop.([]any)
-	require.True(t, ok)
-	require.Len(t, items, 2)
+	core.RequireTrue(t, ok)
+	core.AssertLen(t, items, 2)
 
 	first, ok := items[0].([]any)
-	require.True(t, ok)
-	assert.Equal(t, 0, first[0])
-	assert.Equal(t, "apple", first[1])
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, 0, first[0])
+	core.AssertEqual(t, "apple", first[1])
 
 	second, ok := items[1].([]any)
-	require.True(t, ok)
-	assert.Equal(t, 1, second[0])
-	assert.Equal(t, "banana", second[1])
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, 1, second[0])
+	core.AssertEqual(t, "banana", second[1])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithFile(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithFile(t *core.T) {
 	input := `
 name: Read files
 debug:
@@ -280,14 +278,14 @@ with_file:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.WithFile)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.WithFile)
 	files, ok := task.WithFile.([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"templates/a.txt", "templates/b.txt"}, files)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"templates/a.txt", "templates/b.txt"}, files)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithFileGlob(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithFileGlob(t *core.T) {
 	input := `
 name: Read globbed files
 debug:
@@ -299,14 +297,14 @@ with_fileglob:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.WithFileGlob)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.WithFileGlob)
 	files, ok := task.WithFileGlob.([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"templates/*.txt", "files/*.yml"}, files)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"templates/*.txt", "files/*.yml"}, files)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithSequence(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithSequence(t *core.T) {
 	input := `
 name: Read sequence values
 debug:
@@ -316,14 +314,14 @@ with_sequence: "start=1 end=3 format=%02d"
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.WithSequence)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.WithSequence)
 	sequence, ok := task.WithSequence.(string)
-	require.True(t, ok)
-	assert.Equal(t, "start=1 end=3 format=%02d", sequence)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, "start=1 end=3 format=%02d", sequence)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ActionAlias(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ActionAlias(t *core.T) {
 	input := `
 name: Legacy action
 action: command echo hello world
@@ -331,13 +329,13 @@ action: command echo hello world
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "command", task.Module)
-	require.NotNil(t, task.Args)
-	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "command", task.Module)
+	core.AssertNotNil(t, task.Args)
+	core.AssertEqual(t, "echo hello world", task.Args["_raw_params"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ActionAliasFQCN(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ActionAliasFQCN(t *core.T) {
 	input := `
 name: Legacy action
 ansible.builtin.action: command echo hello world
@@ -345,13 +343,13 @@ ansible.builtin.action: command echo hello world
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "command", task.Module)
-	require.NotNil(t, task.Args)
-	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "command", task.Module)
+	core.AssertNotNil(t, task.Args)
+	core.AssertEqual(t, "echo hello world", task.Args["_raw_params"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ActionAliasKeyValue(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ActionAliasKeyValue(t *core.T) {
 	input := `
 name: Legacy action with args
 action: module=copy src=/tmp/source dest=/tmp/dest mode=0644
@@ -359,15 +357,15 @@ action: module=copy src=/tmp/source dest=/tmp/dest mode=0644
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "copy", task.Module)
-	require.NotNil(t, task.Args)
-	assert.Equal(t, "/tmp/source", task.Args["src"])
-	assert.Equal(t, "/tmp/dest", task.Args["dest"])
-	assert.Equal(t, "0644", task.Args["mode"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "copy", task.Module)
+	core.AssertNotNil(t, task.Args)
+	core.AssertEqual(t, "/tmp/source", task.Args["src"])
+	core.AssertEqual(t, "/tmp/dest", task.Args["dest"])
+	core.AssertEqual(t, "0644", task.Args["mode"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ActionAliasMixedArgs(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ActionAliasMixedArgs(t *core.T) {
 	input := `
 name: Legacy action with mixed args
 action: command chdir=/tmp echo hello world
@@ -375,14 +373,14 @@ action: command chdir=/tmp echo hello world
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "command", task.Module)
-	require.NotNil(t, task.Args)
-	assert.Equal(t, "/tmp", task.Args["chdir"])
-	assert.Equal(t, "echo hello world", task.Args["_raw_params"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "command", task.Module)
+	core.AssertNotNil(t, task.Args)
+	core.AssertEqual(t, "/tmp", task.Args["chdir"])
+	core.AssertEqual(t, "echo hello world", task.Args["_raw_params"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_LocalAction(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_LocalAction(t *core.T) {
 	input := `
 name: Legacy local action
 local_action: shell echo local
@@ -390,14 +388,14 @@ local_action: shell echo local
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "shell", task.Module)
-	assert.Equal(t, "localhost", task.Delegate)
-	require.NotNil(t, task.Args)
-	assert.Equal(t, "echo local", task.Args["_raw_params"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "shell", task.Module)
+	core.AssertEqual(t, "localhost", task.Delegate)
+	core.AssertNotNil(t, task.Args)
+	core.AssertEqual(t, "echo local", task.Args["_raw_params"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_LocalActionFQCN(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_LocalActionFQCN(t *core.T) {
 	input := `
 name: Legacy local action
 ansible.legacy.local_action: shell echo local
@@ -405,14 +403,14 @@ ansible.legacy.local_action: shell echo local
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "shell", task.Module)
-	assert.Equal(t, "localhost", task.Delegate)
-	require.NotNil(t, task.Args)
-	assert.Equal(t, "echo local", task.Args["_raw_params"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "shell", task.Module)
+	core.AssertEqual(t, "localhost", task.Delegate)
+	core.AssertNotNil(t, task.Args)
+	core.AssertEqual(t, "echo local", task.Args["_raw_params"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_LocalActionKeyValue(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_LocalActionKeyValue(t *core.T) {
 	input := `
 name: Legacy local action with args
 local_action: module=command chdir=/tmp
@@ -420,14 +418,14 @@ local_action: module=command chdir=/tmp
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "command", task.Module)
-	assert.Equal(t, "localhost", task.Delegate)
-	require.NotNil(t, task.Args)
-	assert.Equal(t, "/tmp", task.Args["chdir"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "command", task.Module)
+	core.AssertEqual(t, "localhost", task.Delegate)
+	core.AssertNotNil(t, task.Args)
+	core.AssertEqual(t, "/tmp", task.Args["chdir"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_LocalActionMixedArgs(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_LocalActionMixedArgs(t *core.T) {
 	input := `
 name: Legacy local action with mixed args
 local_action: command chdir=/var/tmp echo local
@@ -435,15 +433,15 @@ local_action: command chdir=/var/tmp echo local
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "command", task.Module)
-	assert.Equal(t, "localhost", task.Delegate)
-	require.NotNil(t, task.Args)
-	assert.Equal(t, "/var/tmp", task.Args["chdir"])
-	assert.Equal(t, "echo local", task.Args["_raw_params"])
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "command", task.Module)
+	core.AssertEqual(t, "localhost", task.Delegate)
+	core.AssertNotNil(t, task.Args)
+	core.AssertEqual(t, "/var/tmp", task.Args["chdir"])
+	core.AssertEqual(t, "echo local", task.Args["_raw_params"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithNested(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithNested(t *core.T) {
 	input := `
 name: Nested loop values
 debug:
@@ -457,29 +455,29 @@ with_nested:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
+	core.RequireNoError(t, err)
 	items, ok := task.Loop.([]any)
-	require.True(t, ok)
-	require.Len(t, items, 4)
+	core.RequireTrue(t, ok)
+	core.AssertLen(t, items, 4)
 
 	first, ok := items[0].([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"red", "small"}, first)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"red", "small"}, first)
 
 	second, ok := items[1].([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"red", "large"}, second)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"red", "large"}, second)
 
 	third, ok := items[2].([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"blue", "small"}, third)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"blue", "small"}, third)
 
 	fourth, ok := items[3].([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"blue", "large"}, fourth)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"blue", "large"}, fourth)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithTogether(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithTogether(t *core.T) {
 	input := `
 name: Together loop values
 debug:
@@ -494,23 +492,23 @@ with_together:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.WithTogether)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.WithTogether)
 
 	items, ok := task.Loop.([]any)
-	require.True(t, ok)
-	require.Len(t, items, 2)
+	core.RequireTrue(t, ok)
+	core.AssertLen(t, items, 2)
 
 	first, ok := items[0].([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"red", "small"}, first)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"red", "small"}, first)
 
 	second, ok := items[1].([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"blue", "large"}, second)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"blue", "large"}, second)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithSubelements(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithSubelements(t *core.T) {
 	input := `
 name: Subelement loop values
 debug:
@@ -522,14 +520,14 @@ with_subelements:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.WithSubelements)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.WithSubelements)
 	values, ok := task.WithSubelements.([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"users", "authorized"}, values)
+	core.RequireTrue(t, ok)
+	core.AssertEqual(t, []any{"users", "authorized"}, values)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithNotify(t *core.T) {
 	input := `
 name: Install package
 apt:
@@ -539,11 +537,11 @@ notify: restart nginx
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "restart nginx", task.Notify)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "restart nginx", task.Notify)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithListen(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithListen(t *core.T) {
 	input := `
 name: Restart service
 debug:
@@ -553,11 +551,11 @@ listen: reload nginx
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "reload nginx", task.Listen)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "reload nginx", task.Listen)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ShortFormSystemModules(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ShortFormSystemModules(t *core.T) {
 	cases := []struct {
 		name       string
 		input      string
@@ -593,18 +591,18 @@ reboot:
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *core.T) {
 			var task Task
 			err := yaml.Unmarshal([]byte(tc.input), &task)
 
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantModule, task.Module)
-			assert.NotNil(t, task.Args)
+			core.RequireNoError(t, err)
+			core.AssertEqual(t, tc.wantModule, task.Module)
+			core.AssertNotNil(t, task.Args)
 		})
 	}
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ShortFormCommunityModules(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ShortFormCommunityModules(t *core.T) {
 	cases := []struct {
 		name       string
 		input      string
@@ -642,17 +640,17 @@ docker_compose:
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *core.T) {
 			var task Task
 			err := yaml.Unmarshal([]byte(tc.input), &task)
 
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantModule, task.Module)
+			core.RequireNoError(t, err)
+			core.AssertEqual(t, tc.wantModule, task.Module)
 		})
 	}
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_WithNotifyList(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_WithNotifyList(t *core.T) {
 	input := `
 name: Install package
 apt:
@@ -664,13 +662,13 @@ notify:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
+	core.RequireNoError(t, err)
 	notifyList, ok := task.Notify.([]any)
-	require.True(t, ok)
-	assert.Len(t, notifyList, 2)
+	core.RequireTrue(t, ok)
+	core.AssertLen(t, notifyList, 2)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_IncludeTasks(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IncludeTasks(t *core.T) {
 	input := `
 name: Include tasks
 include_tasks: other-tasks.yml
@@ -678,11 +676,11 @@ include_tasks: other-tasks.yml
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "other-tasks.yml", task.IncludeTasks)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "other-tasks.yml", task.IncludeTasks)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_IncludeTasksFQCN(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IncludeTasksFQCN(t *core.T) {
 	input := `
 name: Include tasks
 ansible.builtin.include_tasks: other-tasks.yml
@@ -690,11 +688,11 @@ ansible.builtin.include_tasks: other-tasks.yml
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.Equal(t, "other-tasks.yml", task.IncludeTasks)
+	core.RequireNoError(t, err)
+	core.AssertEqual(t, "other-tasks.yml", task.IncludeTasks)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_IncludeTasksApply(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IncludeTasksApply(t *core.T) {
 	input := `
 name: Include tasks
 include_tasks: other-tasks.yml
@@ -710,17 +708,17 @@ apply:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.Apply)
-	assert.Equal(t, []string{"deploy"}, task.Apply.Tags)
-	require.NotNil(t, task.Apply.Become)
-	assert.True(t, *task.Apply.Become)
-	assert.Equal(t, "root", task.Apply.BecomeUser)
-	assert.True(t, task.Apply.DelegateFacts)
-	assert.Equal(t, "production", task.Apply.Environment["APP_ENV"])
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.Apply)
+	core.AssertEqual(t, []string{"deploy"}, task.Apply.Tags)
+	core.AssertNotNil(t, task.Apply.Become)
+	core.AssertTrue(t, *task.Apply.Become)
+	core.AssertEqual(t, "root", task.Apply.BecomeUser)
+	core.AssertTrue(t, task.Apply.DelegateFacts)
+	core.AssertEqual(t, "production", task.Apply.Environment["APP_ENV"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_DelegateFacts(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_DelegateFacts(t *core.T) {
 	input := `
 name: Gather delegated facts
 delegate_to: delegate1
@@ -730,11 +728,11 @@ setup:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.True(t, task.DelegateFacts)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, task.DelegateFacts)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_IncludeRole(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IncludeRole(t *core.T) {
 	input := `
 name: Include role
 include_role:
@@ -756,24 +754,24 @@ include_role:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.IncludeRole)
-	assert.Equal(t, "common", task.IncludeRole.Name)
-	assert.Equal(t, "setup.yml", task.IncludeRole.TasksFrom)
-	assert.Equal(t, "defaults.yml", task.IncludeRole.DefaultsFrom)
-	assert.Equal(t, "vars.yml", task.IncludeRole.VarsFrom)
-	assert.Equal(t, "handlers.yml", task.IncludeRole.HandlersFrom)
-	assert.True(t, task.IncludeRole.Public)
-	require.NotNil(t, task.IncludeRole.Apply)
-	assert.Equal(t, []string{"deploy"}, task.IncludeRole.Apply.Tags)
-	assert.Equal(t, "apply_enabled", task.IncludeRole.Apply.When)
-	require.NotNil(t, task.IncludeRole.Apply.Become)
-	assert.True(t, *task.IncludeRole.Apply.Become)
-	assert.Equal(t, "root", task.IncludeRole.Apply.BecomeUser)
-	assert.Equal(t, "production", task.IncludeRole.Apply.Environment["APP_ENV"])
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.IncludeRole)
+	core.AssertEqual(t, "common", task.IncludeRole.Name)
+	core.AssertEqual(t, "setup.yml", task.IncludeRole.TasksFrom)
+	core.AssertEqual(t, "defaults.yml", task.IncludeRole.DefaultsFrom)
+	core.AssertEqual(t, "vars.yml", task.IncludeRole.VarsFrom)
+	core.AssertEqual(t, "handlers.yml", task.IncludeRole.HandlersFrom)
+	core.AssertTrue(t, task.IncludeRole.Public)
+	core.AssertNotNil(t, task.IncludeRole.Apply)
+	core.AssertEqual(t, []string{"deploy"}, task.IncludeRole.Apply.Tags)
+	core.AssertEqual(t, "apply_enabled", task.IncludeRole.Apply.When)
+	core.AssertNotNil(t, task.IncludeRole.Apply.Become)
+	core.AssertTrue(t, *task.IncludeRole.Apply.Become)
+	core.AssertEqual(t, "root", task.IncludeRole.Apply.BecomeUser)
+	core.AssertEqual(t, "production", task.IncludeRole.Apply.Environment["APP_ENV"])
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_IncludeRoleStringForm(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IncludeRoleStringForm(t *core.T) {
 	input := `
 name: Include role
 include_role: common
@@ -781,12 +779,12 @@ include_role: common
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.IncludeRole)
-	assert.Equal(t, "common", task.IncludeRole.Role)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.IncludeRole)
+	core.AssertEqual(t, "common", task.IncludeRole.Role)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_IncludeRoleFQCN(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IncludeRoleFQCN(t *core.T) {
 	input := `
 name: Include role
 ansible.builtin.include_role:
@@ -796,13 +794,13 @@ ansible.builtin.include_role:
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.IncludeRole)
-	assert.Equal(t, "common", task.IncludeRole.Role)
-	assert.Equal(t, "setup.yml", task.IncludeRole.TasksFrom)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.IncludeRole)
+	core.AssertEqual(t, "common", task.IncludeRole.Role)
+	core.AssertEqual(t, "setup.yml", task.IncludeRole.TasksFrom)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ImportRoleStringForm(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ImportRoleStringForm(t *core.T) {
 	input := `
 name: Import role
 import_role: common
@@ -810,12 +808,12 @@ import_role: common
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.ImportRole)
-	assert.Equal(t, "common", task.ImportRole.Role)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.ImportRole)
+	core.AssertEqual(t, "common", task.ImportRole.Role)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_ImportRoleFQCN(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_ImportRoleFQCN(t *core.T) {
 	input := `
 name: Import role
 ansible.builtin.import_role: common
@@ -823,12 +821,12 @@ ansible.builtin.import_role: common
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.ImportRole)
-	assert.Equal(t, "common", task.ImportRole.Role)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.ImportRole)
+	core.AssertEqual(t, "common", task.ImportRole.Role)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_BecomeFields(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_BecomeFields(t *core.T) {
 	input := `
 name: Privileged task
 shell: systemctl restart nginx
@@ -838,13 +836,13 @@ become_user: root
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	require.NotNil(t, task.Become)
-	assert.True(t, *task.Become)
-	assert.Equal(t, "root", task.BecomeUser)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, task.Become)
+	core.AssertTrue(t, *task.Become)
+	core.AssertEqual(t, "root", task.BecomeUser)
 }
 
-func TestTypes_Task_UnmarshalYAML_Good_IgnoreErrors(t *testing.T) {
+func TestTypes_Task_UnmarshalYAML_Good_IgnoreErrors(t *core.T) {
 	input := `
 name: Might fail
 shell: some risky command
@@ -853,13 +851,13 @@ ignore_errors: true
 	var task Task
 	err := yaml.Unmarshal([]byte(input), &task)
 
-	require.NoError(t, err)
-	assert.True(t, task.IgnoreErrors)
+	core.RequireNoError(t, err)
+	core.AssertTrue(t, task.IgnoreErrors)
 }
 
 // --- Inventory data structure ---
 
-func TestTypes_Inventory_UnmarshalYAML_Good_Complex(t *testing.T) {
+func TestTypes_Inventory_UnmarshalYAML_Good_Complex(t *core.T) {
 	input := `
 all:
   vars:
@@ -887,29 +885,29 @@ all:
 	var inv Inventory
 	err := yaml.Unmarshal([]byte(input), &inv)
 
-	require.NoError(t, err)
-	require.NotNil(t, inv.All)
+	core.RequireNoError(t, err)
+	core.AssertNotNil(t, inv.All)
 
 	// Check top-level vars
-	assert.Equal(t, "admin", inv.All.Vars["ansible_user"])
+	core.AssertEqual(t, "admin", inv.All.Vars["ansible_user"])
 
 	// Check top-level hosts
-	require.NotNil(t, inv.All.Hosts["bastion"])
-	assert.Equal(t, "1.2.3.4", inv.All.Hosts["bastion"].AnsibleHost)
-	assert.Equal(t, 4819, inv.All.Hosts["bastion"].AnsiblePort)
+	core.AssertNotNil(t, inv.All.Hosts["bastion"])
+	core.AssertEqual(t, "1.2.3.4", inv.All.Hosts["bastion"].AnsibleHost)
+	core.AssertEqual(t, 4819, inv.All.Hosts["bastion"].AnsiblePort)
 
 	// Check children
-	require.NotNil(t, inv.All.Children["webservers"])
-	assert.Len(t, inv.All.Children["webservers"].Hosts, 2)
-	assert.Equal(t, 80, inv.All.Children["webservers"].Vars["http_port"])
+	core.AssertNotNil(t, inv.All.Children["webservers"])
+	core.AssertLen(t, inv.All.Children["webservers"].Hosts, 2)
+	core.AssertEqual(t, 80, inv.All.Children["webservers"].Vars["http_port"])
 
-	require.NotNil(t, inv.All.Children["databases"])
-	assert.Equal(t, "ssh", inv.All.Children["databases"].Hosts["db1"].AnsibleConnection)
+	core.AssertNotNil(t, inv.All.Children["databases"])
+	core.AssertEqual(t, "ssh", inv.All.Children["databases"].Hosts["db1"].AnsibleConnection)
 }
 
 // --- Facts ---
 
-func TestTypes_Facts_Good_Struct(t *testing.T) {
+func TestTypes_Facts_Good_Struct(t *core.T) {
 	facts := Facts{
 		Hostname:           "web1",
 		FQDN:               "web1.example.com",
@@ -925,19 +923,19 @@ func TestTypes_Facts_Good_Struct(t *testing.T) {
 		IPv4:               "10.0.0.1",
 	}
 
-	assert.Equal(t, "web1", facts.Hostname)
-	assert.Equal(t, "web1.example.com", facts.FQDN)
-	assert.Equal(t, "ubuntu", facts.Distribution)
-	assert.Equal(t, "x86_64", facts.Architecture)
-	assert.Equal(t, "guest", facts.VirtualizationRole)
-	assert.Equal(t, "docker", facts.VirtualizationType)
-	assert.Equal(t, int64(16384), facts.Memory)
-	assert.Equal(t, 4, facts.CPUs)
+	core.AssertEqual(t, "web1", facts.Hostname)
+	core.AssertEqual(t, "web1.example.com", facts.FQDN)
+	core.AssertEqual(t, "ubuntu", facts.Distribution)
+	core.AssertEqual(t, "x86_64", facts.Architecture)
+	core.AssertEqual(t, "guest", facts.VirtualizationRole)
+	core.AssertEqual(t, "docker", facts.VirtualizationType)
+	core.AssertEqual(t, int64(16384), facts.Memory)
+	core.AssertEqual(t, 4, facts.CPUs)
 }
 
 // --- TaskResult ---
 
-func TestTypes_TaskResult_Good_Struct(t *testing.T) {
+func TestTypes_TaskResult_Good_Struct(t *core.T) {
 	result := TaskResult{
 		Changed: true,
 		Failed:  false,
@@ -948,13 +946,13 @@ func TestTypes_TaskResult_Good_Struct(t *testing.T) {
 		RC:      0,
 	}
 
-	assert.True(t, result.Changed)
-	assert.False(t, result.Failed)
-	assert.Equal(t, "task completed", result.Msg)
-	assert.Equal(t, 0, result.RC)
+	core.AssertTrue(t, result.Changed)
+	core.AssertFalse(t, result.Failed)
+	core.AssertEqual(t, "task completed", result.Msg)
+	core.AssertEqual(t, 0, result.RC)
 }
 
-func TestTypes_TaskResult_Good_WithLoopResults(t *testing.T) {
+func TestTypes_TaskResult_Good_WithLoopResults(t *core.T) {
 	result := TaskResult{
 		Changed: true,
 		Results: []TaskResult{
@@ -964,14 +962,14 @@ func TestTypes_TaskResult_Good_WithLoopResults(t *testing.T) {
 		},
 	}
 
-	assert.Len(t, result.Results, 3)
-	assert.True(t, result.Results[0].Changed)
-	assert.False(t, result.Results[1].Changed)
+	core.AssertLen(t, result.Results, 3)
+	core.AssertTrue(t, result.Results[0].Changed)
+	core.AssertFalse(t, result.Results[1].Changed)
 }
 
 // --- KnownModules ---
 
-func TestTypes_KnownModules_Good_ContainsExpected(t *testing.T) {
+func TestTypes_KnownModules_Good_ContainsExpected(t *core.T) {
 	// Verify both FQCN and short forms are present
 	fqcnModules := []string{
 		"ansible.builtin.shell",
@@ -996,7 +994,7 @@ func TestTypes_KnownModules_Good_ContainsExpected(t *testing.T) {
 		"community.docker.docker_compose_v2",
 	}
 	for _, mod := range fqcnModules {
-		assert.Contains(t, KnownModules, mod, "expected FQCN module %s", mod)
+		core.AssertContains(t, KnownModules, mod, core.Sprintf("expected FQCN module %s", mod))
 	}
 
 	shortModules := []string{
@@ -1004,6 +1002,75 @@ func TestTypes_KnownModules_Good_ContainsExpected(t *testing.T) {
 		"systemd", "rpm", "debug", "set_fact", "ping", "template", "user", "group",
 	}
 	for _, mod := range shortModules {
-		assert.Contains(t, KnownModules, mod, "expected short-form module %s", mod)
+		core.AssertContains(t, KnownModules, mod, core.Sprintf("expected short-form module %s", mod))
 	}
+}
+
+// --- File-aware public symbol triplets ---
+
+func TestTypes_Play_UnmarshalYAML_Good(t *core.T) {
+	var play Play
+	err := yaml.Unmarshal([]byte("hosts: all\nansible.builtin.import_playbook: child.yml\n"), &play)
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "all", play.Hosts)
+	core.AssertEqual(t, "child.yml", play.ImportPlaybook)
+}
+
+func TestTypes_Play_UnmarshalYAML_Bad(t *core.T) {
+	var play Play
+	err := yaml.Unmarshal([]byte("hosts: ["), &play)
+	core.AssertError(t, err)
+	core.AssertEmpty(t, play.Hosts)
+}
+
+func TestTypes_Play_UnmarshalYAML_Ugly(t *core.T) {
+	var play Play
+	err := yaml.Unmarshal([]byte("hosts: localhost\ngather_facts: false\n"), &play)
+	core.AssertNoError(t, err)
+	core.AssertNotNil(t, play.GatherFacts)
+	core.AssertFalse(t, *play.GatherFacts)
+}
+
+func TestTypes_RoleRef_UnmarshalYAML_Good(t *core.T) {
+	var ref RoleRef
+	err := yaml.Unmarshal([]byte("web\n"), &ref)
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "web", ref.Role)
+}
+
+func TestTypes_RoleRef_UnmarshalYAML_Bad(t *core.T) {
+	var ref RoleRef
+	err := yaml.Unmarshal([]byte("- web\n"), &ref)
+	core.AssertError(t, err)
+	core.AssertEmpty(t, ref.Role)
+}
+
+func TestTypes_RoleRef_UnmarshalYAML_Ugly(t *core.T) {
+	var ref RoleRef
+	err := yaml.Unmarshal([]byte("name: db\ntags: [setup]\n"), &ref)
+	core.AssertNoError(t, err)
+	core.AssertEqual(t, "db", ref.Role)
+	core.AssertEqual(t, []string{"setup"}, ref.Tags)
+}
+
+func TestTypes_Inventory_UnmarshalYAML_Good(t *core.T) {
+	var inv Inventory
+	err := yaml.Unmarshal([]byte("all:\n  hosts:\n    web1: {}\n"), &inv)
+	core.AssertNoError(t, err)
+	core.AssertContains(t, inv.All.Hosts, "web1")
+}
+
+func TestTypes_Inventory_UnmarshalYAML_Bad(t *core.T) {
+	var inv Inventory
+	err := yaml.Unmarshal([]byte("all: ["), &inv)
+	core.AssertError(t, err)
+	core.AssertNil(t, inv.All)
+}
+
+func TestTypes_Inventory_UnmarshalYAML_Ugly(t *core.T) {
+	var inv Inventory
+	err := yaml.Unmarshal([]byte("web:\n  hosts:\n    web1: {}\nhost_vars:\n  web1:\n    role: app\n"), &inv)
+	core.AssertNoError(t, err)
+	core.AssertContains(t, inv.All.Children, "web")
+	core.AssertEqual(t, "app", inv.HostVars["web1"]["role"])
 }
