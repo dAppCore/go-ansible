@@ -3,7 +3,7 @@ module dappco.re/go/ansible
 go 1.26.0
 
 require (
-	dappco.re/go v0.9.0
+	dappco.re/go v0.10.3
 	dappco.re/go/io v0.9.0
 	dappco.re/go/log v0.9.0
 	golang.org/x/crypto v0.50.0
