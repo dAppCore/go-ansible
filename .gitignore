@@ -1,4 +1,9 @@
 .idea/
 .vscode/
 *.log
-.core/
+.core/workspace/
+.core/vm/
+.core/cache/
+.core/runtime/
+.core/*.duckdb*
+.core/coderabbit-findings.txt

@@ -5,12 +5,15 @@ import (
 )
 
 // Register registers the `ansible` command and its `ansible/test` subcommand.
+// Returns core.Result per the Mantis #1336 canonical Register signature
+// — Ok(nil) on success. Callers may discard the result if they don't
+// care about wiring failures.
 //
 // Example:
 //
 //	app := core.New()
-//	Register(app)
-func Register(c *core.Core) {
+//	if r := Register(app); !r.OK { return r }
+func Register(c *core.Core) core.Result {
 	c.Command("ansible", core.Command{
 		Description: "Run Ansible playbooks natively (no Python required)",
 		Action:      runPlaybookCommand,
@@ -43,4 +46,6 @@ func Register(c *core.Core) {
 			core.Option{Key: "port", Value: 22},
 		),
 	})
+
+	return core.Ok(nil)
 }
