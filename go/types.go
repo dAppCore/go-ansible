@@ -1,6 +1,7 @@
 package ansible
 
 import (
+	"maps"
 	"time"
 
 	core "dappco.re/go"
@@ -271,7 +272,7 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(
 	if all, ok := raw["all"]; ok {
 		groupResult := decodeInventoryGroupValue(all)
 		if !groupResult.OK {
-			return coreerr.E("Inventory.UnmarshalYAML", "decode all group: "+groupResult.Error(), nil)
+			return coreerr.E("Inventory.UnmarshalYAML", "decode all group: "+groupResult.Error(), nil).Err()
 		}
 		group := groupResult.Value.(*InventoryGroup)
 		root = group
@@ -284,16 +285,14 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(
 		if name == "host_vars" {
 			hostVarsResult := decodeInventoryHostVarsValue(value)
 			if !hostVarsResult.OK {
-				return coreerr.E("Inventory.UnmarshalYAML", "decode host_vars: "+hostVarsResult.Error(), nil)
+				return coreerr.E("Inventory.UnmarshalYAML", "decode host_vars: "+hostVarsResult.Error(), nil).Err()
 			}
 			decoded := hostVarsResult.Value.(map[string]map[string]any)
 			for host, vars := range decoded {
 				if hostVars[host] == nil {
 					hostVars[host] = make(map[string]any, len(vars))
 				}
-				for key, val := range vars {
-					hostVars[host][key] = val
-				}
+				maps.Copy(hostVars[host], vars)
 			}
 			continue
 		}
@@ -306,7 +305,7 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(
 
 		groupResult := decodeInventoryGroupValue(value)
 		if !groupResult.OK {
-			return coreerr.E("Inventory.UnmarshalYAML", "decode group "+name+": "+groupResult.Error(), nil)
+			return coreerr.E("Inventory.UnmarshalYAML", "decode group "+name+": "+groupResult.Error(), nil).Err()
 		}
 		group := groupResult.Value.(*InventoryGroup)
 
@@ -319,7 +318,7 @@ func (i *Inventory) UnmarshalYAML(unmarshal func(
 	if len(rootInput) > 0 {
 		extraResult := decodeInventoryGroupValue(rootInput)
 		if !extraResult.OK {
-			return coreerr.E("Inventory.UnmarshalYAML", "decode root group: "+extraResult.Error(), nil)
+			return coreerr.E("Inventory.UnmarshalYAML", "decode root group: "+extraResult.Error(), nil).Err()
 		}
 		extra := extraResult.Value.(*InventoryGroup)
 		mergeInventoryGroups(root, extra)
@@ -356,23 +355,17 @@ func mergeInventoryGroups(dst, src *InventoryGroup) {
 	if dst.Hosts == nil && len(src.Hosts) > 0 {
 		dst.Hosts = make(map[string]*Host, len(src.Hosts))
 	}
-	for name, host := range src.Hosts {
-		dst.Hosts[name] = host
-	}
+	maps.Copy(dst.Hosts, src.Hosts)
 
 	if dst.Children == nil && len(src.Children) > 0 {
 		dst.Children = make(map[string]*InventoryGroup, len(src.Children))
 	}
-	for name, child := range src.Children {
-		dst.Children[name] = child
-	}
+	maps.Copy(dst.Children, src.Children)
 
 	if dst.Vars == nil && len(src.Vars) > 0 {
 		dst.Vars = make(map[string]any, len(src.Vars))
 	}
-	for key, value := range src.Vars {
-		dst.Vars[key] = value
-	}
+	maps.Copy(dst.Vars, src.Vars)
 }
 
 // decodeInventoryHostVarsValue normalises top-level host_vars into host maps.

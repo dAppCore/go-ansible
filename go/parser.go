@@ -535,9 +535,7 @@ func (p *Parser) ParseRole(name string, tasksFrom string) core.Result {
 			p.vars[k] = v
 		}
 	}
-	for k, v := range roleData.Vars {
-		p.vars[k] = v
-	}
+	maps.Copy(p.vars, roleData.Vars)
 
 	return core.Ok(roleData.Tasks)
 }
@@ -727,9 +725,7 @@ func (p *Parser) processPlay(
 	play *Play,
 ) core.Result {
 	// Merge play vars
-	for k, v := range play.Vars {
-		p.vars[k] = v
-	}
+	maps.Copy(p.vars, play.Vars)
 
 	for i := range play.PreTasks {
 		if r := p.extractModule(&play.PreTasks[i]); !r.OK {
@@ -1592,9 +1588,7 @@ func GetHostVars(inventory *Inventory, hostname string) map[string]any {
 
 	if inventory != nil && len(inventory.HostVars) > 0 {
 		if hostVars, ok := inventory.HostVars[hostname]; ok {
-			for key, value := range hostVars {
-				vars[key] = value
-			}
+			maps.Copy(vars, hostVars)
 		}
 	}
 
@@ -1611,9 +1605,7 @@ func collectHostVars(group *InventoryGroup, hostname string, vars map[string]any
 	if host, ok := group.Hosts[hostname]; ok {
 		found = true
 		// Apply group vars first
-		for k, v := range group.Vars {
-			vars[k] = v
-		}
+		maps.Copy(vars, group.Vars)
 		// Then host vars
 		if host != nil {
 			if host.AnsibleHost != "" {
@@ -1637,9 +1629,7 @@ func collectHostVars(group *InventoryGroup, hostname string, vars map[string]any
 			if host.AnsibleBecomePassword != "" {
 				vars["ansible_become_password"] = host.AnsibleBecomePassword
 			}
-			for k, v := range host.Vars {
-				vars[k] = v
-			}
+			maps.Copy(vars, host.Vars)
 		}
 	}
 

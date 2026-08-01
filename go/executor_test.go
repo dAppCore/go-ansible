@@ -29,8 +29,9 @@ func (c *trackingMockClient) SetBecome(become bool, user, password string) {
 	c.MockSSHClient.SetBecome(become, user, password)
 }
 
+//go:fix inline
 func boolPtr(v bool) *bool {
-	return &v
+	return new(v)
 }
 
 // --- NewExecutor ---
@@ -1942,7 +1943,7 @@ func TestExecutor_RunTaskOnHost_Good_TaskCheckModeOverridesExecutorCheckMode(t *
 		Name:      "Run despite global check mode",
 		Module:    "shell",
 		Args:      map[string]any{"_raw_params": "echo hello"},
-		CheckMode: boolPtr(false),
+		CheckMode: new(false),
 		Register:  "shell_result",
 	}
 
@@ -1969,7 +1970,7 @@ func TestExecutor_RunTaskOnHost_Good_TaskDiffOverridesExecutorDiff(t *core.T) {
 		Name:     "Inspect task diff mode",
 		Module:   "debug",
 		Args:     map[string]any{"msg": "{{ ansible_diff_mode }}"},
-		Diff:     boolPtr(true),
+		Diff:     new(true),
 		Register: "diff_result",
 	}
 

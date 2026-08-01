@@ -356,7 +356,7 @@ func TestExecutorExtra_moduleGroupBy_Good(t *core.T) {
 	e.SetInventoryDirect(&Inventory{
 		All: &InventoryGroup{
 			Hosts: map[string]*Host{
-				"web1": &Host{AnsibleHost: "10.0.0.10"},
+				"web1": {AnsibleHost: "10.0.0.10"},
 			},
 		},
 	})

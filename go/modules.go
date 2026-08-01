@@ -9,9 +9,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"io/fs"
+	"maps"
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -226,9 +228,7 @@ func (e *Executor) resolveModuleDefaults(play *Play, module string) map[string]a
 		if len(defaults) == 0 {
 			continue
 		}
-		for k, v := range defaults {
-			merged[k] = v
-		}
+		maps.Copy(merged, defaults)
 		seen = true
 	}
 
@@ -244,12 +244,8 @@ func mergeModuleDefaults(args, defaults map[string]any) map[string]any {
 	}
 
 	merged := make(map[string]any, len(args)+len(defaults))
-	for k, v := range defaults {
-		merged[k] = v
-	}
-	for k, v := range args {
-		merged[k] = v
-	}
+	maps.Copy(merged, defaults)
+	maps.Copy(merged, args)
 	return merged
 }
 
@@ -1209,13 +1205,7 @@ func fileContainsExactLine(content, line string) bool {
 		return false
 	}
 
-	for _, candidate := range split(content, "\n") {
-		if candidate == line {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(split(content, "\n"), line)
 }
 
 func regexpMatchString(pattern, value string) bool {
@@ -3116,10 +3106,7 @@ func (e *Executor) moduleWaitForConnection(ctx context.Context, client sshExecut
 	deadline := time.NewTimer(time.Duration(timeout) * time.Second)
 	defer deadline.Stop()
 
-	sleepDuration := time.Duration(sleep) * time.Second
-	if sleepDuration < 0 {
-		sleepDuration = 0
-	}
+	sleepDuration := max(time.Duration(sleep)*time.Second, 0)
 
 	for {
 		result, done := runCheck()
@@ -3448,12 +3435,7 @@ func normalizeStatusCodes(value any, def int) []int {
 }
 
 func containsInt(values []int, target int) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 // --- Additional Modules ---

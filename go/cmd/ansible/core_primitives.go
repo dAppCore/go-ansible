@@ -100,7 +100,7 @@ func repeat(s string, count int) string {
 	}
 
 	buf := core.NewBuilder()
-	for i := 0; i < count; i++ {
+	for range count {
 		buf.WriteString(s)
 	}
 	return buf.String()

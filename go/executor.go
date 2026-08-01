@@ -132,7 +132,7 @@ func (e *Executor) SetInventory(
 ) error {
 	invResult := e.parser.ParseInventory(path)
 	if !invResult.OK {
-		return coreerr.E("Executor.SetInventory", "parse inventory: "+resultErrorMessage(invResult), nil)
+		return coreerr.E("Executor.SetInventory", "parse inventory: "+resultErrorMessage(invResult), nil).Err()
 	}
 	inv := invResult.Value.(*Inventory)
 	e.mu.Lock()
@@ -192,9 +192,7 @@ func (e *Executor) setHostVars(host string, values map[string]any) {
 		e.hostVars[host] = make(map[string]any)
 	}
 
-	for key, value := range values {
-		e.hostVars[host][key] = value
-	}
+	maps.Copy(e.hostVars[host], values)
 }
 
 func (e *Executor) setHostFacts(host string, values map[string]any) {
@@ -212,9 +210,7 @@ func (e *Executor) setHostFacts(host string, values map[string]any) {
 		e.hostFacts[host] = make(map[string]any)
 	}
 
-	for key, value := range values {
-		e.hostFacts[host][key] = value
-	}
+	maps.Copy(e.hostFacts[host], values)
 }
 
 func (e *Executor) resolveDelegateHost(host string, task *Task) string {
@@ -244,9 +240,7 @@ func (e *Executor) hostScopedVars(host string) map[string]any {
 	}
 
 	cloned := make(map[string]any, len(values))
-	for key, value := range values {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, values)
 	return cloned
 }
 
@@ -263,9 +257,7 @@ func (e *Executor) hostFactsMap(host string) map[string]any {
 		if merged == nil {
 			merged = make(map[string]any, len(values))
 		}
-		for key, value := range values {
-			merged[key] = value
-		}
+		maps.Copy(merged, values)
 	}
 
 	if len(merged) == 0 {
@@ -427,13 +419,13 @@ func (e *Executor) Run(
 ) error {
 	playsResult := e.parser.ParsePlaybook(playbookPath)
 	if !playsResult.OK {
-		return coreerr.E("Executor.Run", "parse playbook: "+resultErrorMessage(playsResult), nil)
+		return coreerr.E("Executor.Run", "parse playbook: "+resultErrorMessage(playsResult), nil).Err()
 	}
 	plays := playsResult.Value.([]Play)
 
 	for i := range plays {
 		if err := e.runPlay(ctx, &plays[i]); err != nil {
-			return coreerr.E("Executor.Run", sprintf("play %d (%s)", i, plays[i].Name), err)
+			return coreerr.E("Executor.Run", sprintf("play %d (%s)", i, plays[i].Name), err).Err()
 		}
 	}
 
@@ -454,9 +446,7 @@ func (e *Executor) runPlay(
 	}()
 
 	savedVars := make(map[string]any, len(e.vars))
-	for k, v := range e.vars {
-		savedVars[k] = v
-	}
+	maps.Copy(savedVars, e.vars)
 	defer func() {
 		e.vars = savedVars
 	}()
@@ -476,9 +466,7 @@ func (e *Executor) runPlay(
 	if err := e.loadPlayVarsFiles(play); err != nil {
 		return err
 	}
-	for k, v := range play.Vars {
-		e.vars[k] = v
-	}
+	maps.Copy(e.vars, play.Vars)
 	e.loadedRoleHandlers = make(map[string]bool)
 
 	for _, batch := range splitSerialHosts(hosts, play.Serial) {
@@ -615,12 +603,8 @@ func (e *Executor) loadPlayVarsFiles(
 	// against a temporary merged scope before reading from disk.
 	savedVars := e.vars
 	renderVars := make(map[string]any, len(savedVars)+len(play.Vars))
-	for k, v := range savedVars {
-		renderVars[k] = v
-	}
-	for k, v := range play.Vars {
-		renderVars[k] = v
-	}
+	maps.Copy(renderVars, savedVars)
+	maps.Copy(renderVars, play.Vars)
 	e.vars = renderVars
 	defer func() {
 		e.vars = savedVars
@@ -631,13 +615,13 @@ func (e *Executor) loadPlayVarsFiles(
 		resolved := e.resolveLocalPath(e.templateString(file, "", nil))
 		dataResult := e.parser.readFile(resolved)
 		if !dataResult.OK {
-			return coreerr.E("Executor.loadPlayVarsFiles", "read vars file: "+resultErrorMessage(dataResult), nil)
+			return coreerr.E("Executor.loadPlayVarsFiles", "read vars file: "+resultErrorMessage(dataResult), nil).Err()
 		}
 		data := dataResult.Value.(string)
 
 		var vars map[string]any
 		if err := yaml.Unmarshal([]byte(data), &vars); err != nil {
-			return coreerr.E("Executor.loadPlayVarsFiles", "parse vars file", err)
+			return coreerr.E("Executor.loadPlayVarsFiles", "parse vars file", err).Err()
 		}
 
 		mergeVars(merged, vars, false)
@@ -753,10 +737,7 @@ func resolveSerialBatchSizes(serial any, total int) []int {
 		if corexHasSuffix(s, "%") {
 			percent, err := strconv.Atoi(trimSuffix(s, "%"))
 			if err == nil && percent > 0 {
-				size := (total*percent + 99) / 100
-				if size < 1 {
-					size = 1
-				}
+				size := max((total*percent+99)/100, 1)
 				if size > total {
 					size = total
 				}
@@ -806,14 +787,12 @@ func (e *Executor) runRole(
 	ctx context.Context, hosts []string, roleRef *RoleRef, play *Play, inheritedWhen any,
 ) error {
 	oldVars := make(map[string]any, len(e.vars))
-	for k, v := range e.vars {
-		oldVars[k] = v
-	}
+	maps.Copy(oldVars, e.vars)
 
 	roleDataResult := e.parser.loadRoleData(roleRef.Role, roleRef.TasksFrom, roleRef.DefaultsFrom, roleRef.VarsFrom)
 	if !roleDataResult.OK {
 		e.vars = oldVars
-		return coreerr.E("executor.runRole", sprintf("parse role %s: %s", roleRef.Role, resultErrorMessage(roleDataResult)), nil)
+		return coreerr.E("executor.runRole", sprintf("parse role %s: %s", roleRef.Role, resultErrorMessage(roleDataResult)), nil).Err()
 	}
 	roleData := roleDataResult.Value.(parserRoleDataResult)
 	tasks := roleData.Tasks
@@ -822,24 +801,18 @@ func (e *Executor) runRole(
 	tasksPath := roleData.Path
 	if err := e.attachRoleHandlers(roleRef.Role, roleRef.HandlersFrom, play); err != nil {
 		e.vars = oldVars
-		return coreerr.E("executor.runRole", sprintf("load handlers for role %s", roleRef.Role), err)
+		return coreerr.E("executor.runRole", sprintf("load handlers for role %s", roleRef.Role), err).Err()
 	}
 
 	roleScope := make(map[string]any, len(oldVars)+len(defaults)+len(roleVars)+len(roleRef.Vars))
-	for k, v := range oldVars {
-		roleScope[k] = v
-	}
+	maps.Copy(roleScope, oldVars)
 	for k, v := range defaults {
 		if _, exists := roleScope[k]; !exists {
 			roleScope[k] = v
 		}
 	}
-	for k, v := range roleVars {
-		roleScope[k] = v
-	}
-	for k, v := range roleRef.Vars {
-		roleScope[k] = v
-	}
+	maps.Copy(roleScope, roleVars)
+	maps.Copy(roleScope, roleRef.Vars)
 	if roleRef.Role != "" {
 		roleScope["role_name"] = roleRef.Role
 	}
@@ -1052,9 +1025,7 @@ func (e *Executor) copyRegisteredResultToHosts(hosts []string, sourceHost, regis
 		}
 		if result.Data != nil {
 			clone.Data = make(map[string]any, len(result.Data))
-			for k, v := range result.Data {
-				clone.Data[k] = v
-			}
+			maps.Copy(clone.Data, result.Data)
 		}
 		e.results[host][register] = &clone
 	}
@@ -1175,7 +1146,7 @@ func (e *Executor) runTaskOnHost(
 
 	clientResult := e.getClient(executionHost, play)
 	if !clientResult.OK {
-		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s: %s", executionHost, resultErrorMessage(clientResult)), nil)
+		return coreerr.E("Executor.runTaskOnHost", sprintf("get client for %s: %s", executionHost, resultErrorMessage(clientResult)), nil).Err()
 	}
 	client := clientResult.Value.(sshExecutorClient)
 
@@ -1279,7 +1250,7 @@ func (e *Executor) checkMaxFailPercentage(
 
 	percentage := (failed * 100) / len(hosts)
 	if percentage > threshold {
-		return coreerr.E("Executor.runTaskOnHosts", sprintf("max fail percentage exceeded: %d%% failed (threshold %d%%)", percentage, threshold), nil)
+		return coreerr.E("Executor.runTaskOnHosts", sprintf("max fail percentage exceeded: %d%% failed (threshold %d%%)", percentage, threshold), nil).Err()
 	}
 
 	return nil
@@ -1309,7 +1280,7 @@ func taskFailureError(
 	task *Task, result *TaskResult,
 ) error {
 	if task != nil && task.NoLog {
-		return coreerr.E("Executor.runTaskOnHost", "task failed", errTaskFailed)
+		return coreerr.E("Executor.runTaskOnHost", "task failed", errTaskFailed).Err()
 	}
 
 	msg := "task failed"
@@ -1317,7 +1288,7 @@ func taskFailureError(
 		msg += ": " + result.Msg
 	}
 
-	return coreerr.E("Executor.runTaskOnHost", msg, errTaskFailed)
+	return coreerr.E("Executor.runTaskOnHost", msg, errTaskFailed).Err()
 }
 
 // runTaskWithRetries executes a task once or multiple times when retries,
@@ -1414,7 +1385,7 @@ func (e *Executor) runLoop(
 		items = e.resolveLoopWithTask(task.Loop, host, task)
 	}
 	if !itemsResult.OK {
-		return coreerr.E("Executor.runLoop", "resolve loop: "+resultErrorMessage(itemsResult), nil)
+		return coreerr.E("Executor.runLoop", "resolve loop: "+resultErrorMessage(itemsResult), nil).Err()
 	}
 	if itemsResult.Value != nil {
 		items = itemsResult.Value.([]any)
@@ -1787,12 +1758,7 @@ func parseSubelementsSpec(loop any) (any, string, bool, bool) {
 }
 
 func parseSubelementsSkipMissing(values []any) bool {
-	for _, value := range values {
-		if parseSkipMissingValue(value) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(values, parseSkipMissingValue)
 }
 
 func parseSubelementsSkipMissingStrings(values []string) bool {
@@ -2267,7 +2233,7 @@ func (e *Executor) runIncludeTasks(
 	for _, resolvedPath := range pathOrder {
 		tasksResult := e.parser.ParseTasks(resolvedPath)
 		if !tasksResult.OK {
-			return coreerr.E("Executor.runIncludeTasks", "include_tasks "+resolvedPath+": "+resultErrorMessage(tasksResult), nil)
+			return coreerr.E("Executor.runIncludeTasks", "include_tasks "+resolvedPath+": "+resultErrorMessage(tasksResult), nil).Err()
 		}
 		tasks := tasksResult.Value.([]Task)
 
@@ -2374,12 +2340,8 @@ func mergeTaskVars(parent, child map[string]any) map[string]any {
 	}
 
 	merged := make(map[string]any, len(parent)+len(child))
-	for k, v := range parent {
-		merged[k] = v
-	}
-	for k, v := range child {
-		merged[k] = v
-	}
+	maps.Copy(merged, parent)
+	maps.Copy(merged, child)
 	return merged
 }
 
@@ -2389,12 +2351,8 @@ func mergeStringMap(parent, child map[string]string) map[string]string {
 	}
 
 	merged := make(map[string]string, len(parent)+len(child))
-	for k, v := range parent {
-		merged[k] = v
-	}
-	for k, v := range child {
-		merged[k] = v
-	}
+	maps.Copy(merged, parent)
+	maps.Copy(merged, child)
 	return merged
 }
 
@@ -2488,11 +2446,9 @@ func (e *Executor) getClient(host string, play *Play) core.Result {
 	}
 
 	// Merge with play vars
-	for k, v := range e.vars {
-		// Executor-scoped vars include play vars and extra vars, so they must
-		// override inventory values when they target the same key.
-		vars[k] = v
-	}
+	// Executor-scoped vars include play vars and extra vars, so they must
+	// override inventory values when they target the same key.
+	maps.Copy(vars, e.vars)
 
 	// Build SSH config
 	cfg := SSHConfig{
@@ -2600,13 +2556,13 @@ func (e *Executor) gatherFacts(
 ) error {
 	clientResult := e.getClient(host, play)
 	if !clientResult.OK {
-		return coreerr.E("Executor.gatherFacts", "get client: "+resultErrorMessage(clientResult), nil)
+		return coreerr.E("Executor.gatherFacts", "get client: "+resultErrorMessage(clientResult), nil).Err()
 	}
 	client := clientResult.Value.(sshExecutorClient)
 
 	factsResult := e.collectFacts(ctx, client, false)
 	if !factsResult.OK {
-		return coreerr.E("Executor.gatherFacts", "collect facts: "+resultErrorMessage(factsResult), nil)
+		return coreerr.E("Executor.gatherFacts", "collect facts: "+resultErrorMessage(factsResult), nil).Err()
 	}
 	facts := factsResult.Value.(*Facts)
 
@@ -3498,14 +3454,10 @@ func (e *Executor) buildEnvironmentPrefix(host string, task *Task, play *Play) s
 	env := make(map[string]string)
 
 	if play != nil {
-		for key, value := range play.Environment {
-			env[key] = value
-		}
+		maps.Copy(env, play.Environment)
 	}
 	if task != nil {
-		for key, value := range task.Environment {
-			env[key] = value
-		}
+		maps.Copy(env, task.Environment)
 	}
 
 	if len(env) == 0 {
@@ -4333,12 +4285,7 @@ func (e *Executor) matchesTags(taskTags []string) bool {
 	// Tasks tagged "always" should run even when an explicit include filter is
 	// set, unless the caller explicitly skips that tag.
 	if slices.Contains(taskTags, "always") {
-		for _, skip := range e.SkipTags {
-			if skip == "always" {
-				return false
-			}
-		}
-		return true
+		return !slices.Contains(e.SkipTags, "always")
 	}
 
 	// If no tags specified, run all
@@ -4462,7 +4409,7 @@ func (e *Executor) handleMetaAction(
 		return nil
 	case "refresh_inventory":
 		if r := e.refreshInventory(); !r.OK {
-			return coreerr.E("Executor.handleMetaAction", "refresh inventory: "+resultErrorMessage(r), nil)
+			return coreerr.E("Executor.handleMetaAction", "refresh inventory: "+resultErrorMessage(r), nil).Err()
 		}
 		return nil
 	case "end_play":

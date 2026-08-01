@@ -390,10 +390,10 @@ func TestAsyncFeatures_CloneParser_Bad_Nil(t *core.T) {
 
 func TestAsyncFeatures_CloneAsyncExecutor_Good_IndependentMaps(t *core.T) {
 	e := &Executor{
-		vars:     map[string]any{"v": 1},
-		notified: map[string]bool{"h": true},
-		Tags:     []string{"deploy"},
-		Limit:    "web",
+		vars:      map[string]any{"v": 1},
+		notified:  map[string]bool{"h": true},
+		Tags:      []string{"deploy"},
+		Limit:     "web",
 		CheckMode: true,
 	}
 	clone := e.cloneAsyncExecutor()

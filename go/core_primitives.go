@@ -160,7 +160,7 @@ func corexReplaceN(s, old, new string, n int) string {
 	}
 
 	result := s
-	for i := 0; i < n; i++ {
+	for range n {
 		index := corexStringIndex(result, old)
 		if index < 0 {
 			break
@@ -232,7 +232,7 @@ func corexRepeat(s string, count int) string {
 	}
 
 	buf := core.NewBuilder()
-	for i := 0; i < count; i++ {
+	for range count {
 		buf.WriteString(s)
 	}
 	return buf.String()

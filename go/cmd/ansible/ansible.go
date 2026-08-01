@@ -2,6 +2,8 @@ package ansiblecmd
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"strconv"
 	"time"
 
@@ -62,12 +64,7 @@ func firstStringOption(opts core.Options, keys ...string) string {
 
 // firstBoolOption returns true when any of the provided keys is set to true.
 func firstBoolOption(opts core.Options, keys ...string) bool {
-	for _, key := range keys {
-		if opts.Bool(key) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(keys, opts.Bool)
 }
 
 // collectStringOptionValues returns every string value for any of the provided
@@ -76,13 +73,7 @@ func collectStringOptionValues(opts core.Options, keys ...string) []string {
 	var out []string
 
 	for _, o := range opts.Items() {
-		matched := false
-		for _, key := range keys {
-			if o.Key == key {
-				matched = true
-				break
-			}
-		}
+		matched := slices.Contains(keys, o.Key)
 		if !matched {
 			continue
 		}
@@ -179,9 +170,7 @@ func extraVars(opts core.Options) core.Result {
 				return parsedResult
 			}
 			parsed := parsedResult.Value.(map[string]any)
-			for key, parsedValue := range parsed {
-				vars[key] = parsedValue
-			}
+			maps.Copy(vars, parsed)
 		}
 	}
 

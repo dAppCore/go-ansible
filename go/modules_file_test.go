@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"io"
 	"io/fs"
+	"maps"
 	"regexp"
 	"sync"
 )
@@ -19,9 +20,7 @@ type diffFileClient struct {
 
 func newDiffFileClient(initial map[string]string) *diffFileClient {
 	files := make(map[string]string, len(initial))
-	for path, content := range initial {
-		files[path] = content
-	}
+	maps.Copy(files, initial)
 	return &diffFileClient{files: files}
 }
 
