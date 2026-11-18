@@ -1,6 +1,6 @@
 package ansiblecmd
 
-import core "dappco.re/go"
+import core "github.com/dappcore/go"
 
 func ExampleRegister() {
 	app := core.New()

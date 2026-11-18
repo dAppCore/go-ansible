@@ -7,7 +7,7 @@ import (
 	"io"
 	"net"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"golang.org/x/crypto/ssh"
 	"time"
 )

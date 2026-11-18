@@ -3,8 +3,8 @@ package ansible
 import (
 	"io/fs"
 
-	core "dappco.re/go"
-	coreio "dappco.re/go/io"
+	core "github.com/dappcore/go"
+	coreio "github.com/dappcore/go-io/go"
 )
 
 func readTestFile(path string) ([]byte, error) {

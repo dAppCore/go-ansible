@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"sync"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // --- Mock SSH Client ---

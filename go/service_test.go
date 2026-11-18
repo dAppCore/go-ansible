@@ -5,7 +5,7 @@ package ansible
 import (
 	"testing"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // TestNewService_DefaultOptions_RegistersWithParser verifies the canonical

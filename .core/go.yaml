@@ -8,6 +8,6 @@ project:
   type: go
 
 go:
-  module: dappco.re/go/ansible
+  module: github.com/dappcore/go-ansible/go
   subtree: go
   go_version: "1.26.0"

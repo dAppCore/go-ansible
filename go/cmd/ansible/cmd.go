@@ -1,7 +1,7 @@
 package ansiblecmd
 
 import (
-	"dappco.re/go"
+	"github.com/dappcore/go"
 )
 
 // Register registers the `ansible` command and its `ansible/test` subcommand.

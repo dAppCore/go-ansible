@@ -1,8 +1,8 @@
 package ansible
 
 import (
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 type commandRunResult struct {

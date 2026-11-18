@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/sha512"
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 	"encoding/hex"
 	"io"
 	"io/fs"

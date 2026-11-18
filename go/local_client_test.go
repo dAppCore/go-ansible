@@ -2,7 +2,7 @@ package ansible
 
 import (
 	"context"
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 func TestLocalClient_Good_RunAndRunScript(t *core.T) {

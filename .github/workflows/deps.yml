@@ -1,7 +1,7 @@
 # Dependency-bump issue tracker — Core ecosystem Go repos.
 # Copy to .github/workflows/deps.yml in each repo.
 #
-# Opens/updates a single 'deps'-labelled issue listing dappco.re/* dependencies
+# Opens/updates a single 'deps'-labelled issue listing github.com/dappcore/* dependencies
 # that have a newer published release (and closes it when all are current). Open
 # 'deps' issues across every repo then ARE the ecosystem's version-bump work
 # queue — filter by the label to see exactly what's outstanding.

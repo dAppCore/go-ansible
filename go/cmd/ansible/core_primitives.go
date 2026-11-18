@@ -4,7 +4,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"dappco.re/go"
+	"github.com/dappcore/go"
 )
 
 const pathArgKey = "pa" + "th"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"iter"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // ============================================================
