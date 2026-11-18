@@ -3,9 +3,9 @@ package ansible
 import (
 	"iter"
 
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 
-	coreio "dappco.re/go/io"
+	coreio "github.com/dappcore/go-io/go"
 	"gopkg.in/yaml.v3"
 )
 

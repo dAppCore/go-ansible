@@ -26,7 +26,7 @@
 package ansible
 
 import (
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 // Options configures the ansible service. All fields are optional —

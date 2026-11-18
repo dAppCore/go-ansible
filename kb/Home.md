@@ -1,6 +1,6 @@
 # go-ansible
 
-Module: `dappco.re/go/ansible`
+Module: `github.com/dappcore/go-ansible/go`
 
 Pure Go Ansible executor that parses and runs Ansible playbooks without requiring the Python ansible binary. Supports SSH-based remote execution, inventory parsing, Jinja2-like templating, module execution, roles, handlers, loops, blocks, and conditionals.
 
@@ -42,7 +42,7 @@ CLI registration in `cmd/ansible/`.
 ## Usage
 
 ```go
-import "dappco.re/go/ansible"
+import "github.com/dappcore/go-ansible/go"
 
 executor := ansible.NewExecutor("/path/to/playbooks")
 executor.SetInventory("inventory/hosts.yml")
@@ -58,7 +58,7 @@ defer executor.Close()
 
 ## Dependencies
 
-- `dappco.re/go/log` — Structured logging and errors
+- `github.com/dappcore/go-log/go` — Structured logging and errors
 - `golang.org/x/crypto/ssh` — SSH client
 - `golang.org/x/crypto/ssh/knownhosts` — Host key verification
 - `gopkg.in/yaml.v3` — YAML parsing

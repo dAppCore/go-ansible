@@ -13,7 +13,7 @@ This repository implements Ansible-compatible orchestration primitives in Go. Ke
 
 ## Compliance Rules
 
-Use `dappco.re/go` wrappers for formatting, JSON, filesystem, path, string, bytes, errors, and process-adjacent helpers. Do not add direct imports of `fmt`, `errors`, `strings`, `path`, `path/filepath`, `os`, `os/exec`, `encoding/json`, `bytes`, or `log` in production or tests.
+Use `github.com/dappcore/go` wrappers for formatting, JSON, filesystem, path, string, bytes, errors, and process-adjacent helpers. Do not add direct imports of `fmt`, `errors`, `strings`, `path`, `path/filepath`, `os`, `os/exec`, `encoding/json`, `bytes`, or `log` in production or tests.
 
 Public symbols are covered file-by-file. A public symbol in `<file>.go` needs `Test<File>_<Symbol>_Good`, `Bad`, and `Ugly` in `<file>_test.go`, plus an `Example<Symbol>` or method example in `<file>_example_test.go`. Do not create monolithic compliance files or versioned test files.
 

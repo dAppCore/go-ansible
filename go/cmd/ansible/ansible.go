@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"dappco.re/go"
-	"dappco.re/go/ansible"
-	coreio "dappco.re/go/io"
-	coreerr "dappco.re/go/log"
+	"github.com/dappcore/go"
+	"github.com/dappcore/go-ansible/go"
+	coreio "github.com/dappcore/go-io/go"
+	coreerr "github.com/dappcore/go-log/go"
 	"gopkg.in/yaml.v3"
 )
 

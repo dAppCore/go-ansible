@@ -1,11 +1,11 @@
-module dappco.re/go/ansible
+module github.com/dappcore/go-ansible/go
 
 go 1.26.0
 
 require (
-	dappco.re/go v0.12.0
-	dappco.re/go/io v0.15.3
-	dappco.re/go/log v0.13.1
+	github.com/dappcore/go v0.14.0
+	github.com/dappcore/go-io/go v0.16.0
+	github.com/dappcore/go-log/go v0.14.0
 	golang.org/x/crypto v0.54.0
 	gopkg.in/yaml.v3 v3.0.1
 )

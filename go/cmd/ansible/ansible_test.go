@@ -1,6 +1,6 @@
 package ansiblecmd
 
-import "dappco.re/go"
+import "github.com/dappcore/go"
 
 func requireCmdResultValue[T any](t *core.T, result core.Result) T {
 	core.RequireTrue(t, result.OK)

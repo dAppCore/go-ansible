@@ -1,7 +1,7 @@
 package ansible
 
 import (
-	core "dappco.re/go"
+	core "github.com/dappcore/go"
 )
 
 func ExampleNewService() {

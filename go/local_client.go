@@ -6,8 +6,8 @@ import (
 	"sync"
 	"syscall"
 
-	core "dappco.re/go"
-	coreerr "dappco.re/go/log"
+	core "github.com/dappcore/go"
+	coreerr "github.com/dappcore/go-log/go"
 )
 
 // localClient executes commands and file operations on the controller host.
